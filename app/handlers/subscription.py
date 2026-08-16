@@ -6,9 +6,18 @@ Update/CallbackQuery), чтобы их можно было дергать нап
 скрипта: ``get_active_tariff``, ``purchase_or_renew_subscription``,
 ``format_subscription_text``, ``remove_user_device``, ``reset_user_devices``.
 
-One-tap connect (§8, реальные deep-link-схемы через get_subscription_page_config)
-— НЕ в этой итерации: это часть Mini App. Здесь "Подключить VPN" и "Скопировать
-ключ" просто отдают subscription_url как код для копирования.
+One-tap connect (§8) — упрощённая тестовая версия, без полноценного
+get_subscription_page_config (это часть Mini App, отдельный этап): кнопка
+"Подключить VPN" — inline-URL-кнопка с deep-link'ом `happ://add/<url>` (plain-режим
+Happ, см. §8 clone-architecture.md). ВАЖНО: официально Telegram Bot API разрешает
+для InlineKeyboardButton.url только http(s):// и tg:// схемы — happ:// официально
+не документирована. Часть клиентов Telegram всё равно её открывает (как показано
+в референсе — системный диалог "Открыть приложение?"), но Telegram может отклонить
+отправку сообщения ошибкой BUTTON_URL_INVALID. На этот случай — авто-откат на
+callback-кнопку, показывающую ссылку текстом (см. _send_subscription_view).
+
+"Скопировать ключ" — нативная copy_text-кнопка (Bot API 7.5+, без похода на
+сервер бота: Telegram сам копирует текст в буфер обмена по нажатию).
 """
 
 from __future__ import annotations
@@ -17,9 +26,10 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot, Dispatcher, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import CallbackQuery, CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -233,16 +243,30 @@ def kb_no_subscription() -> InlineKeyboardMarkup:
     )
 
 
-def kb_subscription_active() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text='🔌 Подключить VPN', callback_data='sub:connect')],
-            [InlineKeyboardButton(text='📋 Скопировать ключ', callback_data='sub:connect')],
-            [InlineKeyboardButton(text='💎 Продлить подписку', callback_data=CB_SUBSCRIPTION_RENEW)],
-            [InlineKeyboardButton(text='📱 Устройства', callback_data='sub:devices')],
-            [back_to_menu_button()],
-        ]
-    )
+COPY_TEXT_MAX_LENGTH = 256  # ограничение Telegram Bot API для CopyTextButton.text
+
+
+def kb_subscription_active(subscription_url: str | None, *, use_deep_link: bool = True) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+
+    if subscription_url and use_deep_link:
+        rows.append(
+            [InlineKeyboardButton(text='🔌 Подключить VPN', url=f'happ://add/{subscription_url}')]
+        )
+    else:
+        rows.append([InlineKeyboardButton(text='🔌 Подключить VPN', callback_data='sub:connect')])
+
+    if subscription_url and len(subscription_url) <= COPY_TEXT_MAX_LENGTH:
+        rows.append(
+            [InlineKeyboardButton(text='📋 Скопировать ключ', copy_text=CopyTextButton(text=subscription_url))]
+        )
+    else:
+        rows.append([InlineKeyboardButton(text='📋 Скопировать ключ', callback_data='sub:connect')])
+
+    rows.append([InlineKeyboardButton(text='💎 Продлить подписку', callback_data=CB_SUBSCRIPTION_RENEW)])
+    rows.append([InlineKeyboardButton(text='📱 Устройства', callback_data='sub:devices')])
+    rows.append([back_to_menu_button()])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def kb_back_to_subscription() -> InlineKeyboardMarkup:
@@ -306,6 +330,24 @@ def kb_devices_reset_confirm() -> InlineKeyboardMarkup:
     )
 
 
+async def _send_subscription_view(callback: CallbackQuery, text: str, subscription_url: str | None) -> None:
+    """edit_text с клавиатурой kb_subscription_active; если Telegram отклонил
+    happ:// в url-кнопке (BUTTON_URL_INVALID), автоматически пересобирает
+    клавиатуру без deep-link'а и повторяет попытку."""
+    try:
+        await callback.message.edit_text(text, reply_markup=kb_subscription_active(subscription_url))
+    except TelegramBadRequest as exc:
+        if 'BUTTON_URL_INVALID' not in str(exc):
+            raise
+        logger.warning(
+            'Telegram отклонил happ:// deep-link в url-кнопке (BUTTON_URL_INVALID) — '
+            'откатываюсь на callback-кнопку с показом ссылки текстом'
+        )
+        await callback.message.edit_text(
+            text, reply_markup=kb_subscription_active(subscription_url, use_deep_link=False)
+        )
+
+
 # === Хендлеры ==================================================================
 
 
@@ -326,7 +368,7 @@ async def cb_subscription_my(callback: CallbackQuery, db: AsyncSession, db_user:
         devices_count = len(devices)
 
     text = format_subscription_text(subscription, devices_count)
-    await callback.message.edit_text(text, reply_markup=kb_subscription_active())
+    await _send_subscription_view(callback, text, subscription.subscription_url)
     await callback.answer()
 
 
@@ -487,7 +529,7 @@ async def cb_confirm_purchase(
         devices_count = len(await client.get_user_devices(remnawave_uuid=db_user.remnawave_uuid))
 
     text = 'Оплата прошла успешно! Подписка активна.\n\n' + format_subscription_text(subscription, devices_count)
-    await callback.message.edit_text(text, reply_markup=kb_subscription_active())
+    await _send_subscription_view(callback, text, subscription.subscription_url)
     await callback.answer()
 
 
