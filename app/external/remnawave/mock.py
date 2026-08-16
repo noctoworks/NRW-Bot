@@ -1,13 +1,28 @@
 """Заглушка Remnawave для локальной разработки без боевой панели (см. диалог: REMNAWAVE_MODE=mock).
 
-Хранит состояние в памяти процесса — переживает только время жизни бота,
-этого достаточно для разработки и ручного тестирования бизнес-логики.
+Состояние сохраняется на диск (mock_remnawave_state.json рядом с bot.db), а не
+только в памяти процесса — иначе каждый перезапуск бота (обычное дело при
+разработке — правки кода требуют рестарта) обнулял бы "VPN-панель", а в
+SQLite-базе оставались бы User.remnawave_uuid, указывающие в никуда, с падением
+LookupError при любом обращении к устройствам/подписке (баг, пойманный вживую
+при тестировании — см. диалог).
+
+Дополнительная подстраховка: если ссылка на пользователя всё же осталась битой
+(например файл состояния вручную удалили, или подменили bot.db не тем файлом) —
+_require_user САМОВОССТАНАВЛИВАЕТ запись вместо падения: создаёт нового
+"теневого" mock-пользователя с тем же remnawave_uuid и дефолтными полями.
+Это mock ИСКЛЮЧИТЕЛЬНО для локальной разработки — в реальном Remnawave-клиенте
+(REMNAWAVE_MODE=real) такого самовосстановления, конечно, нет и не будет.
 """
 
 from __future__ import annotations
 
+import json
+import logging
 import uuid
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
+from pathlib import Path
 
 from app.external.remnawave.base import (
     RemnawaveClient,
@@ -17,10 +32,70 @@ from app.external.remnawave.base import (
     SubscriptionPageConfig,
 )
 
+logger = logging.getLogger(__name__)
+
+_STATE_FILE = Path(__file__).resolve().parents[3] / 'mock_remnawave_state.json'
+
+
+def _dt_to_str(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
+
+
+def _dt_from_str(value: str | None) -> datetime | None:
+    return datetime.fromisoformat(value) if value else None
+
+
+@dataclass
+class _State:
+    users: dict[str, RemnawaveUser] = field(default_factory=dict)
+    devices: dict[str, list[RemnawaveDevice]] = field(default_factory=dict)
+
+    def to_json(self) -> dict:
+        return {
+            'users': {
+                uid: {**asdict(u), 'expire_at': _dt_to_str(u.expire_at)} for uid, u in self.users.items()
+            },
+            'devices': {
+                uid: [{**asdict(d), 'created_at': _dt_to_str(d.created_at)} for d in devs]
+                for uid, devs in self.devices.items()
+            },
+        }
+
+    @classmethod
+    def from_json(cls, data: dict) -> '_State':
+        users = {
+            uid: RemnawaveUser(**{**u, 'expire_at': _dt_from_str(u.get('expire_at'))})
+            for uid, u in data.get('users', {}).items()
+        }
+        devices = {
+            uid: [RemnawaveDevice(**{**d, 'created_at': _dt_from_str(d.get('created_at'))}) for d in devs]
+            for uid, devs in data.get('devices', {}).items()
+        }
+        return cls(users=users, devices=devices)
+
+
+def _load_state() -> _State:
+    if not _STATE_FILE.exists():
+        return _State()
+    try:
+        return _State.from_json(json.loads(_STATE_FILE.read_text(encoding='utf-8')))
+    except Exception:
+        logger.warning('Не удалось прочитать %s — начинаю с пустого состояния mock-Remnawave', _STATE_FILE, exc_info=True)
+        return _State()
+
+
+def _save_state(state: _State) -> None:
+    try:
+        _STATE_FILE.write_text(json.dumps(state.to_json(), ensure_ascii=False, indent=2), encoding='utf-8')
+    except Exception:
+        logger.warning('Не удалось сохранить %s', _STATE_FILE, exc_info=True)
+
 
 class MockRemnawaveClient(RemnawaveClient):
-    _users: dict[str, RemnawaveUser] = {}
-    _devices: dict[str, list[RemnawaveDevice]] = {}
+    """Состояние общее для всех экземпляров процесса (загружается один раз на
+    уровне класса) и переживает перезапуск процесса (сохраняется в файл)."""
+
+    _state: _State = _load_state()
 
     async def create_user(
         self, *, telegram_id: int, squad_uuids: list[str], traffic_limit_gb: int, expire_at: datetime
@@ -36,44 +111,54 @@ class MockRemnawaveClient(RemnawaveClient):
             expire_at=expire_at,
             is_enabled=True,
         )
-        self._users[remnawave_uuid] = user
-        self._devices[remnawave_uuid] = []
+        self._state.users[remnawave_uuid] = user
+        self._state.devices[remnawave_uuid] = []
+        _save_state(self._state)
         return user
 
     async def extend_user_expiration(self, *, remnawave_uuid: str, expire_at: datetime) -> RemnawaveUser:
         user = self._require_user(remnawave_uuid)
         user.expire_at = expire_at
+        _save_state(self._state)
         return user
 
     async def enable_user(self, *, remnawave_uuid: str) -> None:
         self._require_user(remnawave_uuid).is_enabled = True
+        _save_state(self._state)
 
     async def disable_user(self, *, remnawave_uuid: str) -> None:
         self._require_user(remnawave_uuid).is_enabled = False
+        _save_state(self._state)
 
     async def revoke_user_subscription(self, *, remnawave_uuid: str) -> RemnawaveUser:
         user = self._require_user(remnawave_uuid)
         user.short_uuid = uuid.uuid4().hex[:12]
         user.subscription_url = f'https://mock.local/sub/{user.short_uuid}'
+        _save_state(self._state)
         return user
 
     async def reset_user_traffic(self, *, remnawave_uuid: str) -> None:
         self._require_user(remnawave_uuid).traffic_used_gb = 0.0
+        _save_state(self._state)
 
     async def get_subscription_info(self, *, remnawave_uuid: str) -> RemnawaveUser:
         return self._require_user(remnawave_uuid)
 
     async def get_user_devices(self, *, remnawave_uuid: str) -> list[RemnawaveDevice]:
         self._require_user(remnawave_uuid)
-        return self._devices.get(remnawave_uuid, [])
+        return self._state.devices.get(remnawave_uuid, [])
 
     async def reset_user_devices(self, *, remnawave_uuid: str) -> None:
         self._require_user(remnawave_uuid)
-        self._devices[remnawave_uuid] = []
+        self._state.devices[remnawave_uuid] = []
+        _save_state(self._state)
 
     async def remove_device(self, *, remnawave_uuid: str, hwid: str) -> None:
         self._require_user(remnawave_uuid)
-        self._devices[remnawave_uuid] = [d for d in self._devices.get(remnawave_uuid, []) if d.hwid != hwid]
+        self._state.devices[remnawave_uuid] = [
+            d for d in self._state.devices.get(remnawave_uuid, []) if d.hwid != hwid
+        ]
+        _save_state(self._state)
 
     async def list_internal_squads(self) -> list[dict]:
         return [
@@ -95,7 +180,24 @@ class MockRemnawaveClient(RemnawaveClient):
         )
 
     def _require_user(self, remnawave_uuid: str) -> RemnawaveUser:
-        user = self._users.get(remnawave_uuid)
+        user = self._state.users.get(remnawave_uuid)
         if user is None:
-            raise LookupError(f'MockRemnawaveClient: пользователь {remnawave_uuid} не найден')
+            logger.warning(
+                'MockRemnawaveClient: %s отсутствует в состоянии — самовосстанавливаю '
+                '"теневую" запись (файл состояния был удалён/подменён вручную?)',
+                remnawave_uuid,
+            )
+            short_uuid = uuid.uuid4().hex[:12]
+            user = RemnawaveUser(
+                uuid=remnawave_uuid,
+                subscription_url=f'https://mock.local/sub/{short_uuid}',
+                short_uuid=short_uuid,
+                traffic_used_gb=0.0,
+                traffic_limit_gb=0,
+                expire_at=None,
+                is_enabled=True,
+            )
+            self._state.users[remnawave_uuid] = user
+            self._state.devices.setdefault(remnawave_uuid, [])
+            _save_state(self._state)
         return user
