@@ -1,10 +1,73 @@
-"""TODO(agent:referral-promo): активация читаемых промокодов (balance|days) — см. §9.7
-clone-architecture.md."""
+"""Активация промокода — команда `/promo` (текстовая, вне главного меню, см. задание
+в PROGRESS.md: не трогаем чужую клавиатуру main_menu.py). См. §9.7 clone-architecture.md.
+"""
 
 from __future__ import annotations
 
-from aiogram import Dispatcher
+from aiogram import Dispatcher, F, Router
+from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.types import Message
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database.models import User
+from app.services.promocode_service import PromoCodeError, PromoCodeResult, activate_promocode
+from app.states import PromoCodeStates
+
+router = Router(name='promocode')
+
+
+TEXTS = {
+    'ru': {
+        'not_registered': 'Сначала выполните /start.',
+        'enter_code': '🎟 Введите промокод одним сообщением (например SUMMER2026):',
+        'error': '⚠️ Не удалось активировать промокод: {error}',
+        'success_balance': '✅ Промокод активирован! На баланс начислено {amount:.2f} ₽.',
+        'success_days': '✅ Промокод активирован! Подписка продлена на {days} дн.',
+    },
+    'en': {
+        'not_registered': 'Please run /start first.',
+        'enter_code': '🎟 Enter your promo code in a single message (e.g. SUMMER2026):',
+        'error': '⚠️ Could not activate promo code: {error}',
+        'success_balance': '✅ Promo code activated! {amount:.2f} credited to your balance.',
+        'success_days': '✅ Promo code activated! Subscription extended by {days} day(s).',
+    },
+}
+
+
+def _t(lang: str | None, key: str) -> str:
+    return TEXTS.get(lang or 'ru', TEXTS['ru'])[key]
+
+
+@router.message(Command('promo'))
+async def cmd_promo(message: Message, state: FSMContext, db_user: User | None) -> None:
+    lang = db_user.language if db_user else 'ru'
+    if db_user is None:
+        await message.answer(_t(lang, 'not_registered'))
+        return
+    await state.set_state(PromoCodeStates.entering_code)
+    await message.answer(_t(lang, 'enter_code'))
+
+
+@router.message(PromoCodeStates.entering_code, F.text)
+async def process_promo_code(message: Message, db: AsyncSession, db_user: User | None, state: FSMContext) -> None:
+    await state.clear()
+    if db_user is None:
+        return
+    lang = db_user.language
+    code = message.text.strip()
+
+    try:
+        result: PromoCodeResult = await activate_promocode(db, code=code, user=db_user)
+    except PromoCodeError as exc:
+        await message.answer(_t(lang, 'error').format(error=str(exc)))
+        return
+
+    if result.type == 'balance':
+        await message.answer(_t(lang, 'success_balance').format(amount=result.value / 100))
+    else:
+        await message.answer(_t(lang, 'success_days').format(days=result.value))
 
 
 def register_handlers(dp: Dispatcher) -> None:
-    pass
+    dp.include_router(router)
