@@ -46,3 +46,7 @@ class AdminBroadcastStates(StatesGroup):
 
 class AdminUserStates(StatesGroup):
     awaiting_telegram_id = State()
+
+
+class AdminEmojiStates(StatesGroup):
+    awaiting_message = State()

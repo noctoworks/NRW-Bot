@@ -23,7 +23,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import PromoCode, Subscription, Tariff, Transaction, User
-from app.states import AdminBroadcastStates, AdminPromoCodeStates, AdminTariffStates, AdminUserStates
+from app.states import AdminBroadcastStates, AdminEmojiStates, AdminPromoCodeStates, AdminTariffStates, AdminUserStates
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +92,49 @@ async def cb_admin_root(callback: CallbackQuery, db_user: User | None, state: FS
     await state.clear()
     await _answer_or_edit(callback, '🛠 Панель администратора', _root_keyboard())
     await callback.answer()
+
+
+# --- Добыча custom_emoji_id (см. диалог про кастомные премиум-эмодзи, app/emoji.py) ---
+
+
+@router.message(Command('emojiid'))
+async def cmd_emoji_id(message: Message, db_user: User | None, state: FSMContext) -> None:
+    if not _is_admin(db_user):
+        return
+    await state.set_state(AdminEmojiStates.awaiting_message)
+    await message.answer(
+        'Пришлите одним сообщением эмодзи (обычные или кастомные — из вашего Premium-набора), '
+        'для которых нужен custom_emoji_id. Можно несколько штук подряд в одном сообщении.\n\n'
+        'У обычных unicode-эмодзи ID не будет (это ожидаемо) — интересуют только те, что '
+        'подсвечены Telegram как custom emoji (обычно из вашей Premium-панели эмодзи).'
+    )
+
+
+@router.message(AdminEmojiStates.awaiting_message)
+async def on_emoji_id_message(message: Message, db_user: User | None, state: FSMContext) -> None:
+    if not _is_admin(db_user):
+        await state.clear()
+        return
+    await state.clear()
+
+    entities = message.entities or []
+    custom = [e for e in entities if e.type == 'custom_emoji' and e.custom_emoji_id]
+
+    if not custom:
+        await message.answer(
+            'В сообщении не нашлось custom_emoji-сущностей. Если вы отправляли обычные emoji '
+            '(не из Premium-панели) — у них ID и не будет, это нормально, Telegram их не размечает.'
+        )
+        return
+
+    text = message.text or ''
+    lines = ['Найдены custom_emoji_id:']
+    for e in custom:
+        char = text[e.offset : e.offset + e.length]
+        lines.append(f'{char} → <code>{e.custom_emoji_id}</code>')
+    lines.append('\nВставьте нужный ID в app/emoji.py (Emoji(fallback=..., custom_id="...")).')
+
+    await message.answer('\n'.join(lines))
 
 
 # --- Пользователи ---

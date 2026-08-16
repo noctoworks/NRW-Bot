@@ -34,6 +34,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import Payment, Subscription, Tariff, Transaction, User
+from app.emoji import CALENDAR, CHART, EXPIRED, GLOBE, HOURGLASS, MONEY, SUCCESS
 from app.external.remnawave import get_remnawave_client
 from app.keyboards.main_menu import CB_SUBSCRIPTION_MY, CB_SUBSCRIPTION_RENEW, back_to_menu_button
 from app.services.notification_service import notify_payment_success
@@ -243,24 +244,28 @@ def format_subscription_summary(subscription: Subscription | None, balance_kopek
 
     Баланс, время до конца подписки, трафик — см. диалог ('сократим инфу'). Полный
     статус/устройства/тариф намеренно не дублируются здесь — они доступны через
-    кнопку «Устройства» и не нужны на этом экране."""
-    balance_line = f'<p>💰 Баланс: <b>{balance_kopeks / 100:.2f} ₽</b></p>'
+    кнопку «Устройства» и не нужны на этом экране.
+
+    Иконки — через app/emoji.py (Emoji.html()): пока custom_id не задан, рендерится
+    обычный unicode-fallback (текущее видимое поведение не меняется), см. диалог
+    про кастомные премиум-эмодзи."""
+    balance_line = f'<p>{MONEY} Баланс: <b>{balance_kopeks / 100:.2f} ₽</b></p>'
 
     if subscription is None:
-        return f'<h2>🌐 Подписка не оформлена</h2>{balance_line}'
+        return f'<h2>{GLOBE} Подписка не оформлена</h2>{balance_line}'
 
     if subscription.status != 'active' or not subscription.end_date:
         end_date_str = subscription.end_date.strftime('%d.%m.%Y') if subscription.end_date else '—'
-        return f'<h2>⛔ Подписка истекла</h2><p>{end_date_str}</p>{balance_line}'
+        return f'<h2>{EXPIRED} Подписка истекла</h2><p>{end_date_str}</p>{balance_line}'
 
     traffic_limit = '∞' if subscription.traffic_limit_gb == 0 else str(subscription.traffic_limit_gb)
     end_date_str = subscription.end_date.strftime('%d.%m.%Y')
 
     return (
-        f'<h2>🌐 Моя подписка</h2>'
-        f'<blockquote>⏳ Осталось: <b>{_format_time_left(subscription.end_date)}</b></blockquote>'
-        f'<p>📅 До {end_date_str}</p>'
-        f'<p>📊 Трафик: <b>{subscription.traffic_used_gb:.1f} / {traffic_limit} ГБ</b></p>'
+        f'<h2>{GLOBE} Моя подписка</h2>'
+        f'<blockquote>{HOURGLASS} Осталось: <b>{_format_time_left(subscription.end_date)}</b></blockquote>'
+        f'<p>{CALENDAR} До {end_date_str}</p>'
+        f'<p>{CHART} Трафик: <b>{subscription.traffic_used_gb:.1f} / {traffic_limit} ГБ</b></p>'
         f'{balance_line}'
     )
 
@@ -583,7 +588,7 @@ async def cb_confirm_purchase(
     await state.clear()
     subscription = await get_user_subscription(db, db_user.id)
 
-    text = '<p>✅ <b>Оплата прошла успешно!</b></p>' + format_subscription_summary(subscription, db_user.balance_kopeks)
+    text = f'<p>{SUCCESS} <b>Оплата прошла успешно!</b></p>' + format_subscription_summary(subscription, db_user.balance_kopeks)
     await _send_subscription_view(callback, text, subscription.subscription_url)
     await callback.answer()
 
