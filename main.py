@@ -15,7 +15,22 @@ async def main() -> None:
     await init_sqlite_pragmas()
 
     bot, dp = await setup_bot()
-    await dp.start_polling(bot, skip_updates=False)
+
+    # === BACKGROUND TASKS (только agent:admin-support-notifications трогает этот блок) ===
+    background_tasks: list[asyncio.Task] = []
+    # from app.services.background import expiry_checker_loop, traffic_sync_loop, payment_poll_loop
+    # background_tasks = [
+    #     asyncio.create_task(expiry_checker_loop(bot)),
+    #     asyncio.create_task(traffic_sync_loop()),
+    #     asyncio.create_task(payment_poll_loop()),
+    # ]
+    # === END BACKGROUND TASKS ===
+
+    try:
+        await dp.start_polling(bot, skip_updates=False)
+    finally:
+        for task in background_tasks:
+            task.cancel()
 
 
 if __name__ == '__main__':
