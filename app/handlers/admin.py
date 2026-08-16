@@ -333,25 +333,44 @@ async def cb_toggle_block(callback: CallbackQuery, db: AsyncSession, db_user: Us
     await callback.answer('Статус обновлён')
 
 
-# --- Тариф ---
+# --- Тарифы (мультитариф — см. диалог: "Онлайн"/"Семейный") ---
+
+CB_TARIFF_CARD = 'admin:tariff:card:'  # + tariff_id
 
 
-async def _get_active_tariff(db: AsyncSession) -> Tariff | None:
-    result = await db.execute(select(Tariff).where(Tariff.is_active.is_(True)).order_by(Tariff.id))
-    return result.scalars().first()
+async def _get_all_tariffs(db: AsyncSession) -> list[Tariff]:
+    result = await db.execute(select(Tariff).order_by(Tariff.id))
+    return list(result.scalars().all())
+
+
+def _tariffs_list_keyboard(tariffs: list[Tariff]) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=f'{"✅" if t.is_active else "🚫"} {t.name}', callback_data=f'{CB_TARIFF_CARD}{t.id}'
+            )
+        ]
+        for t in tariffs
+    ]
+    rows.append([_back_button()])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _tariff_keyboard(tariff: Tariff) -> InlineKeyboardMarkup:
     rows = [
-        [InlineKeyboardButton(text='✏️ Название', callback_data=CB_TARIFF_EDIT_NAME)],
-        [InlineKeyboardButton(text='✏️ Лимит трафика', callback_data=CB_TARIFF_EDIT_TRAFFIC)],
-        [InlineKeyboardButton(text='✏️ Лимит устройств', callback_data=CB_TARIFF_EDIT_DEVICES)],
+        [InlineKeyboardButton(text='✏️ Название', callback_data=f'{CB_TARIFF_EDIT_NAME}:{tariff.id}')],
+        [InlineKeyboardButton(text='✏️ Лимит трафика', callback_data=f'{CB_TARIFF_EDIT_TRAFFIC}:{tariff.id}')],
+        [InlineKeyboardButton(text='✏️ Лимит устройств', callback_data=f'{CB_TARIFF_EDIT_DEVICES}:{tariff.id}')],
     ]
     for period in sorted(tariff.period_prices_kopeks.keys(), key=int):
         rows.append(
-            [InlineKeyboardButton(text=f'✏️ Цена за {period} дн.', callback_data=f'{CB_TARIFF_EDIT_PERIOD}{period}')]
+            [
+                InlineKeyboardButton(
+                    text=f'✏️ Цена за {period} дн.', callback_data=f'{CB_TARIFF_EDIT_PERIOD}{period}:{tariff.id}'
+                )
+            ]
         )
-    rows.append([_back_button()])
+    rows.append([_back_button(f'{CB_ADMIN_TARIFF}')])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -374,23 +393,42 @@ async def cb_admin_tariff(callback: CallbackQuery, db: AsyncSession, db_user: Us
     if not _is_admin(db_user):
         await callback.answer()
         return
-    tariff = await _get_active_tariff(db)
-    if tariff is None:
-        await _answer_or_edit(callback, 'Активный тариф не найден.', _back_keyboard())
+    tariffs = await _get_all_tariffs(db)
+    if not tariffs:
+        await _answer_or_edit(callback, 'Тарифов пока нет.', _back_keyboard())
         await callback.answer()
+        return
+    if len(tariffs) == 1:
+        await _answer_or_edit(callback, _tariff_text(tariffs[0]), _tariff_keyboard(tariffs[0]))
+        await callback.answer()
+        return
+    await _answer_or_edit(callback, '💳 <b>Тарифы</b>', _tariffs_list_keyboard(tariffs))
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith(CB_TARIFF_CARD))
+async def cb_tariff_card(callback: CallbackQuery, db: AsyncSession, db_user: User | None) -> None:
+    if not _is_admin(db_user):
+        await callback.answer()
+        return
+    tariff_id = int(callback.data[len(CB_TARIFF_CARD):])
+    tariff = await db.get(Tariff, tariff_id)
+    if tariff is None:
+        await callback.answer('Тариф не найден', show_alert=True)
         return
     await _answer_or_edit(callback, _tariff_text(tariff), _tariff_keyboard(tariff))
     await callback.answer()
 
 
-@router.callback_query(F.data == CB_TARIFF_EDIT_NAME)
+@router.callback_query(F.data.startswith(f'{CB_TARIFF_EDIT_NAME}:'))
 async def cb_tariff_edit_name(callback: CallbackQuery, db_user: User | None, state: FSMContext) -> None:
     if not _is_admin(db_user):
         await callback.answer()
         return
-    await state.update_data(tariff_field='name')
+    tariff_id = int(callback.data.rsplit(':', 1)[1])
+    await state.update_data(tariff_field='name', tariff_id=tariff_id)
     await state.set_state(AdminTariffStates.entering_name)
-    await _answer_or_edit(callback, '✏️ Введите новое название тарифа:', _back_keyboard(CB_ADMIN_TARIFF))
+    await _answer_or_edit(callback, '✏️ Введите новое название тарифа:', _back_keyboard(f'{CB_TARIFF_CARD}{tariff_id}'))
     await callback.answer()
 
 
@@ -403,35 +441,40 @@ async def on_admin_tariff_name_input(message: Message, db: AsyncSession, db_user
         await message.answer('Название должно быть от 2 до 64 символов.')
         return
 
-    tariff = await _get_active_tariff(db)
+    data = await state.get_data()
+    tariff = await db.get(Tariff, data.get('tariff_id'))
     if tariff is None:
         await state.clear()
         return
     tariff.name = name
     await db.flush()
     await state.clear()
-    await message.answer(f'✅ Название обновлено: {name}', reply_markup=_back_keyboard(CB_ADMIN_TARIFF))
+    await message.answer(f'✅ Название обновлено: {name}', reply_markup=_back_keyboard(f'{CB_TARIFF_CARD}{tariff.id}'))
 
 
-@router.callback_query(F.data == CB_TARIFF_EDIT_TRAFFIC)
+@router.callback_query(F.data.startswith(f'{CB_TARIFF_EDIT_TRAFFIC}:'))
 async def cb_tariff_edit_traffic(callback: CallbackQuery, db_user: User | None, state: FSMContext) -> None:
     if not _is_admin(db_user):
         await callback.answer()
         return
+    tariff_id = int(callback.data.rsplit(':', 1)[1])
     await state.set_state(AdminTariffStates.entering_prices)  # переиспользуем как "ждём число"
-    await state.update_data(tariff_field='traffic')
-    await _answer_or_edit(callback, '✏️ Введите лимит трафика в ГБ (0 = безлимит):', _back_keyboard(CB_ADMIN_TARIFF))
+    await state.update_data(tariff_field='traffic', tariff_id=tariff_id)
+    await _answer_or_edit(
+        callback, '✏️ Введите лимит трафика в ГБ (0 = безлимит):', _back_keyboard(f'{CB_TARIFF_CARD}{tariff_id}')
+    )
     await callback.answer()
 
 
-@router.callback_query(F.data == CB_TARIFF_EDIT_DEVICES)
+@router.callback_query(F.data.startswith(f'{CB_TARIFF_EDIT_DEVICES}:'))
 async def cb_tariff_edit_devices(callback: CallbackQuery, db_user: User | None, state: FSMContext) -> None:
     if not _is_admin(db_user):
         await callback.answer()
         return
+    tariff_id = int(callback.data.rsplit(':', 1)[1])
     await state.set_state(AdminTariffStates.entering_prices)
-    await state.update_data(tariff_field='devices')
-    await _answer_or_edit(callback, '✏️ Введите лимит устройств:', _back_keyboard(CB_ADMIN_TARIFF))
+    await state.update_data(tariff_field='devices', tariff_id=tariff_id)
+    await _answer_or_edit(callback, '✏️ Введите лимит устройств:', _back_keyboard(f'{CB_TARIFF_CARD}{tariff_id}'))
     await callback.answer()
 
 
@@ -440,11 +483,14 @@ async def cb_tariff_edit_period(callback: CallbackQuery, db_user: User | None, s
     if not _is_admin(db_user):
         await callback.answer()
         return
-    period = callback.data[len(CB_TARIFF_EDIT_PERIOD):]
-    await state.update_data(tariff_field='price', tariff_period=period)
+    period, tariff_id_str = callback.data[len(CB_TARIFF_EDIT_PERIOD):].rsplit(':', 1)
+    tariff_id = int(tariff_id_str)
+    await state.update_data(tariff_field='price', tariff_period=period, tariff_id=tariff_id)
     await state.set_state(AdminTariffStates.entering_prices)
     await _answer_or_edit(
-        callback, f'✏️ Введите новую цену для периода {period} дней в рублях (например 299.00):', _back_keyboard(CB_ADMIN_TARIFF)
+        callback,
+        f'✏️ Введите новую цену для периода {period} дней в рублях (например 299.00):',
+        _back_keyboard(f'{CB_TARIFF_CARD}{tariff_id}'),
     )
     await callback.answer()
 
@@ -459,11 +505,12 @@ async def on_admin_tariff_value_input(message: Message, db: AsyncSession, db_use
         await state.clear()
         return
 
-    tariff = await _get_active_tariff(db)
+    tariff = await db.get(Tariff, data.get('tariff_id'))
     if tariff is None:
-        await message.answer('Активный тариф не найден.')
+        await message.answer('Тариф не найден.')
         await state.clear()
         return
+    back_kb = _back_keyboard(f'{CB_TARIFF_CARD}{tariff.id}')
 
     if field == 'price':
         period = data.get('tariff_period')
@@ -499,7 +546,7 @@ async def on_admin_tariff_value_input(message: Message, db: AsyncSession, db_use
 
     await db.flush()
     await state.clear()
-    await message.answer(result_text, reply_markup=_back_keyboard(CB_ADMIN_TARIFF))
+    await message.answer(result_text, reply_markup=back_kb)
 
 
 # --- Промокоды ---

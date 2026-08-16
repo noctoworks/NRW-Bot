@@ -42,9 +42,17 @@ class Settings(BaseSettings):
 
     # --- Платежи ---
     PAYMENTS_MODE: Literal['stub', 'real'] = 'stub'
-    YOOKASSA_SHOP_ID: str = ''
-    YOOKASSA_SECRET_KEY: str = ''
+    PLATEGA_MERCHANT_ID: str = ''
+    PLATEGA_SECRET_KEY: str = ''
     CRYPTOBOT_API_TOKEN: str = ''
+
+    # --- Курсы для отображения цены в других валютах на экране оплаты (см. диалог,
+    # референс-скрин показывает цену сразу в $ и ★). ПРИБЛИЗИТЕЛЬНО — настройте под
+    # актуальный курс, это только для отображения, не источник истины для реальных
+    # платежей (когда подключим Platega/CryptoBot/Stars по-настоящему, конвертация
+    # должна брать курс у самого провайдера, а не отсюда). ---
+    USD_RATE_KOPEKS: int = 9000  # сколько копеек в $1 (по умолчанию ~90₽/$)
+    STARS_RATE_KOPEKS: int = 100  # сколько копеек стоит 1 Telegram Star (по умолчанию 1₽/★, откалибровано под референс-скрин: 444₽ -> ★444)
 
     # --- Реферальная программа ---
     REFERRAL_PERCENT: int = Field(default=25, ge=0, le=100)
@@ -62,7 +70,7 @@ class Settings(BaseSettings):
         if self.REMNAWAVE_MODE == 'real' and not (self.REMNAWAVE_BASE_URL and self.REMNAWAVE_API_KEY):
             raise ValueError('REMNAWAVE_MODE=real требует REMNAWAVE_BASE_URL и REMNAWAVE_API_KEY')
         if self.PAYMENTS_MODE == 'real' and not (
-            (self.YOOKASSA_SHOP_ID and self.YOOKASSA_SECRET_KEY) or self.CRYPTOBOT_API_TOKEN
+            (self.PLATEGA_MERCHANT_ID and self.PLATEGA_SECRET_KEY) or self.CRYPTOBOT_API_TOKEN
         ):
             raise ValueError('PAYMENTS_MODE=real требует ключей хотя бы одного провайдера')
         return self

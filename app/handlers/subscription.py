@@ -33,6 +33,7 @@ from aiogram.types import CallbackQuery, CopyTextButton, InlineKeyboardButton, I
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database.models import Payment, Subscription, Tariff, Transaction, User
 from app.emoji import CALENDAR, CHART, CRYPTO, EXPIRED, GLOBE, HOURGLASS, MONEY, SBP, STARS, SUCCESS
 from app.external.remnawave import get_remnawave_client
@@ -46,36 +47,62 @@ logger = logging.getLogger(__name__)
 
 router = Router(name='subscription')
 
+# Порядок и состав — см. диалог/референс-скрин: Карты и СБП (Platega, основной
+# провайдер) -> Криптовалюта -> Telegram Stars. "↗" в подписи — визуальная
+# параллель с референсом (там это настоящая внешняя ссылка на оплату; у нас
+# пока stub, ссылки может не быть, но паритет вида сохраняем).
 PAYMENT_METHODS: dict[str, str] = {
-    'yookassa': '🏦 СБП (Платега)',
-    'stars': '⭐️ Telegram Stars',
+    'platega': '🏦 Карты и СБП',
     'cryptobot': '🪙 Криптовалюта',
+    'stars': '⭐️ Telegram Stars',
 }
 # Те же способы оплаты, но с custom_emoji_id (см. app/emoji.py) — используется
 # ТОЛЬКО в тексте сообщений (подтверждение выбора), НЕ в кнопках (kb_payment_methods
 # ниже использует PAYMENT_METHODS с plain-эмодзи — Bot API не поддерживает
 # custom emoji в тексте inline-кнопок).
 PAYMENT_METHODS_RICH: dict[str, str] = {
-    'yookassa': f'{SBP} СБП (Платега)',
-    'stars': f'{STARS} Telegram Stars',
+    'platega': f'{SBP} Карты и СБП',
     'cryptobot': f'{CRYPTO} Криптовалюта',
+    'stars': f'{STARS} Telegram Stars',
 }
 
+# Период хранится в БД как количество дней (30/90/180/360), но отображается
+# пользователю в месяцах — см. референс ("1 месяц"/"3 месяца"/...). 24-месячного
+# периода у нас никогда не было — резать нечего, диапазон уже 1/3/6/12 мес.
 PERIOD_LABELS: dict[str, str] = {
-    '30': '30 дней',
-    '90': '90 дней',
-    '180': '180 дней',
-    '360': '360 дней',
+    '30': '1 месяц',
+    '90': '3 месяца',
+    '180': '6 месяцев',
+    '360': '12 месяцев',
 }
+
+
+def _format_price(amount_kopeks: int, method: str) -> str:
+    """Цена в валюте способа оплаты — см. диалог: экран показывает ₽/$ /★ сразу
+    в кнопке. Конвертация в $ и ★ приблизительная (settings.USD_RATE_KOPEKS /
+    STARS_RATE_KOPEKS) — только для отображения, см. комментарий в app/config.py."""
+    if method == 'cryptobot':
+        usd = amount_kopeks / settings.USD_RATE_KOPEKS
+        return f'${usd:.1f}'
+    if method == 'stars':
+        stars = max(1, round(amount_kopeks / settings.STARS_RATE_KOPEKS))
+        return f'★{stars}'
+    return f'{amount_kopeks / 100:.0f} ₽'
 
 
 # === Бизнес-логика (тестируется без Update/CallbackQuery) ===================
 
 
-async def get_active_tariff(db: AsyncSession) -> Tariff | None:
-    """MVP: один активный тариф — берём первый, если их несколько."""
+async def get_active_tariffs(db: AsyncSession) -> list[Tariff]:
     result = await db.execute(select(Tariff).where(Tariff.is_active.is_(True)).order_by(Tariff.id))
-    return result.scalars().first()
+    return list(result.scalars().all())
+
+
+async def get_active_tariff(db: AsyncSession) -> Tariff | None:
+    """Первый активный тариф — используется там, где выбор тарифа не нужен
+    (например devices-флоу оперирует уже существующей подпиской, не создаёт новую)."""
+    tariffs = await get_active_tariffs(db)
+    return tariffs[0] if tariffs else None
 
 
 async def get_user_subscription(db: AsyncSession, user_id: int) -> Subscription | None:
@@ -190,6 +217,12 @@ async def purchase_or_renew_subscription(
         subscription.end_date = new_end
         subscription.status = 'active'
         subscription.tariff_id = tariff.id
+        # Баг, пойманный при добавлении мультитарифов: если пользователь продлевает
+        # подписку ВЫБРАВ ДРУГОЙ тариф (напр. Онлайн -> Семейный), лимиты обязаны
+        # смениться вместе с tariff_id — раньше (при единственном тарифе) это было
+        # недостижимо, поэтому не проявлялось.
+        subscription.device_limit = tariff.device_limit
+        subscription.traffic_limit_gb = tariff.traffic_limit_gb
         subscription.reminder_3d_sent = False
         subscription.reminder_1d_sent = False
         if rw_user.subscription_url:
@@ -323,25 +356,33 @@ def kb_back_to_subscription() -> InlineKeyboardMarkup:
     )
 
 
-def kb_periods(tariff: Tariff) -> InlineKeyboardMarkup:
-    rows = []
-    for days_str, price_kopeks in sorted(tariff.period_prices_kopeks.items(), key=lambda kv: int(kv[0])):
-        label = PERIOD_LABELS.get(days_str, f'{days_str} дней')
-        price_rub = price_kopeks / 100
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text=f'{label} — {price_rub:.0f}₽', callback_data=f'sub:period:{days_str}'
-                )
-            ]
-        )
+def kb_tariffs(tariffs: list[Tariff]) -> InlineKeyboardMarkup:
+    rows = [[InlineKeyboardButton(text=f'📦 {t.name}', callback_data=f'sub:tariff:{t.id}')] for t in tariffs]
     rows.append([InlineKeyboardButton(text='❌ Отмена', callback_data='sub:cancel')])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def kb_payment_methods() -> InlineKeyboardMarkup:
+def kb_periods(tariff: Tariff) -> InlineKeyboardMarkup:
+    """Сетка 2 в ряд, без цены на самой кнопке — цена появляется на следующем
+    экране (выбор способа оплаты), как в референсе."""
+    periods = sorted(tariff.period_prices_kopeks.keys(), key=int)
+    rows: list[list[InlineKeyboardButton]] = []
+    row: list[InlineKeyboardButton] = []
+    for days_str in periods:
+        label = PERIOD_LABELS.get(days_str, f'{days_str} дней')
+        row.append(InlineKeyboardButton(text=label, callback_data=f'sub:period:{days_str}'))
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton(text='❌ Отмена', callback_data='sub:cancel')])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def kb_payment_methods(amount_kopeks: int) -> InlineKeyboardMarkup:
     rows = [
-        [InlineKeyboardButton(text=label, callback_data=f'sub:method:{name}')]
+        [InlineKeyboardButton(text=f'{label} · {_format_price(amount_kopeks, name)} ↗', callback_data=f'sub:method:{name}')]
         for name, label in PAYMENT_METHODS.items()
     ]
     rows.append([InlineKeyboardButton(text='❌ Отмена', callback_data='sub:cancel')])
@@ -515,16 +556,36 @@ async def cb_devices_reset_no(callback: CallbackQuery, db_user: User) -> None:
 # --- Покупка/продление FSM ---------------------------------------------------
 
 
+async def _show_period_selection(callback: CallbackQuery, state: FSMContext, tariff: Tariff) -> None:
+    await state.set_state(PurchaseStates.choosing_period)
+    await state.update_data(tariff_id=tariff.id)
+    await callback.message.edit_text(f'📦 <b>{tariff.name}</b>\n\nВыберите период подписки:', reply_markup=kb_periods(tariff))
+    await callback.answer()
+
+
 async def _start_purchase_flow(callback: CallbackQuery, db: AsyncSession, state: FSMContext) -> None:
-    tariff = await get_active_tariff(db)
-    if tariff is None:
+    tariffs = await get_active_tariffs(db)
+    if not tariffs:
         await callback.answer('Тариф временно недоступен', show_alert=True)
         return
 
-    await state.set_state(PurchaseStates.choosing_period)
-    await state.update_data(tariff_id=tariff.id)
-    await callback.message.edit_text('Выберите период подписки:', reply_markup=kb_periods(tariff))
+    if len(tariffs) == 1:
+        await _show_period_selection(callback, state, tariffs[0])
+        return
+
+    await state.set_state(PurchaseStates.choosing_tariff)
+    await callback.message.edit_text('Выберите тариф:', reply_markup=kb_tariffs(tariffs))
     await callback.answer()
+
+
+@router.callback_query(StateFilter(PurchaseStates.choosing_tariff), lambda c: c.data and c.data.startswith('sub:tariff:'))
+async def cb_choose_tariff(callback: CallbackQuery, db: AsyncSession, state: FSMContext) -> None:
+    tariff_id = int(callback.data.split('sub:tariff:', 1)[1])
+    tariff = await db.get(Tariff, tariff_id)
+    if tariff is None or not tariff.is_active:
+        await callback.answer('Тариф недоступен', show_alert=True)
+        return
+    await _show_period_selection(callback, state, tariff)
 
 
 @router.callback_query(lambda c: c.data == 'sub:buy')
@@ -538,11 +599,23 @@ async def cb_sub_renew(callback: CallbackQuery, db: AsyncSession, state: FSMCont
 
 
 @router.callback_query(StateFilter(PurchaseStates.choosing_period), lambda c: c.data and c.data.startswith('sub:period:'))
-async def cb_choose_period(callback: CallbackQuery, state: FSMContext) -> None:
+async def cb_choose_period(callback: CallbackQuery, db: AsyncSession, state: FSMContext) -> None:
     days = callback.data.split('sub:period:', 1)[1]
-    await state.update_data(period_days=int(days))
+    data = await state.update_data(period_days=int(days))
+
+    tariff = await db.get(Tariff, data['tariff_id'])
+    if tariff is None:
+        await callback.answer('Тариф недоступен', show_alert=True)
+        await state.clear()
+        return
+    amount_kopeks = int(tariff.period_prices_kopeks[days])
+
     await state.set_state(PurchaseStates.choosing_payment_method)
-    await callback.message.edit_text('Выберите способ оплаты:', reply_markup=kb_payment_methods())
+    label = PERIOD_LABELS.get(days, f'{days} дней')
+    await callback.message.edit_text(
+        f'📦 <b>{tariff.name} · {label}</b>\n\nВыберите удобный способ оплаты:',
+        reply_markup=kb_payment_methods(amount_kopeks),
+    )
     await callback.answer()
 
 
@@ -567,7 +640,7 @@ async def cb_choose_method(callback: CallbackQuery, db: AsyncSession, state: FSM
         f'Тариф: {tariff.name}\n'
         f'Период: {label}\n'
         f'Способ оплаты: {PAYMENT_METHODS_RICH.get(method, method)}\n'
-        f'Сумма: {price_kopeks / 100:.0f}₽'
+        f'Сумма: {_format_price(price_kopeks, method)}'
     )
     await callback.message.edit_text(text, reply_markup=kb_confirm())
     await callback.answer()

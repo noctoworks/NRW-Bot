@@ -10,6 +10,7 @@ class RegistrationStates(StatesGroup):
 
 
 class PurchaseStates(StatesGroup):
+    choosing_tariff = State()
     choosing_period = State()
     choosing_payment_method = State()
     confirming = State()

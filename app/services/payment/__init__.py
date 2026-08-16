@@ -8,15 +8,19 @@ from app.services.payment.stub import StubPaymentProvider
 
 
 def get_payment_provider(name: str) -> PaymentProvider:
-    """`name` — 'stars'|'yookassa'|'cryptobot'. В stub-режиме все три ведут себя одинаково —
-    мгновенный успех, чтобы бизнес-логику можно было тестировать без внешних ключей."""
+    """`name` — 'platega'|'stars'|'cryptobot'. В stub-режиме все три ведут себя одинаково —
+    мгновенный успех, чтобы бизнес-логику можно было тестировать без внешних ключей.
+
+    Platega — основной провайдер (СБП/карты), см. диалог: логика/структура по образцу
+    Bedolaga, но пока БЕЗ реальных ключей (PAYMENTS_MODE=stub) — подключим API, когда
+    появится реальный мерчант-доступ."""
     if settings.PAYMENTS_MODE == 'stub':
         return StubPaymentProvider(provider_name=name)
 
-    if name == 'yookassa':
-        from app.services.payment.yookassa import YooKassaProvider
+    if name == 'platega':
+        from app.services.payment.platega import PlategaProvider
 
-        return YooKassaProvider()
+        return PlategaProvider()
     if name == 'cryptobot':
         from app.services.payment.cryptobot import CryptoBotProvider
 
