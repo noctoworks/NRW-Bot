@@ -6,31 +6,49 @@
 Сигнатуры уже используются другими модулями "на веру" — не менять без
 согласования (иначе сломаются вызовы из subscription.py/referral_service.py).
 
-TODO(agent:admin-support-notifications): реализовать тело функций (просто
-bot.send_message с человекочитаемым текстом; HTML parse_mode уже дефолтный
-в Bot, см. app/bot.py).
+Каждая функция — тонкая обёртка над bot.send_message. Пользователь мог
+заблокировать бота или удалить чат — это НЕ должно ронять вызывающий код
+(платёж/реферальное начисление/фоновая задача), поэтому все ошибки
+перехватываются и только логируются.
 """
 
 from __future__ import annotations
 
+import logging
+
 from aiogram import Bot
+
+logger = logging.getLogger(__name__)
+
+
+async def _safe_send(bot: Bot, *, telegram_id: int, text: str) -> None:
+    try:
+        await bot.send_message(chat_id=telegram_id, text=text)
+    except Exception:
+        logger.warning('Не удалось отправить уведомление telegram_id=%s', telegram_id, exc_info=True)
 
 
 async def notify_payment_success(bot: Bot, *, telegram_id: int, amount_kopeks: int, description: str) -> None:
-    raise NotImplementedError
+    text = f'✅ Оплата на сумму {amount_kopeks / 100:.2f}₽ прошла успешно. {description}'
+    await _safe_send(bot, telegram_id=telegram_id, text=text)
 
 
 async def notify_referral_bonus(bot: Bot, *, telegram_id: int, amount_kopeks: int) -> None:
-    raise NotImplementedError
+    text = f'🎉 Вам начислено {amount_kopeks / 100:.2f}₽ реферальных бонусов!'
+    await _safe_send(bot, telegram_id=telegram_id, text=text)
 
 
 async def notify_subscription_expiring(bot: Bot, *, telegram_id: int, days_left: int) -> None:
-    raise NotImplementedError
+    text = f'⏳ Ваша подписка истекает через {days_left} дн.'
+    await _safe_send(bot, telegram_id=telegram_id, text=text)
 
 
 async def notify_subscription_expired(bot: Bot, *, telegram_id: int) -> None:
-    raise NotImplementedError
+    text = '❌ Ваша подписка истекла. Продлите её в главном меню.'
+    await _safe_send(bot, telegram_id=telegram_id, text=text)
 
 
 async def notify_gift_redeemed_to_gifter(bot: Bot, *, gifter_telegram_id: int, recipient_username: str | None) -> None:
-    raise NotImplementedError
+    who = f'@{recipient_username}' if recipient_username else 'пользователь'
+    text = f'🎁 Ваш подарок активировал {who}!'
+    await _safe_send(bot, telegram_id=gifter_telegram_id, text=text)

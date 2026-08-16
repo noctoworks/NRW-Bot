@@ -42,3 +42,7 @@ class AdminPromoCodeStates(StatesGroup):
 class AdminBroadcastStates(StatesGroup):
     entering_text = State()
     confirming = State()
+
+
+class AdminUserStates(StatesGroup):
+    awaiting_telegram_id = State()
