@@ -32,12 +32,15 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from aiogram import Dispatcher, F, Router
+from aiogram.exceptions import TelegramForbiddenError
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
+from app.config import settings
 from app.database.models import PromoCode, Subscription, Tariff, Transaction, User
 from app.states import AdminBroadcastStates, AdminEmojiStates, AdminPromoCodeStates, AdminTariffStates, AdminUserStates
 
@@ -53,12 +56,27 @@ PAGE_SIZE = 10
 CB_ADMIN_ROOT = 'admin:root'
 CB_ADMIN_TARIFF = 'admin:tariff'
 CB_ADMIN_BROADCAST = 'admin:broadcast'
+CB_ADMIN_SERVERS = 'admin:servers'
 
-CB_USERS_MENU = 'admin:users'
+CB_USERS_ROOT = 'admin:usersroot'  # подменю "Юзеры/Подписки" (Bedolaga: admin_submenu_users)
+CB_USERS_MENU = 'admin:users'  # экран "Управление пользователями"
 CB_USERS_SEARCH = 'admin:users:search'
 CB_USERS_LIST = 'admin:users:list:'  # + page
+CB_USERS_INACTIVE = 'admin:users:inactive:'  # + page — без подписки
+CB_USERS_BLACKLIST = 'admin:users:blacklist:'  # + page — is_blocked
+CB_USERS_BLOCKED_BOT = 'admin:users:blockedbot:'  # + page — заблокировали бота
+CB_USERS_MASSBAN = 'admin:users:massban'
+CB_PARTNERS_MENU = 'admin:partners'
+CB_SUBS_MENU = 'admin:subs:'  # + page
+
 CB_USER_CARD = 'admin:users:card:'  # + user_id
 CB_USER_BLOCK_TOGGLE = 'admin:user:block_toggle:'  # + user_id
+CB_USER_DELETE = 'admin:user:delete:'  # + user_id
+CB_USER_DELETE_YES = 'admin:user:delete_yes:'  # + user_id
+CB_USER_BALANCE = 'admin:user:balance:'  # + user_id
+CB_USER_MESSAGE = 'admin:user:message:'  # + user_id
+CB_USER_REFERRALS = 'admin:user:referrals:'  # + user_id
+CB_USER_TRANSACTIONS = 'admin:user:transactions:'  # + user_id
 
 CB_TARIFF_EDIT_NAME = 'admin:tariff:edit:name'
 CB_TARIFF_EDIT_TRAFFIC = 'admin:tariff:edit:traffic'
@@ -88,14 +106,50 @@ def _is_admin(db_user: User | None) -> bool:
 
 
 def _root_keyboard() -> InlineKeyboardMarkup:
+    """Раскладка 2 в ряд — см. диалог/референс-скрин "Административная панель".
+    У Bedolaga тут ещё Серверы/Цены/Триалы/Настройки/Система/Пополнения как
+    отдельные CRUD-разделы с собственными подсистемами (RBAC, ноды Remnawave,
+    очередь заявок на пополнение и т.д.) — вне нашего масштаба; вместо
+    пустых заглушек оставили только то, для чего есть реальные данные."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text='👤 Пользователи', callback_data=CB_USERS_MENU)],
-            [InlineKeyboardButton(text='💳 Тариф', callback_data=CB_ADMIN_TARIFF)],
-            [InlineKeyboardButton(text='🎟 Промокоды', callback_data=CB_PROMO_MENU)],
-            [InlineKeyboardButton(text='📢 Рассылка', callback_data=CB_ADMIN_BROADCAST)],
-            [InlineKeyboardButton(text='📊 Статистика', callback_data=CB_STATS_MENU)],
+            [
+                InlineKeyboardButton(text='👥 Юзеры/Подписки', callback_data=CB_USERS_ROOT),
+                InlineKeyboardButton(text='🌐 Серверы', callback_data=CB_ADMIN_SERVERS),
+            ],
+            [
+                InlineKeyboardButton(text='📦 Тарифы', callback_data=CB_ADMIN_TARIFF),
+                InlineKeyboardButton(text='🎟 Промокоды', callback_data=CB_PROMO_MENU),
+            ],
+            [
+                InlineKeyboardButton(text='📊 Статистика', callback_data=CB_STATS_MENU),
+                InlineKeyboardButton(text='📢 Рассылка', callback_data=CB_ADMIN_BROADCAST),
+            ],
         ]
+    )
+
+
+async def _render_root_header(db: AsyncSession) -> str:
+    """'Онлайн сейчас/сегодня/за неделю' — см. диалог/референс-скрин. У нас нет
+    настоящего realtime-presence (websocket/heartbeat), поэтому приближаем через
+    last_activity_at: "сейчас" = последние 5 минут, "сегодня"/"неделя" аналогично
+    Bedolaga (уникальные пользователи с активностью в окне)."""
+    now = datetime.now(timezone.utc)
+    online_now = (
+        await db.execute(select(func.count(User.id)).where(User.last_activity_at >= now - timedelta(minutes=5)))
+    ).scalar_one()
+    online_today = (
+        await db.execute(select(func.count(User.id)).where(User.last_activity_at >= now - timedelta(days=1)))
+    ).scalar_one()
+    online_week = (
+        await db.execute(select(func.count(User.id)).where(User.last_activity_at >= now - timedelta(days=7)))
+    ).scalar_one()
+    return (
+        '🛠 <b>Административная панель</b>\n\n'
+        f'🟢 Онлайн сейчас: {online_now}\n'
+        f'📅 Онлайн сегодня: {online_today}\n'
+        f'📊 На этой неделе: {online_week}\n\n'
+        'Выберите раздел для управления:'
     )
 
 
@@ -134,20 +188,44 @@ async def cb_noop(callback: CallbackQuery) -> None:
 
 
 @router.message(Command('admin'))
-async def cmd_admin(message: Message, db_user: User | None, state: FSMContext) -> None:
+async def cmd_admin(message: Message, db: AsyncSession, db_user: User | None, state: FSMContext) -> None:
     if not _is_admin(db_user):
         return
     await state.clear()
-    await message.answer('🛠 Панель администратора', reply_markup=_root_keyboard())
+    await message.answer(await _render_root_header(db), reply_markup=_root_keyboard())
 
 
 @router.callback_query(F.data == CB_ADMIN_ROOT)
-async def cb_admin_root(callback: CallbackQuery, db_user: User | None, state: FSMContext) -> None:
+async def cb_admin_root(callback: CallbackQuery, db: AsyncSession, db_user: User | None, state: FSMContext) -> None:
     if not _is_admin(db_user):
         await callback.answer()
         return
     await state.clear()
-    await _answer_or_edit(callback, '🛠 Панель администратора', _root_keyboard())
+    await _answer_or_edit(callback, await _render_root_header(db), _root_keyboard())
+    await callback.answer()
+
+
+# --- Серверы (read-only список сквадов из Remnawave, см. scripts/seed.py) ---
+
+
+@router.callback_query(F.data == CB_ADMIN_SERVERS)
+async def cb_admin_servers(callback: CallbackQuery, db: AsyncSession, db_user: User | None) -> None:
+    if not _is_admin(db_user):
+        await callback.answer()
+        return
+    from app.database.models import ServerSquad
+
+    result = await db.execute(select(ServerSquad).order_by(ServerSquad.id))
+    squads = result.scalars().all()
+    if not squads:
+        text = '🌐 <b>Серверы</b>\n\nСквадов пока нет (запустите scripts/seed.py).'
+    else:
+        lines = ['🌐 <b>Серверы</b>', '']
+        for s in squads:
+            status = '✅' if s.is_active else '🚫'
+            lines.append(f'{status} {s.name} ({s.country or "—"}) — <code>{s.squad_uuid}</code>')
+        text = '\n'.join(lines)
+    await _answer_or_edit(callback, text, _back_keyboard())
     await callback.answer()
 
 
@@ -194,26 +272,109 @@ async def on_emoji_id_message(message: Message, db_user: User | None, state: FSM
     await message.answer('\n'.join(lines))
 
 
-# --- Пользователи ---
+# --- Юзеры/Подписки: подменю (см. диалог/референс-скрин "Управление пользователями и подписками") ---
 
 
-def _users_menu_keyboard() -> InlineKeyboardMarkup:
+def _users_root_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text='🔍 Поиск по ID', callback_data=CB_USERS_SEARCH)],
-            [InlineKeyboardButton(text='📋 Список пользователей', callback_data=f'{CB_USERS_LIST}0')],
+            [
+                InlineKeyboardButton(text='👥 Пользователи', callback_data=CB_USERS_MENU),
+                InlineKeyboardButton(text='🤝 Партнёрка', callback_data=CB_PARTNERS_MENU),
+            ],
+            [InlineKeyboardButton(text='📱 Подписки', callback_data=f'{CB_SUBS_MENU}0')],
             [_back_button()],
         ]
     )
 
 
-@router.callback_query(F.data == CB_USERS_MENU)
-async def cb_users_menu(callback: CallbackQuery, db_user: User | None, state: FSMContext) -> None:
+@router.callback_query(F.data == CB_USERS_ROOT)
+async def cb_users_root(callback: CallbackQuery, db_user: User | None, state: FSMContext) -> None:
     if not _is_admin(db_user):
         await callback.answer()
         return
     await state.clear()
-    await _answer_or_edit(callback, '👤 <b>Пользователи</b>', _users_menu_keyboard())
+    await _answer_or_edit(callback, '👥 <b>Управление пользователями и подписками</b>\n\nВыберите нужный раздел:', _users_root_keyboard())
+    await callback.answer()
+
+
+# --- Пользователи ---
+
+
+def _time_ago(dt: datetime | None) -> str:
+    if dt is None:
+        return '—'
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    delta = datetime.now(timezone.utc) - dt
+    seconds = delta.total_seconds()
+    if seconds < 3600:
+        return f'{max(1, int(seconds // 60))} мин. назад'
+    if seconds < 86400:
+        return f'{int(seconds // 3600)} ч. назад'
+    if seconds < 172800:
+        return 'вчера'
+    return f'{int(seconds // 86400)} дн. назад'
+
+
+def _users_menu_keyboard() -> InlineKeyboardMarkup:
+    """Часть кнопок референса (⚙️ Фильтры — конструктор произвольных фильтров) —
+    вне нашего масштаба, см. диалог; вместо неё оставлены конкретные готовые
+    списки (все реализованы, не заглушки)."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text='👥 Все пользователи', callback_data=f'{CB_USERS_LIST}0'),
+                InlineKeyboardButton(text='🔍 Поиск', callback_data=CB_USERS_SEARCH),
+            ],
+            [
+                InlineKeyboardButton(text='🗑️ Неактивные', callback_data=f'{CB_USERS_INACTIVE}0'),
+                InlineKeyboardButton(text='🔒 Чёрный список', callback_data=f'{CB_USERS_BLACKLIST}0'),
+            ],
+            [
+                InlineKeyboardButton(text='🔴 Массовый бан', callback_data=CB_USERS_MASSBAN),
+                InlineKeyboardButton(text='🚫 Заблокир. бота', callback_data=f'{CB_USERS_BLOCKED_BOT}0'),
+            ],
+            [_back_button(CB_USERS_ROOT)],
+        ]
+    )
+
+
+async def _render_users_menu_header(db: AsyncSession) -> str:
+    now = datetime.now(timezone.utc)
+    total = (await db.execute(select(func.count(User.id)))).scalar_one()
+    active = (await db.execute(select(func.count(User.id)).where(User.is_blocked.is_(False)))).scalar_one()
+    blocked = (await db.execute(select(func.count(User.id)).where(User.is_blocked.is_(True)))).scalar_one()
+    new_today = (
+        await db.execute(select(func.count(User.id)).where(User.created_at >= now - timedelta(days=1)))
+    ).scalar_one()
+    new_week = (
+        await db.execute(select(func.count(User.id)).where(User.created_at >= now - timedelta(days=7)))
+    ).scalar_one()
+    new_month = (
+        await db.execute(select(func.count(User.id)).where(User.created_at >= now - timedelta(days=30)))
+    ).scalar_one()
+    return (
+        '👥 <b>Управление пользователями</b>\n\n'
+        '📊 Статистика:\n'
+        f'• Всего: {total}\n'
+        f'• Активных: {active}\n'
+        f'• Заблокированных: {blocked}\n\n'
+        '📈 Новые пользователи:\n'
+        f'• Сегодня: {new_today}\n'
+        f'• За неделю: {new_week}\n'
+        f'• За месяц: {new_month}\n\n'
+        'Выберите действие:'
+    )
+
+
+@router.callback_query(F.data == CB_USERS_MENU)
+async def cb_users_menu(callback: CallbackQuery, db: AsyncSession, db_user: User | None, state: FSMContext) -> None:
+    if not _is_admin(db_user):
+        await callback.answer()
+        return
+    await state.clear()
+    await _answer_or_edit(callback, await _render_users_menu_header(db), _users_menu_keyboard())
     await callback.answer()
 
 
@@ -227,45 +388,137 @@ async def cb_users_search(callback: CallbackQuery, db_user: User | None, state: 
     await callback.answer()
 
 
+async def _render_users_list(
+    callback: CallbackQuery, db: AsyncSession, page: int, list_prefix: str, where_clause, empty_text: str
+) -> None:
+    count_stmt = select(func.count(User.id))
+    # selectinload обязателен: без него user.subscription ниже — ленивая
+    # relationship, а AsyncSession не поддерживает lazy-load вне greenlet-контекста
+    # (падает MissingGreenlet). Поймано вживую тестовым скриптом перед выкаткой.
+    list_stmt = select(User).options(selectinload(User.subscription)).order_by(User.created_at.desc())
+    if where_clause is not None:
+        count_stmt = count_stmt.where(where_clause)
+        list_stmt = list_stmt.where(where_clause)
+
+    total = (await db.execute(count_stmt)).scalar_one()
+    total_pages = max((total + PAGE_SIZE - 1) // PAGE_SIZE, 1)
+    users = (await db.execute(list_stmt.limit(PAGE_SIZE).offset(page * PAGE_SIZE))).scalars().all()
+
+    rows = []
+    for u in users:
+        status_icon = '🚫' if u.is_blocked else '✅'
+        sub_icon = '💎' if u.subscription and u.subscription.status == 'active' else '❌'
+        label = u.username or f'id{u.telegram_id}'
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f'{status_icon}{sub_icon} {label} | 🕐 {_time_ago(u.last_activity_at)}',
+                    callback_data=f'{CB_USER_CARD}{u.id}',
+                )
+            ]
+        )
+    if rows:
+        rows.append(_pagination_row(list_prefix, page, total_pages))
+    rows.append([_back_button(CB_USERS_MENU)])
+
+    text = f'📋 <b>Список пользователей</b> (стр. {page + 1}/{total_pages})' if users else empty_text
+    await _answer_or_edit(callback, text, InlineKeyboardMarkup(inline_keyboard=rows))
+    await callback.answer()
+
+
 @router.callback_query(F.data.startswith(CB_USERS_LIST))
 async def cb_users_list(callback: CallbackQuery, db: AsyncSession, db_user: User | None) -> None:
     if not _is_admin(db_user):
         await callback.answer()
         return
     page = int(callback.data[len(CB_USERS_LIST):])
+    await _render_users_list(callback, db, page, CB_USERS_LIST, None, 'Пользователей пока нет.')
 
-    total = (await db.execute(select(func.count(User.id)))).scalar_one()
-    total_pages = max((total + PAGE_SIZE - 1) // PAGE_SIZE, 1)
 
-    result = await db.execute(
-        select(User).order_by(User.created_at.desc()).limit(PAGE_SIZE).offset(page * PAGE_SIZE)
+@router.callback_query(F.data.startswith(CB_USERS_INACTIVE))
+async def cb_users_inactive(callback: CallbackQuery, db: AsyncSession, db_user: User | None) -> None:
+    """"Неактивные" — без подписки (нет реального concept триала/оффлайна дольше
+    N дней в нашей схеме, см. диалог про упрощение) — читаемое и честное определение."""
+    if not _is_admin(db_user):
+        await callback.answer()
+        return
+    page = int(callback.data[len(CB_USERS_INACTIVE):])
+    await _render_users_list(
+        callback, db, page, CB_USERS_INACTIVE, ~User.subscription.has(), 'Неактивных пользователей нет.'
     )
-    users = result.scalars().all()
 
-    rows = [
-        [
-            InlineKeyboardButton(
-                text=f'{u.telegram_id} — @{u.username or "—"} — {u.balance_kopeks / 100:.0f}₽'
-                + (' 🚫' if u.is_blocked else ''),
-                callback_data=f'{CB_USER_CARD}{u.id}',
-            )
-        ]
-        for u in users
-    ]
-    if rows:
-        rows.append(_pagination_row(CB_USERS_LIST, page, total_pages))
-    rows.append([_back_button(CB_USERS_MENU)])
 
-    text = f'📋 <b>Пользователи</b> (всего: {total})' if users else 'Пользователей пока нет.'
-    await _answer_or_edit(callback, text, InlineKeyboardMarkup(inline_keyboard=rows))
+@router.callback_query(F.data.startswith(CB_USERS_BLACKLIST))
+async def cb_users_blacklist(callback: CallbackQuery, db: AsyncSession, db_user: User | None) -> None:
+    if not _is_admin(db_user):
+        await callback.answer()
+        return
+    page = int(callback.data[len(CB_USERS_BLACKLIST):])
+    await _render_users_list(
+        callback, db, page, CB_USERS_BLACKLIST, User.is_blocked.is_(True), 'Чёрный список пуст.'
+    )
+
+
+@router.callback_query(F.data.startswith(CB_USERS_BLOCKED_BOT))
+async def cb_users_blocked_bot(callback: CallbackQuery, db: AsyncSession, db_user: User | None) -> None:
+    if not _is_admin(db_user):
+        await callback.answer()
+        return
+    page = int(callback.data[len(CB_USERS_BLOCKED_BOT):])
+    await _render_users_list(
+        callback, db, page, CB_USERS_BLOCKED_BOT, User.blocked_bot.is_(True), 'Никто не блокировал бота (пока).'
+    )
+
+
+@router.callback_query(F.data == CB_USERS_MASSBAN)
+async def cb_users_massban(callback: CallbackQuery, db_user: User | None, state: FSMContext) -> None:
+    if not _is_admin(db_user):
+        await callback.answer()
+        return
+    await state.set_state(AdminUserStates.awaiting_massban_ids)
+    await _answer_or_edit(
+        callback,
+        '🔴 <b>Массовый бан</b>\n\nПришлите telegram_id через запятую или с новой строки:',
+        _back_keyboard(CB_USERS_MENU),
+    )
     await callback.answer()
 
 
+@router.message(AdminUserStates.awaiting_massban_ids, F.text)
+async def on_admin_massban_input(message: Message, db: AsyncSession, db_user: User | None, state: FSMContext) -> None:
+    if not _is_admin(db_user):
+        return
+    await state.clear()
+    raw_ids = [chunk.strip() for chunk in message.text.replace('\n', ',').split(',') if chunk.strip()]
+    telegram_ids = [int(x) for x in raw_ids if x.isdigit()]
+    if not telegram_ids:
+        await message.answer('Не нашёл ни одного telegram_id.', reply_markup=_back_keyboard(CB_USERS_MENU))
+        return
+
+    result = await db.execute(update(User).where(User.telegram_id.in_(telegram_ids)).values(is_blocked=True))
+    await db.commit()
+    await message.answer(
+        f'✅ Заблокировано пользователей: {result.rowcount} из {len(telegram_ids)} присланных id.',
+        reply_markup=_back_keyboard(CB_USERS_MENU),
+    )
+
+
 def _user_card_keyboard(user: User) -> InlineKeyboardMarkup:
-    block_text = '🔓 Разблокировать' if user.is_blocked else '🔒 Заблокировать'
+    block_text = '🔓 Разблокировать' if user.is_blocked else '🚫 Заблокировать'
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=block_text, callback_data=f'{CB_USER_BLOCK_TOGGLE}{user.id}')],
+            [
+                InlineKeyboardButton(text='💰 Баланс', callback_data=f'{CB_USER_BALANCE}{user.id}'),
+                InlineKeyboardButton(text='🤝 Рефералы', callback_data=f'{CB_USER_REFERRALS}{user.id}'),
+            ],
+            [
+                InlineKeyboardButton(text='📋 Транзакции', callback_data=f'{CB_USER_TRANSACTIONS}{user.id}'),
+                InlineKeyboardButton(text='✉️ Сообщение', callback_data=f'{CB_USER_MESSAGE}{user.id}'),
+            ],
+            [
+                InlineKeyboardButton(text=block_text, callback_data=f'{CB_USER_BLOCK_TOGGLE}{user.id}'),
+                InlineKeyboardButton(text='🗑️ Удалить', callback_data=f'{CB_USER_DELETE}{user.id}'),
+            ],
             [_back_button(CB_USERS_MENU)],
         ]
     )
@@ -274,14 +527,49 @@ def _user_card_keyboard(user: User) -> InlineKeyboardMarkup:
 async def _render_user_card(db: AsyncSession, user: User) -> str:
     result = await db.execute(select(Subscription).where(Subscription.user_id == user.id))
     sub = result.scalar_one_or_none()
-    sub_line = f'{sub.status} (до {sub.end_date:%Y-%m-%d %H:%M})' if sub else 'нет подписки'
-    return (
-        f'<b>Пользователь</b> {user.telegram_id} (@{user.username or "—"})\n'
-        f'Регистрация: {user.created_at:%Y-%m-%d}\n'
-        f'Баланс: {user.balance_kopeks / 100:.2f}₽\n'
-        f'Подписка: {sub_line}\n'
-        f'Заблокирован: {"да" if user.is_blocked else "нет"}'
-    )
+    tx_count = (
+        await db.execute(select(func.count(Transaction.id)).where(Transaction.user_id == user.id))
+    ).scalar_one()
+    days_registered = (datetime.now(timezone.utc) - user.created_at.replace(tzinfo=timezone.utc)).days
+
+    lines = [
+        '👤 <b>Управление пользователем</b>',
+        '',
+        '<b>Основная информация:</b>',
+        f'• ID: <code>{user.telegram_id}</code>',
+        f'• Username: @{user.username or "—"}',
+        f'• Статус: {"🚫 Заблокирован" if user.is_blocked else "✅ Активен"}',
+        f'• Язык: {user.language}',
+        '',
+        '<b>Финансы:</b>',
+        f'• Баланс: {user.balance_kopeks / 100:.2f} ₽',
+        f'• Транзакций: {tx_count}',
+        '',
+        '<b>Активность:</b>',
+        f'• Регистрация: {user.created_at:%Y-%m-%d}',
+        f'• Последняя активность: {_time_ago(user.last_activity_at)}',
+        f'• Дней с регистрации: {days_registered}',
+    ]
+
+    lines.append('')
+    if sub is None:
+        lines.append('<b>Подписка:</b> нет')
+    else:
+        traffic_limit = 'безлимит' if sub.traffic_limit_gb == 0 else f'{sub.traffic_limit_gb} ГБ'
+        lines.extend(
+            [
+                '<b>Подписка:</b>',
+                f'• Статус: {sub.status}',
+                f'• До: {sub.end_date:%Y-%m-%d %H:%M}',
+                f'• Трафик: {sub.traffic_used_gb:.1f} / {traffic_limit}',
+                f'• Устройства: лимит {sub.device_limit}',
+            ]
+        )
+
+    if user.blocked_bot:
+        lines.append('\n⚠️ Пользователь заблокировал бота — сообщения ему не доставляются.')
+
+    return '\n'.join(lines)
 
 
 @router.message(AdminUserStates.awaiting_telegram_id, F.text.regexp(r'^\d+$'))
@@ -331,6 +619,274 @@ async def cb_toggle_block(callback: CallbackQuery, db: AsyncSession, db_user: Us
     text = await _render_user_card(db, target)
     await _answer_or_edit(callback, text, _user_card_keyboard(target))
     await callback.answer('Статус обновлён')
+
+
+@router.callback_query(F.data.startswith(CB_USER_BALANCE))
+async def cb_user_balance(callback: CallbackQuery, db_user: User | None, state: FSMContext) -> None:
+    if not _is_admin(db_user):
+        await callback.answer()
+        return
+    target_id = int(callback.data[len(CB_USER_BALANCE):])
+    await state.set_state(AdminUserStates.awaiting_balance_amount)
+    await state.update_data(target_user_id=target_id)
+    await _answer_or_edit(
+        callback,
+        '💰 Введите сумму в рублях (можно отрицательную — чтобы списать):',
+        _back_keyboard(f'{CB_USER_CARD}{target_id}'),
+    )
+    await callback.answer()
+
+
+@router.message(AdminUserStates.awaiting_balance_amount, F.text)
+async def on_admin_balance_input(message: Message, db: AsyncSession, db_user: User | None, state: FSMContext) -> None:
+    if not _is_admin(db_user):
+        return
+    data = await state.get_data()
+    target = await db.get(User, data.get('target_user_id'))
+    if target is None:
+        await state.clear()
+        return
+    try:
+        rub = float(message.text.replace(',', '.').replace('+', ''))
+        kopeks = round(rub * 100)
+        if kopeks == 0:
+            raise ValueError
+    except ValueError:
+        await message.answer('Некорректная сумма. Введите ненулевое число, например 100 или -50.')
+        return
+
+    target.balance_kopeks = max(0, target.balance_kopeks + kopeks)
+    db.add(
+        Transaction(
+            user_id=target.id,
+            type='topup' if kopeks > 0 else 'refund',
+            amount_kopeks=abs(kopeks),
+            status='completed',
+            description='Начислено администратором' if kopeks > 0 else 'Списано администратором',
+        )
+    )
+    await db.flush()
+    await state.clear()
+    await message.answer(
+        f'✅ Баланс обновлён: {target.balance_kopeks / 100:.2f} ₽', reply_markup=_back_keyboard(f'{CB_USER_CARD}{target.id}')
+    )
+
+
+@router.callback_query(F.data.startswith(CB_USER_MESSAGE))
+async def cb_user_message(callback: CallbackQuery, db_user: User | None, state: FSMContext) -> None:
+    if not _is_admin(db_user):
+        await callback.answer()
+        return
+    target_id = int(callback.data[len(CB_USER_MESSAGE):])
+    await state.set_state(AdminUserStates.awaiting_message_text)
+    await state.update_data(target_user_id=target_id)
+    await _answer_or_edit(callback, '✉️ Введите текст сообщения для пользователя:', _back_keyboard(f'{CB_USER_CARD}{target_id}'))
+    await callback.answer()
+
+
+@router.message(AdminUserStates.awaiting_message_text, F.text)
+async def on_admin_message_input(message: Message, db: AsyncSession, db_user: User | None, state: FSMContext) -> None:
+    if not _is_admin(db_user):
+        return
+    data = await state.get_data()
+    target = await db.get(User, data.get('target_user_id'))
+    await state.clear()
+    if target is None:
+        return
+
+    try:
+        await message.bot.send_message(target.telegram_id, f'📩 Сообщение от администрации:\n\n{message.text}')
+        result_text = '✅ Сообщение отправлено.'
+    except TelegramForbiddenError:
+        target.blocked_bot = True
+        await db.flush()
+        result_text = '⚠️ Не удалось отправить — пользователь заблокировал бота.'
+    except Exception:
+        logger.exception('Не удалось отправить сообщение пользователю %s', target.telegram_id)
+        result_text = '⚠️ Не удалось отправить сообщение.'
+
+    await message.answer(result_text, reply_markup=_back_keyboard(f'{CB_USER_CARD}{target.id}'))
+
+
+@router.callback_query(F.data.startswith(CB_USER_REFERRALS))
+async def cb_user_referrals(callback: CallbackQuery, db: AsyncSession, db_user: User | None) -> None:
+    if not _is_admin(db_user):
+        await callback.answer()
+        return
+    target_id = int(callback.data[len(CB_USER_REFERRALS):])
+    target = await db.get(User, target_id)
+    if target is None:
+        await callback.answer('Пользователь не найден', show_alert=True)
+        return
+
+    from app.database.models import ReferralEarning
+
+    invited_count = (
+        await db.execute(select(func.count(User.id)).where(User.referred_by_id == target.id))
+    ).scalar_one()
+    earned = (
+        await db.execute(
+            select(func.coalesce(func.sum(ReferralEarning.amount_kopeks), 0)).where(
+                ReferralEarning.user_id == target.id
+            )
+        )
+    ).scalar_one()
+    text = (
+        f'🤝 <b>Рефералы пользователя {target.telegram_id}</b>\n\n'
+        f'Приглашено: {invited_count}\n'
+        f'Заработано: {earned / 100:.2f} ₽'
+    )
+    await _answer_or_edit(callback, text, _back_keyboard(f'{CB_USER_CARD}{target_id}'))
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith(CB_USER_TRANSACTIONS))
+async def cb_user_transactions(callback: CallbackQuery, db: AsyncSession, db_user: User | None) -> None:
+    if not _is_admin(db_user):
+        await callback.answer()
+        return
+    target_id = int(callback.data[len(CB_USER_TRANSACTIONS):])
+    result = await db.execute(
+        select(Transaction).where(Transaction.user_id == target_id).order_by(Transaction.created_at.desc()).limit(15)
+    )
+    transactions = result.scalars().all()
+    if not transactions:
+        text = '📋 Транзакций нет.'
+    else:
+        lines = ['📋 <b>Последние транзакции</b>', '']
+        for t in transactions:
+            sign = '+' if t.type in ('topup', 'referral_reward', 'refund', 'gift') else '-'
+            lines.append(f'{t.created_at:%Y-%m-%d %H:%M} · {t.type} · {sign}{t.amount_kopeks / 100:.2f} ₽ · {t.status}')
+        text = '\n'.join(lines)
+    await _answer_or_edit(callback, text, _back_keyboard(f'{CB_USER_CARD}{target_id}'))
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith(CB_USER_DELETE) & ~F.data.startswith(CB_USER_DELETE_YES))
+async def cb_user_delete_confirm(callback: CallbackQuery, db_user: User | None) -> None:
+    if not _is_admin(db_user):
+        await callback.answer()
+        return
+    target_id = int(callback.data[len(CB_USER_DELETE):])
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text='✅ Да, удалить', callback_data=f'{CB_USER_DELETE_YES}{target_id}'),
+                InlineKeyboardButton(text='❌ Отмена', callback_data=f'{CB_USER_CARD}{target_id}'),
+            ]
+        ]
+    )
+    await _answer_or_edit(
+        callback,
+        'Удалить пользователя? Это необратимо сотрёт логин из системы: аккаунт блокируется '
+        'и обезличивается (username очищается). Финансовая история и рефералы сохраняются '
+        'для целостности данных — полное физическое удаление строки не выполняется '
+        '(риск осиротевших записей, см. диалог).',
+        kb,
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith(CB_USER_DELETE_YES))
+async def cb_user_delete_yes(callback: CallbackQuery, db: AsyncSession, db_user: User | None) -> None:
+    if not _is_admin(db_user):
+        await callback.answer()
+        return
+    target_id = int(callback.data[len(CB_USER_DELETE_YES):])
+    target = await db.get(User, target_id)
+    if target is not None:
+        target.is_blocked = True
+        target.username = None
+        await db.flush()
+    await callback.answer('Пользователь удалён (обезличен)')
+    await _answer_or_edit(callback, '✅ Готово.', _back_keyboard(CB_USERS_MENU))
+
+
+# --- Партнёрка (реферальная программа — топ рефереров) ---
+
+
+@router.callback_query(F.data == CB_PARTNERS_MENU)
+async def cb_partners_menu(callback: CallbackQuery, db: AsyncSession, db_user: User | None) -> None:
+    if not _is_admin(db_user):
+        await callback.answer()
+        return
+
+    from app.database.models import ReferralEarning
+
+    total_paid = (
+        await db.execute(select(func.coalesce(func.sum(ReferralEarning.amount_kopeks), 0)))
+    ).scalar_one()
+    total_referred = (
+        await db.execute(select(func.count(User.id)).where(User.referred_by_id.is_not(None)))
+    ).scalar_one()
+
+    top_result = await db.execute(
+        select(User.telegram_id, User.username, func.sum(ReferralEarning.amount_kopeks).label('earned'))
+        .join(ReferralEarning, ReferralEarning.user_id == User.id)
+        .group_by(User.id)
+        .order_by(func.sum(ReferralEarning.amount_kopeks).desc())
+        .limit(10)
+    )
+    top_rows = top_result.all()
+
+    lines = [
+        '🤝 <b>Партнёрская программа</b>',
+        '',
+        f'Приглашённых всего: {total_referred}',
+        f'Выплачено рефералам: {total_paid / 100:.2f} ₽',
+        f'Процент начисления: {settings.REFERRAL_PERCENT}% с каждой оплаты приглашённого',
+        '',
+        '<b>Топ-10 по заработку:</b>',
+    ]
+    if not top_rows:
+        lines.append('пока никто ничего не заработал')
+    else:
+        for i, (tg_id, username, earned) in enumerate(top_rows, start=1):
+            lines.append(f'{i}. @{username or tg_id} — {earned / 100:.2f} ₽')
+
+    await _answer_or_edit(callback, '\n'.join(lines), _back_keyboard(CB_USERS_ROOT))
+    await callback.answer()
+
+
+# --- Подписки (все подписки, отдельно от карточек пользователей) ---
+
+
+@router.callback_query(F.data.startswith(CB_SUBS_MENU))
+async def cb_subs_menu(callback: CallbackQuery, db: AsyncSession, db_user: User | None) -> None:
+    if not _is_admin(db_user):
+        await callback.answer()
+        return
+    page = int(callback.data[len(CB_SUBS_MENU):])
+
+    total = (await db.execute(select(func.count(Subscription.id)))).scalar_one()
+    total_pages = max((total + PAGE_SIZE - 1) // PAGE_SIZE, 1)
+    result = await db.execute(
+        select(Subscription, User)
+        .join(User, User.id == Subscription.user_id)
+        .order_by(Subscription.end_date.desc())
+        .limit(PAGE_SIZE)
+        .offset(page * PAGE_SIZE)
+    )
+    rows_data = result.all()
+
+    rows = []
+    for sub, user in rows_data:
+        icon = '💎' if sub.status == 'active' else '⛔'
+        label = user.username or f'id{user.telegram_id}'
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f'{icon} {label} — до {sub.end_date:%d.%m.%Y}', callback_data=f'{CB_USER_CARD}{user.id}'
+                )
+            ]
+        )
+    if rows:
+        rows.append(_pagination_row(CB_SUBS_MENU, page, total_pages))
+    rows.append([_back_button(CB_USERS_ROOT)])
+
+    text = f'📱 <b>Подписки</b> (стр. {page + 1}/{total_pages}, всего: {total})' if rows_data else 'Подписок пока нет.'
+    await _answer_or_edit(callback, text, InlineKeyboardMarkup(inline_keyboard=rows))
+    await callback.answer()
 
 
 # --- Тарифы (мультитариф — см. диалог: "Онлайн"/"Семейный") ---
@@ -941,10 +1497,15 @@ async def cb_admin_broadcast_confirm(callback: CallbackQuery, db: AsyncSession, 
         try:
             await callback.bot.send_message(telegram_id, text)
             sent += 1
+        except TelegramForbiddenError:
+            failed += 1
+            # См. диалог — раздел "Заблокировавшие бота" в статистике пользователей.
+            await db.execute(update(User).where(User.telegram_id == telegram_id).values(blocked_bot=True))
         except Exception:
             failed += 1
             logger.debug('Рассылка: не удалось отправить %s', telegram_id, exc_info=True)
         await asyncio.sleep(0.05)
+    await db.commit()
 
     await callback.message.answer(f'✅ Рассылка завершена. Доставлено: {sent}, не доставлено: {failed}.')
 

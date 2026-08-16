@@ -41,6 +41,15 @@ class User(TimestampMixin, Base):
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     is_blocked: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    # Для админ-панели (см. диалог "1:1 как у Bedolaga", §Фаза 2): последняя
+    # активность обновляется в AuthMiddleware на каждом апдейте, используется для
+    # "Онлайн сейчас/сегодня/за неделю" и "Последняя активность" в карточке юзера.
+    last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Ставится, когда send_message падает с TelegramForbiddenError (юзер заблокировал
+    # бота) — используется в разделе "Заблокировавшие бота" и при рассылках, чтобы не
+    # тратить лишний запрос на заведомо недоступного получателя.
+    blocked_bot: Mapped[bool] = mapped_column(Boolean, default=False)
+
     subscription: Mapped['Subscription | None'] = relationship(
         back_populates='user', uselist=False, cascade='all, delete-orphan'
     )

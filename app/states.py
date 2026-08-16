@@ -48,6 +48,9 @@ class AdminBroadcastStates(StatesGroup):
 
 class AdminUserStates(StatesGroup):
     awaiting_telegram_id = State()
+    awaiting_balance_amount = State()
+    awaiting_message_text = State()
+    awaiting_massban_ids = State()
 
 
 class AdminEmojiStates(StatesGroup):

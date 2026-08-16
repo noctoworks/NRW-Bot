@@ -14,6 +14,7 @@ handler решает, что делать с отсутствующим поль
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timezone
 from typing import Any
 
 from aiogram import BaseMiddleware
@@ -44,6 +45,13 @@ class AuthMiddleware(BaseMiddleware):
                 should_be_admin = telegram_user.id in settings.admin_ids()
                 if db_user.is_admin != should_be_admin:
                     db_user.is_admin = should_be_admin
+                # "Онлайн сейчас/сегодня/за неделю" и "Последняя активность" в
+                # админке (см. диалог, Фаза 2) считаются от этого поля.
+                db_user.last_activity_at = datetime.now(timezone.utc)
+                # Раз дошли до хендлера — бот у пользователя точно не заблокирован
+                # (иначе Telegram не доставил бы апдейт нам).
+                if db_user.blocked_bot:
+                    db_user.blocked_bot = False
 
             data['db'] = session
             data['db_user'] = db_user
