@@ -7,10 +7,11 @@ from __future__ import annotations
 from aiogram import Dispatcher, F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message
+from aiogram.types import InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import User
+from app.keyboards.main_menu import back_to_menu_button
 from app.services.promocode_service import PromoCodeError, PromoCodeResult, activate_promocode
 from app.states import PromoCodeStates
 
@@ -57,16 +58,18 @@ async def process_promo_code(message: Message, db: AsyncSession, db_user: User |
     lang = db_user.language
     code = message.text.strip()
 
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[back_to_menu_button()]])
+
     try:
         result: PromoCodeResult = await activate_promocode(db, code=code, user=db_user)
     except PromoCodeError as exc:
-        await message.answer(_t(lang, 'error').format(error=str(exc)))
+        await message.answer(_t(lang, 'error').format(error=str(exc)), reply_markup=keyboard)
         return
 
     if result.type == 'balance':
-        await message.answer(_t(lang, 'success_balance').format(amount=result.value / 100))
+        await message.answer(_t(lang, 'success_balance').format(amount=result.value / 100), reply_markup=keyboard)
     else:
-        await message.answer(_t(lang, 'success_days').format(days=result.value))
+        await message.answer(_t(lang, 'success_days').format(days=result.value), reply_markup=keyboard)
 
 
 def register_handlers(dp: Dispatcher) -> None:

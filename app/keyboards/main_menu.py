@@ -23,6 +23,19 @@ CB_SUPPORT_MENU = 'support:menu'
 CB_INFO_ABOUT = 'info:about'
 CB_SETTINGS_MENU = 'settings:menu'
 
+# Возврат в главное меню — реализован в handlers/start.py (единственный владелец
+# показа главного меню). Все остальные модули ссылаются на эту константу вместо
+# того чтобы хардкодить строку 'menu:main' — так исключается риск рассинхрона
+# (найденный баг: subscription.py использовал 'menu:main', но хендлера не было
+# ни в одном модуле).
+CB_MENU_MAIN = 'menu:main'
+
+
+def back_to_menu_button() -> InlineKeyboardButton:
+    """Единая кнопка «В меню» — используйте её вместо InlineKeyboardButton(..., callback_data='menu:main')
+    напрямую, чтобы при изменении текста/эмодзи не редактировать N файлов."""
+    return InlineKeyboardButton(text='⬅️ В меню', callback_data=CB_MENU_MAIN)
+
 
 def get_main_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(

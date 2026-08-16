@@ -26,7 +26,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import User
-from app.keyboards.main_menu import CB_INFO_ABOUT, CB_SETTINGS_MENU, get_main_menu_keyboard
+from app.keyboards.main_menu import (
+    CB_INFO_ABOUT,
+    CB_MENU_MAIN,
+    CB_SETTINGS_MENU,
+    back_to_menu_button,
+    get_main_menu_keyboard,
+)
 from app.services.gift_service import GiftCodeError, redeem_gift_code
 from app.services.referral_service import generate_referral_code
 from app.states import RegistrationStates
@@ -149,10 +155,25 @@ async def _answer(target: Message | CallbackQuery, text: str) -> None:
         await target.answer(text)
 
 
+async def _edit_or_answer(callback: CallbackQuery, text: str, reply_markup: InlineKeyboardMarkup | None = None) -> None:
+    """Редактирует текущее сообщение вместо отправки нового — везде, где переход
+    инициирован callback'ом (нажатием кнопки). Отправка нового сообщения уместна
+    только в ответ на текстовый ввод пользователя (там нечего редактировать) или
+    когда контент должен остаться отдельным (например ссылка подписки для копирования).
+
+    Fallback на answer(), если edit_text невозможен (например текст не изменился —
+    Telegram вернёт "message is not modified", или исходное сообщение было удалено).
+    """
+    try:
+        await callback.message.edit_text(text, reply_markup=reply_markup)
+    except Exception:
+        await callback.message.answer(text, reply_markup=reply_markup)
+
+
 async def _show_main_menu(target: Message | CallbackQuery, db_user: User, *, is_new: bool) -> None:
     text = _t(db_user.language, 'welcome' if is_new else 'welcome_back')
     if isinstance(target, CallbackQuery):
-        await target.message.answer(text, reply_markup=get_main_menu_keyboard())
+        await _edit_or_answer(target, text, get_main_menu_keyboard())
     else:
         await target.answer(text, reply_markup=get_main_menu_keyboard())
 
@@ -224,17 +245,17 @@ async def cb_accept_rules(callback: CallbackQuery, db: AsyncSession, state: FSMC
 @router.callback_query(F.data == CB_INFO_ABOUT)
 async def cb_info_about(callback: CallbackQuery, db_user: User | None) -> None:
     lang = db_user.language if db_user else 'ru'
-    await callback.message.answer(_t(lang, 'about'))
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[back_to_menu_button()]])
+    await _edit_or_answer(callback, _t(lang, 'about'), keyboard)
     await callback.answer()
 
 
 @router.callback_query(F.data == CB_SETTINGS_MENU)
 async def cb_settings_menu(callback: CallbackQuery, db_user: User | None) -> None:
     lang = db_user.language if db_user else 'ru'
-    await callback.message.answer(
-        _t(lang, 'settings').format(lang=lang),
-        reply_markup=_language_keyboard('settings:lang'),
-    )
+    keyboard = _language_keyboard('settings:lang')
+    keyboard.inline_keyboard.append([back_to_menu_button()])
+    await _edit_or_answer(callback, _t(lang, 'settings').format(lang=lang), keyboard)
     await callback.answer()
 
 
@@ -248,7 +269,21 @@ async def cb_settings_set_language(callback: CallbackQuery, db: AsyncSession, db
         lang = 'ru'
     db_user.language = lang
     await db.flush()
-    await callback.message.answer(_t(lang, 'settings_saved'))
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[back_to_menu_button()]])
+    await _edit_or_answer(callback, _t(lang, 'settings_saved'), keyboard)
+    await callback.answer()
+
+
+@router.callback_query(F.data == CB_MENU_MAIN)
+async def cb_menu_main(callback: CallbackQuery, db_user: User | None, state: FSMContext) -> None:
+    """Единая точка возврата в главное меню — на неё ссылаются кнопки «В меню»
+    из ВСЕХ остальных модулей (subscription.py и т.д.), см. app/keyboards/main_menu.py.
+    """
+    await state.clear()
+    if db_user is None:
+        await callback.answer()
+        return
+    await _show_main_menu(callback, db_user, is_new=False)
     await callback.answer()
 
 

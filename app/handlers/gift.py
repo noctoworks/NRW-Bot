@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database.models import Payment, Tariff, Transaction, User
-from app.keyboards.main_menu import CB_GIFT_MENU
+from app.keyboards.main_menu import CB_GIFT_MENU, back_to_menu_button
 from app.services.gift_service import create_gift_code
 from app.services.payment import get_payment_provider
 from app.states import GiftStates
@@ -81,13 +81,21 @@ def _period_keyboard(tariff: Tariff) -> InlineKeyboardMarkup:
         rows.append(
             [InlineKeyboardButton(text=f'{days} дн. — {price:.2f} ₽', callback_data=f'gift:period:{days}')]
         )
+    rows.append([back_to_menu_button()])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _payment_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text=title, callback_data=f'gift:pay:{method}')] for method, title in PAYMENT_METHODS]
-    )
+    rows = [[InlineKeyboardButton(text=title, callback_data=f'gift:pay:{method}')] for method, title in PAYMENT_METHODS]
+    rows.append([back_to_menu_button()])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def _edit_or_answer(callback: CallbackQuery, text: str, reply_markup: InlineKeyboardMarkup | None = None) -> None:
+    try:
+        await callback.message.edit_text(text, reply_markup=reply_markup)
+    except Exception:
+        await callback.message.answer(text, reply_markup=reply_markup)
 
 
 async def _get_active_tariff(db: AsyncSession) -> Tariff | None:
@@ -104,13 +112,14 @@ async def cb_gift_menu(callback: CallbackQuery, db: AsyncSession, db_user: User 
 
     tariff = await _get_active_tariff(db)
     if tariff is None:
-        await callback.message.answer(_t(lang, 'no_tariff'))
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[back_to_menu_button()]])
+        await _edit_or_answer(callback, _t(lang, 'no_tariff'), keyboard)
         await callback.answer()
         return
 
     await state.update_data(tariff_id=tariff.id)
     await state.set_state(GiftStates.choosing_period)
-    await callback.message.answer(_t(lang, 'choose_period'), reply_markup=_period_keyboard(tariff))
+    await _edit_or_answer(callback, _t(lang, 'choose_period'), _period_keyboard(tariff))
     await callback.answer()
 
 
@@ -132,8 +141,7 @@ async def cb_choose_period(callback: CallbackQuery, db: AsyncSession, db_user: U
     price = tariff.period_prices_kopeks[str(days)] / 100
     await state.update_data(period_days=days)
     await state.set_state(GiftStates.choosing_payment_method)
-    await callback.message.edit_text(_t(lang, 'choose_payment').format(price=price))
-    await callback.message.answer(_t(lang, 'choose_payment').format(price=price), reply_markup=_payment_keyboard())
+    await _edit_or_answer(callback, _t(lang, 'choose_payment').format(price=price), _payment_keyboard())
     await callback.answer()
 
 
@@ -168,8 +176,11 @@ async def cb_choose_payment(callback: CallbackQuery, db: AsyncSession, db_user: 
     if created.status != 'success':
         await state.clear()
         if created.payment_url:
-            await callback.message.answer(
-                _t(lang, 'payment_pending').format(provider=method, url=created.payment_url)
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[[back_to_menu_button()]])
+            await _edit_or_answer(
+                callback,
+                _t(lang, 'payment_pending').format(provider=method, url=created.payment_url),
+                keyboard,
             )
         await callback.answer()
         return
@@ -201,7 +212,8 @@ async def cb_choose_payment(callback: CallbackQuery, db: AsyncSession, db_user: 
     bot_username = settings.BOT_USERNAME or '<укажите_BOT_USERNAME>'
     link = f'https://t.me/{bot_username}?start=gift_{gift_code.code}'
 
-    await callback.message.answer(_t(lang, 'success').format(link=link))
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[back_to_menu_button()]])
+    await _edit_or_answer(callback, _t(lang, 'success').format(link=link), keyboard)
     await callback.answer()
 
 

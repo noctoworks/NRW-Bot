@@ -8,13 +8,13 @@
 from __future__ import annotations
 
 from aiogram import Dispatcher, F, Router
-from aiogram.types import CallbackQuery
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database.models import ReferralEarning, User
-from app.keyboards.main_menu import CB_REFERRAL_MENU
+from app.keyboards.main_menu import CB_REFERRAL_MENU, back_to_menu_button
 
 router = Router(name='referral')
 
@@ -87,7 +87,11 @@ async def cb_referral_menu(callback: CallbackQuery, db: AsyncSession, db_user: U
         count=invited_count,
         earned=earned_kopeks / 100,
     )
-    await callback.message.answer(text + suffix)
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[back_to_menu_button()]])
+    try:
+        await callback.message.edit_text(text + suffix, reply_markup=keyboard)
+    except Exception:
+        await callback.message.answer(text + suffix, reply_markup=keyboard)
     await callback.answer()
 
 

@@ -17,13 +17,13 @@ import logging
 
 from aiogram import Dispatcher, F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database.models import SupportMessage, User
-from app.keyboards.main_menu import CB_SUPPORT_MENU
+from app.keyboards.main_menu import CB_SUPPORT_MENU, back_to_menu_button
 from app.states import SupportStates
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,17 @@ async def cb_support_menu(callback: CallbackQuery, state: FSMContext, db_user: U
         await callback.answer('Ваш аккаунт заблокирован.', show_alert=True)
         return
     await state.set_state(SupportStates.writing_message)
-    await callback.message.answer('✍️ Опишите вашу проблему одним сообщением — мы передадим её администратору.')
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[back_to_menu_button()]])
+    try:
+        await callback.message.edit_text(
+            '✍️ Опишите вашу проблему одним сообщением — мы передадим её администратору.',
+            reply_markup=keyboard,
+        )
+    except Exception:
+        await callback.message.answer(
+            '✍️ Опишите вашу проблему одним сообщением — мы передадим её администратору.',
+            reply_markup=keyboard,
+        )
     await callback.answer()
 
 
@@ -77,7 +87,8 @@ async def on_support_message(message: Message, state: FSMContext, db: AsyncSessi
         await db.flush()
 
     await state.clear()
-    await message.answer('✅ Сообщение отправлено администратору. Мы ответим здесь же.')
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[back_to_menu_button()]])
+    await message.answer('✅ Сообщение отправлено администратору. Мы ответим здесь же.', reply_markup=keyboard)
 
 
 @router.message(F.reply_to_message, F.text)

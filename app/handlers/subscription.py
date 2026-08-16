@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import Payment, Subscription, Tariff, Transaction, User
 from app.external.remnawave import get_remnawave_client
-from app.keyboards.main_menu import CB_SUBSCRIPTION_MY, CB_SUBSCRIPTION_RENEW, get_main_menu_keyboard
+from app.keyboards.main_menu import CB_SUBSCRIPTION_MY, CB_SUBSCRIPTION_RENEW, back_to_menu_button
 from app.services.notification_service import notify_payment_success
 from app.services.payment import get_payment_provider
 from app.services.referral_service import credit_referral_earning
@@ -228,7 +228,7 @@ def kb_no_subscription() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text='💎 Купить подписку', callback_data='sub:buy')],
-            [InlineKeyboardButton(text='⬅️ В меню', callback_data='menu:main')],
+            [back_to_menu_button()],
         ]
     )
 
@@ -240,7 +240,7 @@ def kb_subscription_active() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text='📋 Скопировать ключ', callback_data='sub:connect')],
             [InlineKeyboardButton(text='💎 Продлить подписку', callback_data=CB_SUBSCRIPTION_RENEW)],
             [InlineKeyboardButton(text='📱 Устройства', callback_data='sub:devices')],
-            [InlineKeyboardButton(text='⬅️ В меню', callback_data='menu:main')],
+            [back_to_menu_button()],
         ]
     )
 
