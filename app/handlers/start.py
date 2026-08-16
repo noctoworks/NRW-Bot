@@ -170,8 +170,20 @@ async def _edit_or_answer(callback: CallbackQuery, text: str, reply_markup: Inli
         await callback.message.answer(text, reply_markup=reply_markup)
 
 
-async def _show_main_menu(target: Message | CallbackQuery, db_user: User, *, is_new: bool) -> None:
-    text = _t(db_user.language, 'welcome' if is_new else 'welcome_back')
+async def _show_main_menu(target: Message | CallbackQuery, db: AsyncSession, db_user: User, *, is_new: bool) -> None:
+    if is_new:
+        # Только что зарегистрировался — подписки/баланса ещё нет, показываем
+        # обычный приветственный текст, а не пустую карточку.
+        text = _t(db_user.language, 'welcome')
+    else:
+        # Уже зарегистрированный пользователь возвращается в меню — вместо общей
+        # фразы "С возвращением!" сразу показываем короткую сводку по аккаунту
+        # (баланс/время до конца подписки/трафик), см. диалог: "сократим инфу".
+        from app.handlers.subscription import format_subscription_summary, get_user_subscription
+
+        subscription = await get_user_subscription(db, db_user.id)
+        text = format_subscription_summary(subscription, db_user.balance_kopeks)
+
     if isinstance(target, CallbackQuery):
         await _edit_or_answer(target, text, get_main_menu_keyboard())
     else:
@@ -191,7 +203,7 @@ async def cmd_start(message: Message, command: CommandObject, db: AsyncSession, 
     if gift_code:
         await _apply_gift_payload(message, db, db_user, gift_code)
 
-    await _show_main_menu(message, db_user, is_new=False)
+    await _show_main_menu(message, db, db_user, is_new=False)
 
 
 @router.callback_query(RegistrationStates.choosing_language, F.data.startswith('reg:lang:'))
@@ -238,7 +250,7 @@ async def cb_accept_rules(callback: CallbackQuery, db: AsyncSession, state: FSMC
         await _apply_gift_payload(callback, db, new_user, gift_code)
 
     await callback.message.edit_reply_markup(reply_markup=None)
-    await _show_main_menu(callback, new_user, is_new=True)
+    await _show_main_menu(callback, db, new_user, is_new=True)
     await callback.answer()
 
 
@@ -275,7 +287,7 @@ async def cb_settings_set_language(callback: CallbackQuery, db: AsyncSession, db
 
 
 @router.callback_query(F.data == CB_MENU_MAIN)
-async def cb_menu_main(callback: CallbackQuery, db_user: User | None, state: FSMContext) -> None:
+async def cb_menu_main(callback: CallbackQuery, db: AsyncSession, db_user: User | None, state: FSMContext) -> None:
     """Единая точка возврата в главное меню — на неё ссылаются кнопки «В меню»
     из ВСЕХ остальных модулей (subscription.py и т.д.), см. app/keyboards/main_menu.py.
     """
@@ -283,7 +295,7 @@ async def cb_menu_main(callback: CallbackQuery, db_user: User | None, state: FSM
     if db_user is None:
         await callback.answer()
         return
-    await _show_main_menu(callback, db_user, is_new=False)
+    await _show_main_menu(callback, db, db_user, is_new=False)
     await callback.answer()
 
 

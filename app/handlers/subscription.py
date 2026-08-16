@@ -4,7 +4,7 @@ clone-architecture.md.
 Бизнес-логика вынесена в отдельные async-функции (не привязанные к aiogram
 Update/CallbackQuery), чтобы их можно было дергать напрямую из тестового
 скрипта: ``get_active_tariff``, ``purchase_or_renew_subscription``,
-``format_subscription_text``, ``remove_user_device``, ``reset_user_devices``.
+``format_subscription_summary``, ``remove_user_device``, ``reset_user_devices``.
 
 One-tap connect (§8) — упрощённая тестовая версия, без полноценного
 get_subscription_page_config (это часть Mini App, отдельный этап): кнопка
@@ -215,19 +215,48 @@ async def reset_user_devices(remnawave_uuid: str) -> None:
     await client.reset_user_devices(remnawave_uuid=remnawave_uuid)
 
 
-def format_subscription_text(subscription: Subscription, devices_count: int) -> str:
-    status_label = {'active': 'активна ✅', 'expired': 'истекла ⛔', 'disabled': 'отключена ⛔'}.get(
-        subscription.status, subscription.status
-    )
-    traffic_limit = 'безлимит' if subscription.traffic_limit_gb == 0 else f'{subscription.traffic_limit_gb} ГБ'
-    end_date_str = subscription.end_date.strftime('%d.%m.%Y %H:%M') if subscription.end_date else '—'
+def _format_time_left(end_date: datetime) -> str:
+    """'3 дня, 14 часов, 27 минут' — компактная разбивка остатка, а не просто дата."""
+    end = end_date if end_date.tzinfo else end_date.replace(tzinfo=timezone.utc)
+    delta = end - datetime.now(timezone.utc)
+    if delta.total_seconds() <= 0:
+        return '0 минут'
+
+    total_minutes = int(delta.total_seconds() // 60)
+    days, rem_minutes = divmod(total_minutes, 24 * 60)
+    hours, minutes = divmod(rem_minutes, 60)
+
+    parts = []
+    if days:
+        parts.append(f'{days} дн.')
+    if hours or days:
+        parts.append(f'{hours} ч.')
+    parts.append(f'{minutes} мин.')
+    return ' '.join(parts)
+
+
+def format_subscription_summary(subscription: Subscription | None, balance_kopeks: int) -> str:
+    """Компактная карточка: баланс, время до конца подписки, трафик — см. диалог
+    ('сократим инфу'), референс — оригинальный формат Gram VPN/Bedolaga.
+    Полный статус/устройства/тариф намеренно не дублируются здесь — они доступны
+    через кнопку «Устройства» и не нужны на этом экране."""
+    balance_line = f'💰 Баланс: <b>{balance_kopeks / 100:.2f} ₽</b>'
+
+    if subscription is None:
+        return f'🌐 <b>Подписка не оформлена</b>\n\n{balance_line}'
+
+    if subscription.status != 'active' or not subscription.end_date:
+        end_date_str = subscription.end_date.strftime('%d.%m.%Y') if subscription.end_date else '—'
+        return f'⛔ <b>Подписка истекла</b> ({end_date_str})\n\n{balance_line}'
+
+    traffic_limit = '∞' if subscription.traffic_limit_gb == 0 else str(subscription.traffic_limit_gb)
+    end_date_str = subscription.end_date.strftime('%d.%m.%Y')
 
     return (
-        f'<b>Моя подписка</b>\n\n'
-        f'Статус: {status_label}\n'
-        f'Действует до: {end_date_str}\n'
-        f'Трафик: {subscription.traffic_used_gb:.1f} / {traffic_limit}\n'
-        f'Устройства: {devices_count} / {subscription.device_limit}\n'
+        f'🌐 <b>Подписка активна</b> до {end_date_str}\n'
+        f'⏳ Осталось: <b>{_format_time_left(subscription.end_date)}</b>\n\n'
+        f'📊 Трафик: <b>{subscription.traffic_used_gb:.1f} / {traffic_limit} ГБ</b>\n'
+        f'{balance_line}'
     )
 
 
@@ -330,18 +359,43 @@ def kb_devices_reset_confirm() -> InlineKeyboardMarkup:
     )
 
 
+def _is_invalid_button_url_error(exc: TelegramBadRequest) -> bool:
+    """Telegram формулирует эту ошибку по-разному в зависимости от причины —
+    подтверждено вживую: реальный текст оказался 'Unsupported URL protocol',
+    а не 'BUTTON_URL_INVALID', как в документации/старых версиях API. Поэтому
+    матчим по набору известных фраз, а не по одной константе."""
+    message = str(exc).lower()
+    return 'button url' in message and ('invalid' in message or 'protocol' in message or 'unsupported' in message)
+
+
+# Подтверждено вживую: конкретный Bot API-сервер, к которому мы стучимся, отклоняет
+# happ:// в url-кнопке ("Unsupported URL protocol"). Как только это случилось один раз —
+# бессмысленно повторять заведомо провальный запрос на каждый рендер экрана подписки,
+# поэтому запоминаем результат на время жизни процесса (сбрасывается перезапуском —
+# если Telegram когда-нибудь начнёт разрешать кастомные схемы, поведение само подхватится).
+_happ_deep_link_confirmed_unsupported = False
+
+
 async def _send_subscription_view(callback: CallbackQuery, text: str, subscription_url: str | None) -> None:
     """edit_text с клавиатурой kb_subscription_active; если Telegram отклонил
-    happ:// в url-кнопке (BUTTON_URL_INVALID), автоматически пересобирает
-    клавиатуру без deep-link'а и повторяет попытку."""
+    happ:// в url-кнопке, автоматически пересобирает клавиатуру без deep-link'а
+    и повторяет попытку."""
+    global _happ_deep_link_confirmed_unsupported
+
+    if _happ_deep_link_confirmed_unsupported:
+        await callback.message.edit_text(text, reply_markup=kb_subscription_active(subscription_url, use_deep_link=False))
+        return
+
     try:
         await callback.message.edit_text(text, reply_markup=kb_subscription_active(subscription_url))
     except TelegramBadRequest as exc:
-        if 'BUTTON_URL_INVALID' not in str(exc):
+        if not _is_invalid_button_url_error(exc):
             raise
+        _happ_deep_link_confirmed_unsupported = True
         logger.warning(
-            'Telegram отклонил happ:// deep-link в url-кнопке (BUTTON_URL_INVALID) — '
-            'откатываюсь на callback-кнопку с показом ссылки текстом'
+            'Telegram отклонил happ:// deep-link в url-кнопке (%s) — откатываюсь на '
+            'callback-кнопку с показом ссылки текстом и запоминаю это на весь процесс',
+            exc,
         )
         await callback.message.edit_text(
             text, reply_markup=kb_subscription_active(subscription_url, use_deep_link=False)
@@ -357,17 +411,12 @@ async def cb_subscription_my(callback: CallbackQuery, db: AsyncSession, db_user:
     subscription = await get_user_subscription(db, db_user.id)
 
     if subscription is None:
-        await callback.message.edit_text('У вас пока нет подписки.', reply_markup=kb_no_subscription())
+        text = format_subscription_summary(None, db_user.balance_kopeks)
+        await callback.message.edit_text(text, reply_markup=kb_no_subscription())
         await callback.answer()
         return
 
-    devices_count = 0
-    if db_user.remnawave_uuid:
-        client = get_remnawave_client()
-        devices = await client.get_user_devices(remnawave_uuid=db_user.remnawave_uuid)
-        devices_count = len(devices)
-
-    text = format_subscription_text(subscription, devices_count)
+    text = format_subscription_summary(subscription, db_user.balance_kopeks)
     await _send_subscription_view(callback, text, subscription.subscription_url)
     await callback.answer()
 
@@ -523,12 +572,8 @@ async def cb_confirm_purchase(
 
     await state.clear()
     subscription = await get_user_subscription(db, db_user.id)
-    devices_count = 0
-    if db_user.remnawave_uuid:
-        client = get_remnawave_client()
-        devices_count = len(await client.get_user_devices(remnawave_uuid=db_user.remnawave_uuid))
 
-    text = 'Оплата прошла успешно! Подписка активна.\n\n' + format_subscription_text(subscription, devices_count)
+    text = '✅ Оплата прошла успешно!\n\n' + format_subscription_summary(subscription, db_user.balance_kopeks)
     await _send_subscription_view(callback, text, subscription.subscription_url)
     await callback.answer()
 
