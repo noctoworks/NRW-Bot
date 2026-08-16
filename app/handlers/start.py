@@ -1,10 +1,256 @@
-"""TODO(agent:registration): регистрация, /start, deep-link (ref_/gift_), phantom-user не нужен
-(в клоне нет гостевых лендингов) — см. §9.1 clone-architecture.md."""
+"""Регистрация, /start, deep-link (ref_/gift_), главное меню — см. §9.1/§9.4
+clone-architecture.md.
+
+Флоу:
+    /start [ref_CODE|gift_CODE]
+        -> если db_user is None: язык -> правила -> INSERT User (тут же
+           применяется ref_CODE, если валиден) -> (если был gift_CODE)
+           redeem_gift_code -> главное меню
+        -> если db_user уже есть: (если был gift_CODE) redeem_gift_code
+           -> главное меню
+
+В клоне нет гостевых лендингов/phantom-user — без активной подписки просто
+показываем меню, остальные разделы (subscription/gift/referral/support)
+владеют своими callback'ами самостоятельно.
+"""
 
 from __future__ import annotations
 
-from aiogram import Dispatcher
+import logging
+
+from aiogram import Dispatcher, F, Router
+from aiogram.filters import CommandObject, CommandStart
+from aiogram.fsm.context import FSMContext
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database.models import User
+from app.keyboards.main_menu import CB_INFO_ABOUT, CB_SETTINGS_MENU, get_main_menu_keyboard
+from app.services.gift_service import GiftCodeError, redeem_gift_code
+from app.services.referral_service import generate_referral_code
+from app.states import RegistrationStates
+
+logger = logging.getLogger(__name__)
+
+router = Router(name='start')
+
+
+TEXTS = {
+    'ru': {
+        'choose_language': 'Привет! Выберите язык интерфейса:',
+        'rules': (
+            'Прежде чем продолжить — примите условия использования сервиса.\n\n'
+            'Нажимая «Принимаю», вы соглашаетесь с правилами использования бота.'
+        ),
+        'accept_rules': '✅ Принимаю',
+        'welcome': 'Добро пожаловать! Это меню сервиса — выберите нужный раздел.',
+        'welcome_back': 'С возвращением! Выберите нужный раздел.',
+        'about': (
+            'Это сервис доступа к VPN по подписке.\n\n'
+            'Здесь вы можете купить или продлить подписку, подарить её другу, '
+            'приглашать друзей за бонусы и получать поддержку — всё через это меню.'
+        ),
+        'settings': 'Настройки. Текущий язык: {lang}. Выберите новый:',
+        'settings_saved': 'Язык интерфейса обновлён.',
+        'gift_success': '🎉 Подарочная подписка активирована! Загляните в «Моя подписка», чтобы увидеть детали.',
+        'gift_error': '⚠️ Не удалось активировать подарочный код: {error}',
+        'gift_not_ready': '⚠️ Активация подарочных кодов временно недоступна, попробуйте позже.',
+        'back': '⬅️ Назад',
+    },
+    'en': {
+        'choose_language': 'Hi! Please choose your interface language:',
+        'rules': (
+            'Before we continue — please accept the terms of service.\n\n'
+            'By tapping "Accept" you agree to the bot usage rules.'
+        ),
+        'accept_rules': '✅ Accept',
+        'welcome': 'Welcome! This is the service menu — pick a section.',
+        'welcome_back': 'Welcome back! Pick a section.',
+        'about': (
+            'This is a subscription-based VPN access service.\n\n'
+            'Here you can buy or renew a subscription, gift it to a friend, '
+            'invite friends for bonuses and get support — all from this menu.'
+        ),
+        'settings': 'Settings. Current language: {lang}. Choose a new one:',
+        'settings_saved': 'Interface language updated.',
+        'gift_success': '🎉 Gift subscription activated! Check "My subscription" for details.',
+        'gift_error': '⚠️ Could not redeem the gift code: {error}',
+        'gift_not_ready': '⚠️ Gift code redemption is temporarily unavailable, please try again later.',
+        'back': '⬅️ Back',
+    },
+}
+
+
+def _t(lang: str | None, key: str) -> str:
+    return TEXTS.get(lang or 'ru', TEXTS['ru'])[key]
+
+
+def _language_keyboard(prefix: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text='🇷🇺 Русский', callback_data=f'{prefix}:ru'),
+                InlineKeyboardButton(text='🇬🇧 English', callback_data=f'{prefix}:en'),
+            ]
+        ]
+    )
+
+
+def _rules_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=_t(lang, 'accept_rules'), callback_data='reg:accept')],
+        ]
+    )
+
+
+def _parse_payload(args: str | None) -> tuple[str | None, str | None]:
+    """Возвращает (ref_code, gift_code) — deep-link payload после /start."""
+    if not args:
+        return None, None
+    if args.startswith('ref_'):
+        code = args[len('ref_') :].strip()
+        return (code or None), None
+    if args.startswith('gift_'):
+        code = args[len('gift_') :].strip()
+        return None, (code or None)
+    return None, None
+
+
+async def _generate_unique_referral_code(db: AsyncSession) -> str:
+    for _ in range(10):
+        code = generate_referral_code()
+        result = await db.execute(select(User.id).where(User.referral_code == code))
+        if result.scalar_one_or_none() is None:
+            return code
+    raise RuntimeError('Не удалось сгенерировать уникальный referral_code за 10 попыток')
+
+
+async def _apply_gift_payload(message_or_cq: Message | CallbackQuery, db: AsyncSession, db_user: User, gift_code: str) -> None:
+    lang = db_user.language
+    try:
+        await redeem_gift_code(db, code=gift_code, recipient=db_user)
+    except GiftCodeError as exc:
+        text = _t(lang, 'gift_error').format(error=str(exc))
+        await _answer(message_or_cq, text)
+        return
+    except NotImplementedError:
+        logger.warning('redeem_gift_code ещё не реализован (параллельная разработка gift_service)')
+        await _answer(message_or_cq, _t(lang, 'gift_not_ready'))
+        return
+    await _answer(message_or_cq, _t(lang, 'gift_success'))
+
+
+async def _answer(target: Message | CallbackQuery, text: str) -> None:
+    if isinstance(target, CallbackQuery):
+        await target.message.answer(text)
+    else:
+        await target.answer(text)
+
+
+async def _show_main_menu(target: Message | CallbackQuery, db_user: User, *, is_new: bool) -> None:
+    text = _t(db_user.language, 'welcome' if is_new else 'welcome_back')
+    if isinstance(target, CallbackQuery):
+        await target.message.answer(text, reply_markup=get_main_menu_keyboard())
+    else:
+        await target.answer(text, reply_markup=get_main_menu_keyboard())
+
+
+@router.message(CommandStart())
+async def cmd_start(message: Message, command: CommandObject, db: AsyncSession, db_user: User | None, state: FSMContext) -> None:
+    ref_code, gift_code = _parse_payload(command.args)
+
+    if db_user is None:
+        await state.update_data(ref_code=ref_code, gift_code=gift_code)
+        await state.set_state(RegistrationStates.choosing_language)
+        await message.answer(_t('ru', 'choose_language'), reply_markup=_language_keyboard('reg:lang'))
+        return
+
+    if gift_code:
+        await _apply_gift_payload(message, db, db_user, gift_code)
+
+    await _show_main_menu(message, db_user, is_new=False)
+
+
+@router.callback_query(RegistrationStates.choosing_language, F.data.startswith('reg:lang:'))
+async def cb_choose_language(callback: CallbackQuery, state: FSMContext) -> None:
+    lang = callback.data.split(':')[-1]
+    if lang not in TEXTS:
+        lang = 'ru'
+    await state.update_data(language=lang)
+    await state.set_state(RegistrationStates.accepting_rules)
+    await callback.message.edit_text(_t(lang, 'rules'), reply_markup=_rules_keyboard(lang))
+    await callback.answer()
+
+
+@router.callback_query(RegistrationStates.accepting_rules, F.data == 'reg:accept')
+async def cb_accept_rules(callback: CallbackQuery, db: AsyncSession, state: FSMContext) -> None:
+    data = await state.get_data()
+    lang = data.get('language', 'ru')
+    ref_code = data.get('ref_code')
+    gift_code = data.get('gift_code')
+
+    telegram_user = callback.from_user
+    referred_by_id: int | None = None
+    if ref_code:
+        result = await db.execute(select(User).where(User.referral_code == ref_code))
+        referrer = result.scalar_one_or_none()
+        if referrer is not None and referrer.telegram_id != telegram_user.id:
+            referred_by_id = referrer.id
+
+    referral_code = await _generate_unique_referral_code(db)
+
+    new_user = User(
+        telegram_id=telegram_user.id,
+        username=telegram_user.username,
+        language=lang,
+        referral_code=referral_code,
+        referred_by_id=referred_by_id,
+    )
+    db.add(new_user)
+    await db.flush()
+
+    await state.clear()
+
+    if gift_code:
+        await _apply_gift_payload(callback, db, new_user, gift_code)
+
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await _show_main_menu(callback, new_user, is_new=True)
+    await callback.answer()
+
+
+@router.callback_query(F.data == CB_INFO_ABOUT)
+async def cb_info_about(callback: CallbackQuery, db_user: User | None) -> None:
+    lang = db_user.language if db_user else 'ru'
+    await callback.message.answer(_t(lang, 'about'))
+    await callback.answer()
+
+
+@router.callback_query(F.data == CB_SETTINGS_MENU)
+async def cb_settings_menu(callback: CallbackQuery, db_user: User | None) -> None:
+    lang = db_user.language if db_user else 'ru'
+    await callback.message.answer(
+        _t(lang, 'settings').format(lang=lang),
+        reply_markup=_language_keyboard('settings:lang'),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith('settings:lang:'))
+async def cb_settings_set_language(callback: CallbackQuery, db: AsyncSession, db_user: User | None) -> None:
+    if db_user is None:
+        await callback.answer()
+        return
+    lang = callback.data.split(':')[-1]
+    if lang not in TEXTS:
+        lang = 'ru'
+    db_user.language = lang
+    await db.flush()
+    await callback.message.answer(_t(lang, 'settings_saved'))
+    await callback.answer()
 
 
 def register_handlers(dp: Dispatcher) -> None:
-    pass
+    dp.include_router(router)
