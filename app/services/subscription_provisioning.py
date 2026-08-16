@@ -49,10 +49,21 @@ async def provision_or_extend_subscription(
 
         if user.remnawave_uuid:
             await client.extend_user_expiration(remnawave_uuid=user.remnawave_uuid, expire_at=new_end)
+            # Если подписка была истёкшей, Remnawave-пользователь мог быть отключён
+            # фоновой задачей expiry_checker (см. app/services/background.py) — без
+            # явного enable_user продление здесь оживило бы запись в БД, но не сам
+            # VPN-доступ на панели. Баг найден при сведении параллельных модулей
+            # (subscription.py уже делал enable_user, этот файл — нет).
+            await client.enable_user(remnawave_uuid=user.remnawave_uuid)
 
         subscription.end_date = new_end
         subscription.status = 'active'
         subscription.tariff_id = tariff.id
+        # Сброс флагов напоминаний — иначе после продления expiry_checker (§12а)
+        # не пришлёт напоминание для НОВОЙ даты окончания, т.к. флаг уже стоит True
+        # с предыдущего цикла подписки (то же самое делает subscription.py).
+        subscription.reminder_3d_sent = False
+        subscription.reminder_1d_sent = False
         await db.flush()
         return subscription
 
