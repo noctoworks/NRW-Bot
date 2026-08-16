@@ -37,6 +37,7 @@ class AdminPromoCodeStates(StatesGroup):
     entering_code = State()
     entering_type = State()
     entering_value = State()
+    entering_max_activations = State()
 
 
 class AdminBroadcastStates(StatesGroup):
