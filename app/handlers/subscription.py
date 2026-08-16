@@ -29,7 +29,7 @@ from aiogram import Bot, Dispatcher, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import CallbackQuery, CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup, InputRichMessage
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -236,26 +236,31 @@ def _format_time_left(end_date: datetime) -> str:
 
 
 def format_subscription_summary(subscription: Subscription | None, balance_kopeks: int) -> str:
-    """Компактная карточка: баланс, время до конца подписки, трафик — см. диалог
-    ('сократим инфу'), референс — оригинальный формат Gram VPN/Bedolaga.
-    Полный статус/устройства/тариф намеренно не дублируются здесь — они доступны
-    через кнопку «Устройства» и не нужны на этом экране."""
-    balance_line = f'💰 Баланс: <b>{balance_kopeks / 100:.2f} ₽</b>'
+    """Компактная карточка в разметке Rich Message (Bot API 10.1) — <h2>/<blockquote>
+    подтверждены живым тестом на реальном боте (см. диалог), не выдумано по документации.
+    Результат — HTML для InputRichMessage(html=...), НЕ для обычного parse_mode=HTML
+    (используйте через _send_subscription_view/_show_main_menu, не как text= напрямую).
+
+    Баланс, время до конца подписки, трафик — см. диалог ('сократим инфу'). Полный
+    статус/устройства/тариф намеренно не дублируются здесь — они доступны через
+    кнопку «Устройства» и не нужны на этом экране."""
+    balance_line = f'<p>💰 Баланс: <b>{balance_kopeks / 100:.2f} ₽</b></p>'
 
     if subscription is None:
-        return f'🌐 <b>Подписка не оформлена</b>\n\n{balance_line}'
+        return f'<h2>🌐 Подписка не оформлена</h2>{balance_line}'
 
     if subscription.status != 'active' or not subscription.end_date:
         end_date_str = subscription.end_date.strftime('%d.%m.%Y') if subscription.end_date else '—'
-        return f'⛔ <b>Подписка истекла</b> ({end_date_str})\n\n{balance_line}'
+        return f'<h2>⛔ Подписка истекла</h2><p>{end_date_str}</p>{balance_line}'
 
     traffic_limit = '∞' if subscription.traffic_limit_gb == 0 else str(subscription.traffic_limit_gb)
     end_date_str = subscription.end_date.strftime('%d.%m.%Y')
 
     return (
-        f'🌐 <b>Подписка активна</b> до {end_date_str}\n'
-        f'⏳ Осталось: <b>{_format_time_left(subscription.end_date)}</b>\n\n'
-        f'📊 Трафик: <b>{subscription.traffic_used_gb:.1f} / {traffic_limit} ГБ</b>\n'
+        f'<h2>🌐 Моя подписка</h2>'
+        f'<blockquote>⏳ Осталось: <b>{_format_time_left(subscription.end_date)}</b></blockquote>'
+        f'<p>📅 До {end_date_str}</p>'
+        f'<p>📊 Трафик: <b>{subscription.traffic_used_gb:.1f} / {traffic_limit} ГБ</b></p>'
         f'{balance_line}'
     )
 
@@ -376,18 +381,23 @@ def _is_invalid_button_url_error(exc: TelegramBadRequest) -> bool:
 _happ_deep_link_confirmed_unsupported = False
 
 
-async def _send_subscription_view(callback: CallbackQuery, text: str, subscription_url: str | None) -> None:
-    """edit_text с клавиатурой kb_subscription_active; если Telegram отклонил
-    happ:// в url-кнопке, автоматически пересобирает клавиатуру без deep-link'а
-    и повторяет попытку."""
+async def _send_subscription_view(callback: CallbackQuery, html: str, subscription_url: str | None) -> None:
+    """edit_text(rich_message=...) с клавиатурой kb_subscription_active; если Telegram
+    отклонил happ:// в url-кнопке, автоматически пересобирает клавиатуру без
+    deep-link'а и повторяет попытку. `html` — разметка Rich Message (см.
+    format_subscription_summary), а не обычный parse_mode=HTML текст."""
     global _happ_deep_link_confirmed_unsupported
 
+    rich_message = InputRichMessage(html=html)
+
     if _happ_deep_link_confirmed_unsupported:
-        await callback.message.edit_text(text, reply_markup=kb_subscription_active(subscription_url, use_deep_link=False))
+        await callback.message.edit_text(
+            rich_message=rich_message, reply_markup=kb_subscription_active(subscription_url, use_deep_link=False)
+        )
         return
 
     try:
-        await callback.message.edit_text(text, reply_markup=kb_subscription_active(subscription_url))
+        await callback.message.edit_text(rich_message=rich_message, reply_markup=kb_subscription_active(subscription_url))
     except TelegramBadRequest as exc:
         if not _is_invalid_button_url_error(exc):
             raise
@@ -398,7 +408,7 @@ async def _send_subscription_view(callback: CallbackQuery, text: str, subscripti
             exc,
         )
         await callback.message.edit_text(
-            text, reply_markup=kb_subscription_active(subscription_url, use_deep_link=False)
+            rich_message=rich_message, reply_markup=kb_subscription_active(subscription_url, use_deep_link=False)
         )
 
 
@@ -411,8 +421,8 @@ async def cb_subscription_my(callback: CallbackQuery, db: AsyncSession, db_user:
     subscription = await get_user_subscription(db, db_user.id)
 
     if subscription is None:
-        text = format_subscription_summary(None, db_user.balance_kopeks)
-        await callback.message.edit_text(text, reply_markup=kb_no_subscription())
+        html = format_subscription_summary(None, db_user.balance_kopeks)
+        await callback.message.edit_text(rich_message=InputRichMessage(html=html), reply_markup=kb_no_subscription())
         await callback.answer()
         return
 
@@ -573,7 +583,7 @@ async def cb_confirm_purchase(
     await state.clear()
     subscription = await get_user_subscription(db, db_user.id)
 
-    text = '✅ Оплата прошла успешно!\n\n' + format_subscription_summary(subscription, db_user.balance_kopeks)
+    text = '<p>✅ <b>Оплата прошла успешно!</b></p>' + format_subscription_summary(subscription, db_user.balance_kopeks)
     await _send_subscription_view(callback, text, subscription.subscription_url)
     await callback.answer()
 

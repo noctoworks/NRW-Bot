@@ -21,7 +21,7 @@ import logging
 from aiogram import Dispatcher, F, Router
 from aiogram.filters import CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, InputRichMessage, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -170,24 +170,42 @@ async def _edit_or_answer(callback: CallbackQuery, text: str, reply_markup: Inli
         await callback.message.answer(text, reply_markup=reply_markup)
 
 
+async def _edit_or_answer_rich(
+    callback: CallbackQuery, html: str, reply_markup: InlineKeyboardMarkup | None = None
+) -> None:
+    """Rich-вариант _edit_or_answer (Bot API 10.1, sendRichMessage/editMessageText.rich_message —
+    подтверждено живым тестом, см. диалог). `html` — Rich Message разметка (<h2>/<blockquote>/...),
+    НЕ обычный parse_mode=HTML текст — их нельзя смешивать в одном вызове."""
+    rich_message = InputRichMessage(html=html)
+    try:
+        await callback.message.edit_text(rich_message=rich_message, reply_markup=reply_markup)
+    except Exception:
+        await callback.message.answer_rich(rich_message=rich_message, reply_markup=reply_markup)
+
+
 async def _show_main_menu(target: Message | CallbackQuery, db: AsyncSession, db_user: User, *, is_new: bool) -> None:
     if is_new:
         # Только что зарегистрировался — подписки/баланса ещё нет, показываем
         # обычный приветственный текст, а не пустую карточку.
         text = _t(db_user.language, 'welcome')
-    else:
-        # Уже зарегистрированный пользователь возвращается в меню — вместо общей
-        # фразы "С возвращением!" сразу показываем короткую сводку по аккаунту
-        # (баланс/время до конца подписки/трафик), см. диалог: "сократим инфу".
-        from app.handlers.subscription import format_subscription_summary, get_user_subscription
+        if isinstance(target, CallbackQuery):
+            await _edit_or_answer(target, text, get_main_menu_keyboard())
+        else:
+            await target.answer(text, reply_markup=get_main_menu_keyboard())
+        return
 
-        subscription = await get_user_subscription(db, db_user.id)
-        text = format_subscription_summary(subscription, db_user.balance_kopeks)
+    # Уже зарегистрированный пользователь возвращается в меню — вместо общей фразы
+    # "С возвращением!" сразу показываем короткую rich-карточку по аккаунту
+    # (баланс/время до конца подписки/трафик), см. диалог: "сократим инфу".
+    from app.handlers.subscription import format_subscription_summary, get_user_subscription
+
+    subscription = await get_user_subscription(db, db_user.id)
+    html = format_subscription_summary(subscription, db_user.balance_kopeks)
 
     if isinstance(target, CallbackQuery):
-        await _edit_or_answer(target, text, get_main_menu_keyboard())
+        await _edit_or_answer_rich(target, html, get_main_menu_keyboard())
     else:
-        await target.answer(text, reply_markup=get_main_menu_keyboard())
+        await target.answer_rich(rich_message=InputRichMessage(html=html), reply_markup=get_main_menu_keyboard())
 
 
 @router.message(CommandStart())
