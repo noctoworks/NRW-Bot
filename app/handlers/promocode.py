@@ -7,7 +7,7 @@ from __future__ import annotations
 from aiogram import Dispatcher, F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import User
@@ -16,6 +16,11 @@ from app.services.promocode_service import PromoCodeError, PromoCodeResult, acti
 from app.states import PromoCodeStates
 
 router = Router(name='promocode')
+
+# Callback-точка входа (в дополнение к команде /promo) — нужна кнопке "Промокод"
+# в конструкторе кнопок рассылки (см. admin.py, перенесено из Bedolaga: там это
+# 'menu_promocode'), т.к. inline-кнопка не может вызвать текстовую команду.
+CB_PROMO_ENTER = 'promo:enter'
 
 
 TEXTS = {
@@ -48,6 +53,17 @@ async def cmd_promo(message: Message, state: FSMContext, db_user: User | None) -
         return
     await state.set_state(PromoCodeStates.entering_code)
     await message.answer(_t(lang, 'enter_code'))
+
+
+@router.callback_query(F.data == CB_PROMO_ENTER)
+async def cb_promo_enter(callback: CallbackQuery, state: FSMContext, db_user: User | None) -> None:
+    lang = db_user.language if db_user else 'ru'
+    if db_user is None:
+        await callback.answer()
+        return
+    await state.set_state(PromoCodeStates.entering_code)
+    await callback.message.answer(_t(lang, 'enter_code'))
+    await callback.answer()
 
 
 @router.message(PromoCodeStates.entering_code, F.text)

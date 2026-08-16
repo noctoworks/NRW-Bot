@@ -42,7 +42,14 @@ class AdminPromoCodeStates(StatesGroup):
 
 
 class AdminBroadcastStates(StatesGroup):
+    """Перенесено из реального модуля рассылок Bedolaga (см. диалог) — выбор
+    аудитории -> текст -> медиа -> кнопки -> подтверждение."""
+
+    choosing_target = State()
     entering_text = State()
+    choosing_media = State()
+    awaiting_media = State()
+    choosing_buttons = State()
     confirming = State()
 
 

@@ -32,7 +32,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from aiogram import Dispatcher, F, Router
-from aiogram.exceptions import TelegramForbiddenError
+from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
@@ -41,7 +41,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import settings
-from app.database.models import PromoCode, Subscription, Tariff, Transaction, User
+from app.database.models import BroadcastHistory, PromoCode, Subscription, Tariff, Transaction, User
+from app.handlers.promocode import CB_PROMO_ENTER
+from app.handlers.subscription import get_active_tariffs
+from app.keyboards.main_menu import (
+    CB_MENU_MAIN,
+    CB_REFERRAL_MENU,
+    CB_SUBSCRIPTION_MY,
+    CB_SUBSCRIPTION_RENEW,
+    CB_SUPPORT_MENU,
+)
 from app.states import AdminBroadcastStates, AdminEmojiStates, AdminPromoCodeStates, AdminTariffStates, AdminUserStates
 
 logger = logging.getLogger(__name__)
@@ -1377,39 +1386,173 @@ async def cb_promo_list_page0(callback: CallbackQuery, db: AsyncSession, db_user
 
 
 # --- Рассылка ---
+#
+# Перенесено из app/handlers/admin/messages.py оригинального Bedolaga (см. диалог
+# "берём как есть"): выбор аудитории с live-счётчиком -> текст (HTML, ≤4000) ->
+# медиа (фото/видео/документ, опционально) -> предпросмотр медиа -> конструктор
+# inline-кнопок -> финальный предпросмотр -> отправка батчами с ретраями на
+# FloodWait и живым прогресс-баром -> история рассылок.
+#
+# Отличия от оригинала (см. диалог про масштаб):
+#  - нет сегментов "триал"/"активна 0 ГБ" — у нас нет триальных подписок вообще;
+#  - "По тарифу" использует наш реальный список тарифов (Онлайн/Семейный);
+#  - кнопка "Пополнить баланс" убрана — у нас нет отдельного flow пополнения без
+#    покупки подписки/промокода, добавлять фиктивную кнопку в никуда не стали;
+#  - подсчёт и реальная выборка получателей — ОДНА функция (см. _broadcast_target_users),
+#    а не отдельные COUNT/SELECT как в оригинале — их же комментарий в оригинале
+#    прямо предупреждает, что раздельные версии рискуют разъехаться числом; здесь
+#    так разъехаться в принципе не может;
+#  - наша сессия БД живёт на весь хендлер (AuthMiddleware), поэтому не нужен
+#    трюк оригинала с извлечением скаляров "на случай смерти соединения".
 
-_BROADCAST_AUDIENCES = {
-    'all': 'Всем пользователям',
-    'active': 'С активной подпиской',
-    'none': 'Без подписки',
+BROADCAST_TARGETS: dict[str, str] = {
+    'all': '👥 Всем',
+    'active': '📱 С подпиской',
+    'no_sub': '❌ Без подписки',
+    'expiring': '⏰ Истекающие',
+    'expired': '🔚 Истёкшие',
 }
 
+CB_BROADCAST_TARGET = 'broadcast:target:'  # + ключ из BROADCAST_TARGETS, либо tariff:<id>
+CB_BROADCAST_TARGET_TARIFF_MENU = 'broadcast:target_tariff_menu'
 
-def _broadcast_audience_keyboard() -> InlineKeyboardMarkup:
+CB_BROADCAST_MEDIA = 'broadcast:media:'  # + photo|video|document|skip
+CB_BROADCAST_MEDIA_CONFIRM = 'broadcast:media_confirm'
+CB_BROADCAST_MEDIA_CHANGE = 'broadcast:media_change'
+
+CB_BROADCAST_BTN_TOGGLE = 'broadcast:btn:'  # + ключ кнопки
+CB_BROADCAST_BTN_CONTINUE = 'broadcast:btn_continue'
+
+CB_BROADCAST_HISTORY = 'broadcast:history:'  # + page
+
+# Кнопки-конструктор для тела рассылки — используют РЕАЛЬНЫЕ callback_data других
+# модулей (main_menu.py/referral.py/promocode.py/support.py): при клике по кнопке
+# в разосланном сообщении сработает штатный хендлер соответствующего модуля,
+# это не заглушки. 'balance'/'connect' у оригинала — не переносим, см. комментарий выше.
+BROADCAST_BUTTONS: dict[str, dict[str, str]] = {
+    'subscription': {'text': '📱 Моя подписка', 'callback': CB_SUBSCRIPTION_MY},
+    'renew': {'text': '💎 Продлить подписку', 'callback': CB_SUBSCRIPTION_RENEW},
+    'referrals': {'text': '🤝 Партнёрка', 'callback': CB_REFERRAL_MENU},
+    'promocode': {'text': '🎫 Промокод', 'callback': CB_PROMO_ENTER},
+    'support': {'text': '🛠️ Техподдержка', 'callback': CB_SUPPORT_MENU},
+    'home': {'text': '🏠 На главную', 'callback': CB_MENU_MAIN},
+}
+BROADCAST_BUTTON_ROWS: tuple[tuple[str, ...], ...] = (
+    ('subscription', 'renew'),
+    ('referrals', 'promocode'),
+    ('support',),
+    ('home',),
+)
+DEFAULT_BROADCAST_BUTTONS = ('home',)
+
+_BROADCAST_MEDIA_LABELS = {'photo': 'Фотография', 'video': 'Видео', 'document': 'Документ'}
+
+
+async def _broadcast_target_users(db: AsyncSession, target: str) -> list[User]:
+    """Единая функция и для счётчика (len(...)), и для реальной выборки —
+    см. комментарий в начале секции про то, почему это осознанно не два запроса."""
+    now = datetime.now(timezone.utc)
+
+    if target == 'all':
+        stmt = select(User)
+    elif target == 'active':
+        stmt = select(User).join(Subscription, Subscription.user_id == User.id).where(Subscription.status == 'active')
+    elif target == 'no_sub':
+        has_active = (
+            select(Subscription.id)
+            .where(Subscription.user_id == User.id, Subscription.status == 'active')
+            .correlate(User)
+            .exists()
+        )
+        stmt = select(User).where(~has_active)
+    elif target == 'expiring':
+        stmt = select(User).join(Subscription, Subscription.user_id == User.id).where(
+            Subscription.status == 'active',
+            Subscription.end_date <= now + timedelta(days=3),
+            Subscription.end_date > now,
+        )
+    elif target == 'expired':
+        stmt = select(User).join(Subscription, Subscription.user_id == User.id).where(Subscription.status == 'expired')
+    elif target.startswith('tariff:'):
+        tariff_id = int(target.split(':', 1)[1])
+        stmt = select(User).join(Subscription, Subscription.user_id == User.id).where(
+            Subscription.status == 'active', Subscription.tariff_id == tariff_id
+        )
+    else:
+        return []
+
+    result = await db.execute(stmt)
+    return list(result.scalars().unique().all())
+
+
+async def _broadcast_target_display_name(db: AsyncSession, target: str) -> str:
+    if target in BROADCAST_TARGETS:
+        return BROADCAST_TARGETS[target]
+    if target.startswith('tariff:'):
+        tariff = await db.get(Tariff, int(target.split(':', 1)[1]))
+        return f'Тариф «{tariff.name}»' if tariff else 'Тариф (удалён)'
+    return target
+
+
+def _broadcast_target_keyboard() -> InlineKeyboardMarkup:
     rows = [
-        [InlineKeyboardButton(text=label, callback_data=f'{CB_BROADCAST_AUDIENCE}{key}')]
-        for key, label in _BROADCAST_AUDIENCES.items()
+        [InlineKeyboardButton(text=label, callback_data=f'{CB_BROADCAST_TARGET}{key}')]
+        for key, label in BROADCAST_TARGETS.items()
     ]
+    rows.append([InlineKeyboardButton(text='📦 По тарифу', callback_data=CB_BROADCAST_TARGET_TARIFF_MENU)])
     rows.append([_back_button()])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-async def _audience_telegram_ids(db: AsyncSession, audience: str) -> list[int]:
-    if audience == 'active':
-        result = await db.execute(
-            select(User.telegram_id).join(Subscription, Subscription.user_id == User.id).where(
-                Subscription.status == 'active'
+def _broadcast_media_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text='📷 Добавить фото', callback_data=f'{CB_BROADCAST_MEDIA}photo'),
+                InlineKeyboardButton(text='🎥 Добавить видео', callback_data=f'{CB_BROADCAST_MEDIA}video'),
+            ],
+            [
+                InlineKeyboardButton(text='📄 Добавить документ', callback_data=f'{CB_BROADCAST_MEDIA}document'),
+                InlineKeyboardButton(text='⏭️ Пропустить медиа', callback_data=f'{CB_BROADCAST_MEDIA}skip'),
+            ],
+            [InlineKeyboardButton(text='❌ Отмена', callback_data=CB_ADMIN_BROADCAST)],
+        ]
+    )
+
+
+def _broadcast_media_confirm_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text='✅ Продолжить', callback_data=CB_BROADCAST_MEDIA_CONFIRM),
+                InlineKeyboardButton(text='🔄 Заменить', callback_data=CB_BROADCAST_MEDIA_CHANGE),
+            ]
+        ]
+    )
+
+
+def _broadcast_buttons_keyboard(selected: list[str]) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for row_keys in BROADCAST_BUTTON_ROWS:
+        row = []
+        for key in row_keys:
+            mark = '✅' if key in selected else '⬜'
+            row.append(
+                InlineKeyboardButton(
+                    text=f'{mark} {BROADCAST_BUTTONS[key]["text"]}', callback_data=f'{CB_BROADCAST_BTN_TOGGLE}{key}'
+                )
             )
-        )
-    elif audience == 'none':
-        result = await db.execute(
-            select(User.telegram_id).outerjoin(Subscription, Subscription.user_id == User.id).where(
-                Subscription.id.is_(None)
-            )
-        )
-    else:
-        result = await db.execute(select(User.telegram_id))
-    return [row[0] for row in result.all()]
+        rows.append(row)
+    rows.append([InlineKeyboardButton(text='➡️ Продолжить', callback_data=CB_BROADCAST_BTN_CONTINUE)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _broadcast_result_keyboard(selected: list[str]) -> InlineKeyboardMarkup | None:
+    ordered_keys = [k for row in BROADCAST_BUTTON_ROWS for k in row if k in selected]
+    if not ordered_keys:
+        return None
+    rows = [[InlineKeyboardButton(text=BROADCAST_BUTTONS[k]['text'], callback_data=BROADCAST_BUTTONS[k]['callback'])] for k in ordered_keys]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 @router.callback_query(F.data == CB_ADMIN_BROADCAST)
@@ -1418,38 +1561,186 @@ async def cb_admin_broadcast(callback: CallbackQuery, db_user: User | None, stat
         await callback.answer()
         return
     await state.clear()
-    await _answer_or_edit(callback, '📢 <b>Шаг 1/2.</b> Выберите аудиторию рассылки:', _broadcast_audience_keyboard())
+    kb = _broadcast_target_keyboard()
+    kb.inline_keyboard.append([InlineKeyboardButton(text='📋 История рассылок', callback_data=f'{CB_BROADCAST_HISTORY}0')])
+    await state.set_state(AdminBroadcastStates.choosing_target)
+    await _answer_or_edit(callback, '🎯 <b>Выбор целевой аудитории</b>\n\nВыберите категорию пользователей для рассылки:', kb)
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith(CB_BROADCAST_AUDIENCE))
-async def cb_broadcast_audience(callback: CallbackQuery, db: AsyncSession, db_user: User | None, state: FSMContext) -> None:
+@router.callback_query(F.data == CB_BROADCAST_TARGET_TARIFF_MENU)
+async def cb_broadcast_target_tariff_menu(callback: CallbackQuery, db: AsyncSession, db_user: User | None) -> None:
     if not _is_admin(db_user):
         await callback.answer()
         return
-    audience = callback.data[len(CB_BROADCAST_AUDIENCE):]
-    telegram_ids = await _audience_telegram_ids(db, audience)
-    await state.update_data(broadcast_audience=audience)
+    tariffs = await get_active_tariffs(db)
+    if not tariffs:
+        await callback.answer('Нет доступных тарифов', show_alert=True)
+        return
+    rows = []
+    for t in tariffs:
+        count = len(await _broadcast_target_users(db, f'tariff:{t.id}'))
+        rows.append([InlineKeyboardButton(text=f'{t.name} ({count} чел.)', callback_data=f'{CB_BROADCAST_TARGET}tariff:{t.id}')])
+    rows.append([_back_button(CB_ADMIN_BROADCAST)])
+    await _answer_or_edit(callback, '📦 <b>Рассылка по тарифу</b>\n\nВыберите тариф:', InlineKeyboardMarkup(inline_keyboard=rows))
+    await callback.answer()
+
+
+@router.callback_query(AdminBroadcastStates.choosing_target, F.data.startswith(CB_BROADCAST_TARGET))
+async def cb_broadcast_pick_target(callback: CallbackQuery, db: AsyncSession, db_user: User | None, state: FSMContext) -> None:
+    if not _is_admin(db_user):
+        await callback.answer()
+        return
+    target = callback.data[len(CB_BROADCAST_TARGET):]
+    users = await _broadcast_target_users(db, target)
+    target_name = await _broadcast_target_display_name(db, target)
+
+    await state.update_data(broadcast_target=target)
     await state.set_state(AdminBroadcastStates.entering_text)
     await _answer_or_edit(
         callback,
-        f'<b>Шаг 2/2.</b> Аудитория: {_BROADCAST_AUDIENCES[audience]} ({len(telegram_ids)} чел.)\n\n'
-        f'Введите текст рассылки:',
+        f'📨 <b>Создание рассылки</b>\n\n🎯 <b>Аудитория:</b> {target_name}\n👥 <b>Получателей:</b> {len(users)}\n\n'
+        f'Введите текст сообщения (поддерживается HTML, до 4000 символов):',
         _back_keyboard(CB_ADMIN_BROADCAST),
     )
     await callback.answer()
 
 
 @router.message(AdminBroadcastStates.entering_text, F.text)
-async def on_admin_broadcast_text(message: Message, db: AsyncSession, db_user: User | None, state: FSMContext) -> None:
+async def on_admin_broadcast_text(message: Message, db_user: User | None, state: FSMContext) -> None:
+    if not _is_admin(db_user):
+        return
+    if len(message.text) > 4000:
+        await message.answer('❌ Сообщение слишком длинное (максимум 4000 символов)')
+        return
+    await state.update_data(broadcast_text=message.text)
+    await state.set_state(AdminBroadcastStates.choosing_media)
+    await message.answer(
+        '🖼️ <b>Добавление медиафайла</b>\n\nМожно добавить фото, видео или документ — или пропустить этот шаг.',
+        reply_markup=_broadcast_media_keyboard(),
+    )
+
+
+@router.callback_query(AdminBroadcastStates.choosing_media, F.data.startswith(CB_BROADCAST_MEDIA))
+async def cb_broadcast_media_pick(callback: CallbackQuery, db_user: User | None, state: FSMContext) -> None:
+    if not _is_admin(db_user):
+        await callback.answer()
+        return
+    choice = callback.data[len(CB_BROADCAST_MEDIA):]
+    if choice == 'skip':
+        await state.update_data(has_media=False)
+        await _show_broadcast_button_selector(callback.message, state, use_edit=True, callback=callback)
+        await callback.answer()
+        return
+
+    await state.update_data(media_type=choice)
+    await state.set_state(AdminBroadcastStates.awaiting_media)
+    label = _BROADCAST_MEDIA_LABELS.get(choice, 'файл')
+    await _answer_or_edit(
+        callback, f'Отправьте {label.lower()} для рассылки:', _back_keyboard(CB_ADMIN_BROADCAST)
+    )
+    await callback.answer()
+
+
+@router.message(AdminBroadcastStates.awaiting_media)
+async def on_admin_broadcast_media(message: Message, db_user: User | None, state: FSMContext) -> None:
     if not _is_admin(db_user):
         return
     data = await state.get_data()
-    audience = data.get('broadcast_audience', 'all')
-    telegram_ids = await _audience_telegram_ids(db, audience)
+    expected = data.get('media_type')
 
-    await state.update_data(broadcast_text=message.text)
-    await state.set_state(AdminBroadcastStates.confirming)
+    media_file_id = None
+    if message.photo and expected == 'photo':
+        media_file_id = message.photo[-1].file_id
+    elif message.video and expected == 'video':
+        media_file_id = message.video.file_id
+    elif message.document and expected == 'document':
+        media_file_id = message.document.file_id
+    else:
+        await message.answer(f'❌ Пришлите именно {_BROADCAST_MEDIA_LABELS.get(expected, "файл").lower()}, как указано выше.')
+        return
+
+    await state.update_data(has_media=True, media_file_id=media_file_id)
+
+    preview_text = f'🖼️ <b>Медиафайл добавлен</b>\n\n📎 Тип: {_BROADCAST_MEDIA_LABELS.get(expected, expected)}\n\nЧто дальше?'
+    if expected == 'photo':
+        await message.answer_photo(media_file_id, caption=preview_text, reply_markup=_broadcast_media_confirm_keyboard())
+    else:
+        await message.answer(preview_text, reply_markup=_broadcast_media_confirm_keyboard())
+
+
+async def _show_broadcast_button_selector(message: Message, state: FSMContext, *, use_edit: bool, callback: CallbackQuery | None = None) -> None:
+    data = await state.get_data()
+    selected = data.get('selected_buttons')
+    if selected is None:
+        selected = list(DEFAULT_BROADCAST_BUTTONS)
+        await state.update_data(selected_buttons=selected)
+
+    text = (
+        '📘 <b>Выбор дополнительных кнопок</b>\n\nВыберите кнопки, которые будут добавлены к сообщению рассылки:\n\n'
+        '📱 <b>Моя подписка</b> / 💎 <b>Продлить</b> — экран подписки\n'
+        '🤝 <b>Партнёрка</b> — реферальная программа\n'
+        '🎫 <b>Промокод</b> — форма ввода промокода\n'
+        '🛠️ <b>Техподдержка</b> — связь с поддержкой\n\n'
+        '🏠 <b>На главную</b> включена по умолчанию.\n\nВыберите нужные и нажмите «Продолжить»:'
+    )
+    keyboard = _broadcast_buttons_keyboard(selected)
+    await state.set_state(AdminBroadcastStates.choosing_buttons)
+
+    if use_edit and callback is not None:
+        await _answer_or_edit(callback, text, keyboard)
+    else:
+        await message.answer(text, reply_markup=keyboard)
+
+
+@router.callback_query(F.data == CB_BROADCAST_MEDIA_CONFIRM)
+async def cb_broadcast_media_confirm(callback: CallbackQuery, state: FSMContext) -> None:
+    await _show_broadcast_button_selector(callback.message, state, use_edit=False)
+    await callback.answer()
+
+
+@router.callback_query(F.data == CB_BROADCAST_MEDIA_CHANGE)
+async def cb_broadcast_media_change(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(AdminBroadcastStates.choosing_media)
+    await callback.message.answer('🖼️ Выберите новый тип медиа:', reply_markup=_broadcast_media_keyboard())
+    await callback.answer()
+
+
+@router.callback_query(AdminBroadcastStates.choosing_buttons, F.data.startswith(CB_BROADCAST_BTN_TOGGLE))
+async def cb_broadcast_btn_toggle(callback: CallbackQuery, state: FSMContext) -> None:
+    key = callback.data[len(CB_BROADCAST_BTN_TOGGLE):]
+    data = await state.get_data()
+    selected = list(data.get('selected_buttons') or DEFAULT_BROADCAST_BUTTONS)
+    if key in selected:
+        selected.remove(key)
+    else:
+        selected.append(key)
+    await state.update_data(selected_buttons=selected)
+    await callback.message.edit_reply_markup(reply_markup=_broadcast_buttons_keyboard(selected))
+    await callback.answer()
+
+
+@router.callback_query(AdminBroadcastStates.choosing_buttons, F.data == CB_BROADCAST_BTN_CONTINUE)
+async def cb_broadcast_btn_continue(callback: CallbackQuery, db: AsyncSession, state: FSMContext) -> None:
+    data = await state.get_data()
+    target = data['broadcast_target']
+    text = data.get('broadcast_text')
+    selected = data.get('selected_buttons') or list(DEFAULT_BROADCAST_BUTTONS)
+    has_media = data.get('has_media', False)
+    media_type = data.get('media_type')
+
+    users = await _broadcast_target_users(db, target)
+    target_name = await _broadcast_target_display_name(db, target)
+
+    media_info = f'\n🖼️ <b>Медиафайл:</b> {_BROADCAST_MEDIA_LABELS.get(media_type, media_type)}' if has_media else ''
+    ordered_keys = [k for row in BROADCAST_BUTTON_ROWS for k in row if k in selected]
+    buttons_info = ', '.join(BROADCAST_BUTTONS[k]['text'] for k in ordered_keys) or 'отсутствуют'
+
+    preview = (
+        f'📨 <b>Предварительный просмотр рассылки</b>\n\n'
+        f'🎯 <b>Аудитория:</b> {target_name}\n👥 <b>Получателей:</b> {len(users)}\n\n'
+        f'📝 <b>Сообщение:</b>\n{text}{media_info}\n\n📘 <b>Кнопки:</b> {buttons_info}\n\nПодтвердить отправку?'
+    )
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -1458,17 +1749,13 @@ async def on_admin_broadcast_text(message: Message, db: AsyncSession, db_user: U
             ]
         ]
     )
-    await message.answer(
-        f'Предпросмотр ({_BROADCAST_AUDIENCES[audience]}, {len(telegram_ids)} чел.):\n\n{message.text}\n\nОтправить?',
-        reply_markup=kb,
-    )
+    await state.set_state(AdminBroadcastStates.confirming)
+    await _answer_or_edit(callback, preview, kb)
+    await callback.answer()
 
 
 @router.callback_query(AdminBroadcastStates.confirming, F.data == CB_BROADCAST_CANCEL)
-async def cb_admin_broadcast_cancel(callback: CallbackQuery, db_user: User | None, state: FSMContext) -> None:
-    if not _is_admin(db_user):
-        await callback.answer()
-        return
+async def cb_admin_broadcast_cancel(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     await _answer_or_edit(callback, 'Рассылка отменена.', _back_keyboard())
     await callback.answer()
@@ -1480,34 +1767,167 @@ async def cb_admin_broadcast_confirm(callback: CallbackQuery, db: AsyncSession, 
         await callback.answer()
         return
     data = await state.get_data()
+    target = data['broadcast_target']
     text = data.get('broadcast_text')
-    audience = data.get('broadcast_audience', 'all')
+    selected = data.get('selected_buttons') or list(DEFAULT_BROADCAST_BUTTONS)
+    has_media = data.get('has_media', False)
+    media_type = data.get('media_type')
+    media_file_id = data.get('media_file_id')
     await state.clear()
     if not text:
         await callback.answer()
         return
 
     await callback.answer('Рассылка запущена…')
-    await _answer_or_edit(callback, 'Рассылка запущена, это может занять некоторое время…', _back_keyboard())
+    await _answer_or_edit(callback, '📨 Подготовка рассылки…', None)
 
-    telegram_ids = await _audience_telegram_ids(db, audience)
+    users = await _broadcast_target_users(db, target)
+    recipient_ids = [u.telegram_id for u in users]
 
-    sent, failed = 0, 0
-    for telegram_id in telegram_ids:
-        try:
-            await callback.bot.send_message(telegram_id, text)
-            sent += 1
-        except TelegramForbiddenError:
-            failed += 1
-            # См. диалог — раздел "Заблокировавшие бота" в статистике пользователей.
-            await db.execute(update(User).where(User.telegram_id == telegram_id).values(blocked_bot=True))
-        except Exception:
-            failed += 1
-            logger.debug('Рассылка: не удалось отправить %s', telegram_id, exc_info=True)
-        await asyncio.sleep(0.05)
+    history = BroadcastHistory(
+        target_type=target,
+        message_text=text,
+        has_media=has_media,
+        media_type=media_type,
+        media_file_id=media_file_id,
+        total_count=len(recipient_ids),
+        admin_id=db_user.id,
+        admin_name=db_user.username or str(db_user.telegram_id),
+        status='in_progress',
+    )
+    db.add(history)
     await db.commit()
 
-    await callback.message.answer(f'✅ Рассылка завершена. Доставлено: {sent}, не доставлено: {failed}.')
+    reply_markup = _broadcast_result_keyboard(selected)
+
+    # Батчи по 25 с паузой 1с — те же параметры, что у Bedolaga (запас от лимита
+    # Telegram ~30 msg/sec для бота), с ретраем на FloodWait.
+    BATCH_SIZE = 25
+    BATCH_DELAY = 1.0
+    MAX_RETRIES = 3
+    flood_wait_until = 0.0
+
+    async def send_one(telegram_id: int) -> str:
+        nonlocal flood_wait_until
+        for attempt in range(MAX_RETRIES):
+            now = asyncio.get_event_loop().time()
+            if flood_wait_until > now:
+                await asyncio.sleep(flood_wait_until - now)
+            try:
+                if has_media and media_file_id:
+                    send_method = {
+                        'photo': callback.bot.send_photo,
+                        'video': callback.bot.send_video,
+                        'document': callback.bot.send_document,
+                    }[media_type]
+                    kwarg = {'photo': 'photo', 'video': 'video', 'document': 'document'}[media_type]
+                    if len(text) <= 1024:
+                        await send_method(chat_id=telegram_id, **{kwarg: media_file_id}, caption=text, reply_markup=reply_markup)
+                    else:
+                        await send_method(chat_id=telegram_id, **{kwarg: media_file_id})
+                        await callback.bot.send_message(chat_id=telegram_id, text=text, reply_markup=reply_markup)
+                else:
+                    await callback.bot.send_message(chat_id=telegram_id, text=text, reply_markup=reply_markup)
+                return 'sent'
+            except TelegramRetryAfter as exc:
+                flood_wait_until = asyncio.get_event_loop().time() + exc.retry_after + 1
+                await asyncio.sleep(exc.retry_after + 1)
+            except TelegramForbiddenError:
+                return 'blocked'
+            except Exception:
+                logger.debug('Ошибка отправки рассылки %s (попытка %s)', telegram_id, attempt + 1, exc_info=True)
+                if attempt < MAX_RETRIES - 1:
+                    await asyncio.sleep(0.5 * (attempt + 1))
+        return 'failed'
+
+    sent_count = failed_count = blocked_count = 0
+    blocked_ids: list[int] = []
+    last_progress = 0.0
+    progress_message = callback.message
+
+    for batch_idx, i in enumerate(range(0, len(recipient_ids), BATCH_SIZE)):
+        batch = recipient_ids[i : i + BATCH_SIZE]
+        results = await asyncio.gather(*[send_one(tid) for tid in batch], return_exceptions=True)
+        for idx, result in enumerate(results):
+            if result == 'sent':
+                sent_count += 1
+            elif result == 'blocked':
+                blocked_count += 1
+                blocked_ids.append(batch[idx])
+            else:
+                failed_count += 1
+
+        now = asyncio.get_event_loop().time()
+        if now - last_progress >= 5.0:
+            last_progress = now
+            processed = sent_count + failed_count + blocked_count
+            percent = round(processed / len(recipient_ids) * 100, 1) if recipient_ids else 100
+            bar = '█' * int(20 * processed / max(len(recipient_ids), 1)) + '░' * (20 - int(20 * processed / max(len(recipient_ids), 1)))
+            try:
+                await progress_message.edit_text(
+                    f'📨 <b>Рассылка в процессе...</b>\n\n[{bar}] {percent}%\n\n'
+                    f'Отправлено: {sent_count} · Заблокировали: {blocked_count} · Ошибок: {failed_count}\n'
+                    f'Обработано: {processed}/{len(recipient_ids)}'
+                )
+            except Exception:
+                pass
+        await asyncio.sleep(BATCH_DELAY)
+
+    if blocked_ids:
+        await db.execute(update(User).where(User.telegram_id.in_(blocked_ids)).values(blocked_bot=True))
+
+    history.sent_count = sent_count
+    history.failed_count = failed_count
+    history.blocked_count = blocked_count
+    history.status = 'completed' if failed_count == 0 and blocked_count == 0 else 'partial'
+    history.completed_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    success_rate = round(sent_count / len(recipient_ids) * 100, 1) if recipient_ids else 0
+    result_text = (
+        f'✅ <b>Рассылка завершена!</b>\n\n📊 Отправлено: {sent_count}\n'
+        f'🚫 Заблокировали бота: {blocked_count}\n❌ Не доставлено: {failed_count}\n'
+        f'👥 Всего: {len(recipient_ids)}\n📈 Успешность: {success_rate}%'
+    )
+    try:
+        await progress_message.edit_text(result_text, reply_markup=_back_keyboard())
+    except Exception:
+        await callback.message.answer(result_text, reply_markup=_back_keyboard())
+
+
+@router.callback_query(F.data.startswith(CB_BROADCAST_HISTORY))
+async def cb_broadcast_history(callback: CallbackQuery, db: AsyncSession, db_user: User | None) -> None:
+    if not _is_admin(db_user):
+        await callback.answer()
+        return
+    page = int(callback.data[len(CB_BROADCAST_HISTORY):])
+
+    total = (await db.execute(select(func.count(BroadcastHistory.id)))).scalar_one()
+    total_pages = max((total + PAGE_SIZE - 1) // PAGE_SIZE, 1)
+    result = await db.execute(
+        select(BroadcastHistory).order_by(BroadcastHistory.created_at.desc()).limit(PAGE_SIZE).offset(page * PAGE_SIZE)
+    )
+    broadcasts = result.scalars().all()
+
+    if not broadcasts:
+        text = '📋 <b>История рассылок</b>\n\nПока пусто.'
+    else:
+        status_emoji = {'completed': '✅', 'partial': '⚠️', 'in_progress': '⏳'}
+        lines = [f'📋 <b>История рассылок</b> (стр. {page + 1}/{total_pages})', '']
+        for b in broadcasts:
+            preview = (b.message_text or '')[:80]
+            lines.append(
+                f'{status_emoji.get(b.status, "•")} {b.created_at:%d.%m.%Y %H:%M} · '
+                f'{b.sent_count}/{b.total_count} доставлено · {preview}'
+            )
+        text = '\n'.join(lines)
+
+    rows = []
+    if broadcasts:
+        rows.append(_pagination_row(CB_BROADCAST_HISTORY, page, total_pages))
+    rows.append([_back_button(CB_ADMIN_BROADCAST)])
+    await _answer_or_edit(callback, text, InlineKeyboardMarkup(inline_keyboard=rows))
+    await callback.answer()
 
 
 # --- Статистика ---

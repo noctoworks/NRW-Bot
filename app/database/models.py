@@ -208,3 +208,28 @@ class BotSetting(Base):
 
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[str] = mapped_column(Text)
+
+
+class BroadcastHistory(Base):
+    """Перенесено из реального модуля рассылок Bedolaga (см. диалог "берём как есть") —
+    структура полей 1:1, кроме отсутствующих у нас полей (email-only рассылки,
+    категории уведомлений) — их не завели, у нас нет соответствующих концепций."""
+
+    __tablename__ = 'broadcast_history'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    target_type: Mapped[str] = mapped_column(String(64))
+    message_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    has_media: Mapped[bool] = mapped_column(Boolean, default=False)
+    media_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    media_file_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    media_caption: Mapped[str | None] = mapped_column(Text, nullable=True)
+    total_count: Mapped[int] = mapped_column(Integer, default=0)
+    sent_count: Mapped[int] = mapped_column(Integer, default=0)
+    failed_count: Mapped[int] = mapped_column(Integer, default=0)
+    blocked_count: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(20), default='in_progress')  # in_progress|completed|partial
+    admin_id: Mapped[int | None] = mapped_column(ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    admin_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
