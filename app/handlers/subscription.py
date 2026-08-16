@@ -47,8 +47,8 @@ logger = logging.getLogger(__name__)
 router = Router(name='subscription')
 
 PAYMENT_METHODS: dict[str, str] = {
-    'stars': '⭐️ Telegram Stars',
     'yookassa': '🏦 СБП (Платега)',
+    'stars': '⭐️ Telegram Stars',
     'cryptobot': '🪙 Криптовалюта',
 }
 # Те же способы оплаты, но с custom_emoji_id (см. app/emoji.py) — используется
@@ -56,8 +56,8 @@ PAYMENT_METHODS: dict[str, str] = {
 # ниже использует PAYMENT_METHODS с plain-эмодзи — Bot API не поддерживает
 # custom emoji в тексте inline-кнопок).
 PAYMENT_METHODS_RICH: dict[str, str] = {
-    'stars': f'{STARS} Telegram Stars',
     'yookassa': f'{SBP} СБП (Платега)',
+    'stars': f'{STARS} Telegram Stars',
     'cryptobot': f'{CRYPTO} Криптовалюта',
 }
 

@@ -25,8 +25,8 @@ logger = logging.getLogger(__name__)
 router = Router(name='gift')
 
 PAYMENT_METHODS = [
-    ('stars', '⭐️ Telegram Stars'),
     ('yookassa', '🏦 СБП (Платега)'),
+    ('stars', '⭐️ Telegram Stars'),
     ('cryptobot', '🪙 Криптовалюта'),
 ]
 
