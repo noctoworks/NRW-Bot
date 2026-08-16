@@ -13,6 +13,12 @@
 ВАЖНО: custom-эмодзи работают только в тексте СООБЩЕНИЯ (обычный HTML parse_mode
 и Rich Message — оба поддерживают <tg-emoji>), но НЕ в тексте inline-кнопок —
 это ограничение самого Bot API, не наше.
+
+ЕЩЁ ВАЖНЕЕ (найдено вживую при подключении первых трёх ID, см. диалог): Telegram
+требует, чтобы fallback-символ внутри <tg-emoji> ТОЧНО совпадал с "родным" эмодзи
+конкретного custom_emoji_id — иначе `RICH_MESSAGE_EMOJI_INVALID`/`ENTITY_TEXT_INVALID`.
+Не угадывать fallback самостоятельно — перед добавлением нового ID сверяться через
+`bot.get_custom_emoji_stickers(custom_emoji_ids=[...])` и брать оттуда `.emoji` как есть.
 """
 
 from __future__ import annotations
@@ -42,3 +48,9 @@ CHART = Emoji(fallback='📊')
 MONEY = Emoji(fallback='💰')
 EXPIRED = Emoji(fallback='⛔')
 SUCCESS = Emoji(fallback='✅')
+
+# === Способы оплаты — присланы и проверены вживую (см. диалог), используются
+# только в ТЕКСТЕ (описание/подтверждение выбранного способа), НЕ в кнопках. ===
+SBP = Emoji(fallback='🏦', custom_id='5368446439800197476')  # СБП (Платега)
+CRYPTO = Emoji(fallback='🪙', custom_id='5398080099234886346')  # Криптовалюта
+STARS = Emoji(fallback='⭐️', custom_id='5321485469249198987')  # Telegram Stars

@@ -34,7 +34,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import Payment, Subscription, Tariff, Transaction, User
-from app.emoji import CALENDAR, CHART, EXPIRED, GLOBE, HOURGLASS, MONEY, SUCCESS
+from app.emoji import CALENDAR, CHART, CRYPTO, EXPIRED, GLOBE, HOURGLASS, MONEY, SBP, STARS, SUCCESS
 from app.external.remnawave import get_remnawave_client
 from app.keyboards.main_menu import CB_SUBSCRIPTION_MY, CB_SUBSCRIPTION_RENEW, back_to_menu_button
 from app.services.notification_service import notify_payment_success
@@ -47,9 +47,18 @@ logger = logging.getLogger(__name__)
 router = Router(name='subscription')
 
 PAYMENT_METHODS: dict[str, str] = {
-    'stars': '⭐ Telegram Stars',
-    'yookassa': '💳 YooKassa',
-    'cryptobot': '₿ CryptoBot',
+    'stars': '⭐️ Telegram Stars',
+    'yookassa': '🏦 СБП (Платега)',
+    'cryptobot': '🪙 Криптовалюта',
+}
+# Те же способы оплаты, но с custom_emoji_id (см. app/emoji.py) — используется
+# ТОЛЬКО в тексте сообщений (подтверждение выбора), НЕ в кнопках (kb_payment_methods
+# ниже использует PAYMENT_METHODS с plain-эмодзи — Bot API не поддерживает
+# custom emoji в тексте inline-кнопок).
+PAYMENT_METHODS_RICH: dict[str, str] = {
+    'stars': f'{STARS} Telegram Stars',
+    'yookassa': f'{SBP} СБП (Платега)',
+    'cryptobot': f'{CRYPTO} Криптовалюта',
 }
 
 PERIOD_LABELS: dict[str, str] = {
@@ -557,7 +566,7 @@ async def cb_choose_method(callback: CallbackQuery, db: AsyncSession, state: FSM
         f'<b>Подтверждение оплаты</b>\n\n'
         f'Тариф: {tariff.name}\n'
         f'Период: {label}\n'
-        f'Способ оплаты: {PAYMENT_METHODS.get(method, method)}\n'
+        f'Способ оплаты: {PAYMENT_METHODS_RICH.get(method, method)}\n'
         f'Сумма: {price_kopeks / 100:.0f}₽'
     )
     await callback.message.edit_text(text, reply_markup=kb_confirm())
