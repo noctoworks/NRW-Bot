@@ -8,7 +8,7 @@
 | Регистрация/главное меню | `app/handlers/start.py` | TODO | `app/keyboards/main_menu.py`, `app/services/gift_service.py`, `app/services/referral_service.py` |
 | Подписка (покупка/продление/устройства) | `app/handlers/subscription.py` | TODO | `app/external/remnawave`, `app/services/payment`, `app/services/referral_service.py`, `app/services/notification_service.py` |
 | Реферал/промокод/подарок | `app/handlers/referral.py`, `app/handlers/promocode.py`, `app/handlers/gift.py`, + реализация `app/services/{referral,gift,promocode}_service.py` | TODO | — |
-| Админка/поддержка/фон/уведомления | `app/handlers/admin.py`, `app/handlers/support.py`, `app/services/notification_service.py` (реализация), `app/services/background.py` (новый), хук в `main.py` | TODO | — |
+| Админка/поддержка/фон/уведомления | `app/handlers/admin.py`, `app/handlers/support.py`, `app/services/notification_service.py` (реализация), `app/services/background.py` (новый), хук в `main.py` | Готово | — |
 
 Единая точка регистрации хендлеров — `app/handlers/__init__.py`, каждый модуль
 добавляет туда ровно одну строку (уже подготовлено).
