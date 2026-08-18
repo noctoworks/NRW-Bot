@@ -30,6 +30,20 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    networks:
+      - default
+      - remnawave-network
 
 volumes:
   postgres_data:
+
+networks:
+  default: {}
+  # Сеть панели Remnawave — создана ЕЁ собственным docker-compose (не нашим),
+  # поэтому external: true. Когда панель и бот на одном VPS (см. диалог: "панель
+  # и VPS живут на одном VPS"), REMNAWAVE_BASE_URL в .env указывает на имя
+  # контейнера в этой сети (http://remnawave:3000), а не на публичный домен —
+  # так запрос идёт напрямую по внутренней docker-сети, в обход Cloudflare
+  # (у которого periodически бывает 520 на этот домен).
+  remnawave-network:
+    external: true
