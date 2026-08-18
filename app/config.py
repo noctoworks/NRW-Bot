@@ -55,6 +55,13 @@ class Settings(BaseSettings):
     REMNAWAVE_MODE: Literal['mock', 'real'] = 'mock'
     REMNAWAVE_BASE_URL: str = ''
     REMNAWAVE_API_KEY: str = ''
+    # Опционально: если nginx перед панелью настроен на "маскирование" (панель
+    # Remnawave прячется за секретным query/cookie-параметром — без него nginx
+    # рвёт соединение без ответа на ЛЮБОЙ путь, включая /api/*, что снаружи
+    # выглядит как Cloudflare 520). Формат — как в query-строке: "key=value".
+    # Найдено вживую в nginx-конфиге панели (map $arg_<KEY> ...) — если у вас
+    # такого маскирования нет, оставьте пустым.
+    REMNAWAVE_PANEL_SECRET_PARAM: str = ''
 
     # --- Платежи ---
     PAYMENTS_MODE: Literal['stub', 'real'] = 'stub'

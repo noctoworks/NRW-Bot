@@ -14,4 +14,8 @@ def get_remnawave_client() -> RemnawaveClient:
 
     from app.external.remnawave.real import RealRemnawaveClient
 
-    return RealRemnawaveClient(base_url=settings.REMNAWAVE_BASE_URL, api_key=settings.REMNAWAVE_API_KEY)
+    return RealRemnawaveClient(
+        base_url=settings.REMNAWAVE_BASE_URL,
+        api_key=settings.REMNAWAVE_API_KEY,
+        panel_secret_param=settings.REMNAWAVE_PANEL_SECRET_PARAM,
+    )

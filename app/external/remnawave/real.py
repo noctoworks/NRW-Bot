@@ -40,9 +40,19 @@ def _parse_dt(value: str | None) -> datetime | None:
 
 
 class RealRemnawaveClient(RemnawaveClient):
-    def __init__(self, base_url: str, api_key: str) -> None:
+    def __init__(self, base_url: str, api_key: str, panel_secret_param: str = '') -> None:
         self.base_url = base_url.rstrip('/')
         self.api_key = api_key
+        # "key=value" — см. REMNAWAVE_PANEL_SECRET_PARAM в app/config.py. Найдено
+        # вживую: nginx перед панелью маскирует ВЕСЬ /, включая /api/*, за секретным
+        # query/cookie-параметром (map $arg_<KEY> в его конфиге) — без него он рвёт
+        # соединение без ответа (снаружи выглядит как Cloudflare 520, у нас как
+        # httpx.RemoteProtocolError). Панель это не портит и не требует её трогать —
+        # просто прикладываем параметр к каждому запросу.
+        self._panel_secret_param: tuple[str, str] | None = None
+        if panel_secret_param and '=' in panel_secret_param:
+            key, _, value = panel_secret_param.partition('=')
+            self._panel_secret_param = (key, value)
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -55,6 +65,9 @@ class RealRemnawaveClient(RemnawaveClient):
         self, method: str, path: str, *, json_data: dict[str, Any] | None = None, params: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         url = f'{self.base_url}/api{path}'
+        if self._panel_secret_param:
+            key, value = self._panel_secret_param
+            params = {**(params or {}), key: value}
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.request(method, url, json=json_data, params=params, headers=self._headers())
