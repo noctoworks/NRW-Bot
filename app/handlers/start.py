@@ -62,6 +62,7 @@ TEXTS = {
         'gift_success': '🎉 Подарочная подписка активирована! Загляните в «Моя подписка», чтобы увидеть детали.',
         'gift_error': '⚠️ Не удалось активировать подарочный код: {error}',
         'gift_not_ready': '⚠️ Активация подарочных кодов временно недоступна, попробуйте позже.',
+        'trial_granted': '🎉 Вам начислен бесплатный пробный период на {days} дн.! Загляните в «Моя подписка», чтобы подключиться.',
         'back': '⬅️ Назад',
     },
     'en': {
@@ -83,6 +84,7 @@ TEXTS = {
         'gift_success': '🎉 Gift subscription activated! Check "My subscription" for details.',
         'gift_error': '⚠️ Could not redeem the gift code: {error}',
         'gift_not_ready': '⚠️ Gift code redemption is temporarily unavailable, please try again later.',
+        'trial_granted': '🎉 You got a free {days}-day trial! Check "My subscription" to connect.',
         'back': '⬅️ Back',
     },
 }
@@ -278,51 +280,36 @@ async def cb_accept_rules(callback: CallbackQuery, db: AsyncSession, state: FSMC
         if campaign is not None:
             await apply_campaign_bonus(db, campaign=campaign, user=new_user)
 
-    await callback.message.edit_reply_markup(reply_markup=None)
-    await _show_main_menu(callback, db, new_user, is_new=True)
-
-    # Предложение бесплатного пробного периода (Фаза 3, см. диалог) — отдельным
-    # сообщением следом за меню, а не автовыдачей: пользователь должен явно
-    # согласиться, чтобы не "сжигать" триал незаметно для него.
-    from app.handlers.subscription import get_active_tariff, get_user_subscription
-
-    tariff = await get_active_tariff(db)
-    if tariff and tariff.trial_enabled and not new_user.trial_used and await get_user_subscription(db, new_user.id) is None:
-        trial_keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text=f'🎁 Попробовать {tariff.trial_period_days} дн. бесплатно', callback_data='trial:start')]
-            ]
-        )
-        await callback.message.answer('Хотите попробовать сервис бесплатно?', reply_markup=trial_keyboard)
-
-    await callback.answer()
-
-
-@router.callback_query(F.data == 'trial:start')
-async def cb_start_trial(callback: CallbackQuery, db: AsyncSession, db_user: User | None) -> None:
-    if db_user is None:
-        await callback.answer()
-        return
-    if db_user.trial_used:
-        await callback.answer('Пробный период уже использован', show_alert=True)
-        return
-
+    # Автовыдача бесплатного пробного периода (см. диалог: "автоматически, без
+    # выбора") — сразу при регистрации, без кнопки-согласия. Проверка на
+    # существующую подписку защищает от двойной выдачи, если campaign_param
+    # выше уже начислил бонус-подписку (apply_campaign_bonus) — в этом случае
+    # триал просто не выдаётся повторно, а не складывается с бонусом.
+    # Remnawave может быть недоступна (см. диалог про 520/панель) — ошибка не
+    # должна ломать регистрацию, только пропускать триал молча в лог.
     from app.handlers.subscription import get_active_tariff, get_user_subscription
     from app.services.subscription_provisioning import provision_or_extend_subscription
 
-    tariff = await get_active_tariff(db)
-    if tariff is None or not tariff.trial_enabled:
-        await callback.answer('Пробный период недоступен', show_alert=True)
-        return
-    if await get_user_subscription(db, db_user.id) is not None:
-        await callback.answer('У вас уже есть подписка', show_alert=True)
-        return
+    trial_days: int | None = None
+    trial_tariff = await get_active_tariff(db)
+    if (
+        trial_tariff
+        and trial_tariff.trial_enabled
+        and not new_user.trial_used
+        and await get_user_subscription(db, new_user.id) is None
+    ):
+        try:
+            await provision_or_extend_subscription(db, user=new_user, tariff=trial_tariff, period_days=trial_tariff.trial_period_days)
+            new_user.trial_used = True
+            await db.flush()
+            trial_days = trial_tariff.trial_period_days
+        except Exception:
+            logger.exception('Автовыдача триала упала (не блокирует регистрацию)')
 
-    await provision_or_extend_subscription(db, user=db_user, tariff=tariff, period_days=tariff.trial_period_days)
-    db_user.trial_used = True
-    await db.flush()
-
-    await callback.message.edit_text(f'🎉 Пробный период на {tariff.trial_period_days} дн. активирован! Загляните в «Моя подписка».')
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await _show_main_menu(callback, db, new_user, is_new=True)
+    if trial_days is not None:
+        await callback.message.answer(_t(lang, 'trial_granted').format(days=trial_days))
     await callback.answer()
 
 
