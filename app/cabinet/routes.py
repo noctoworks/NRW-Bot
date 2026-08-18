@@ -89,7 +89,9 @@ async def dashboard(
     db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
 ) -> DashboardResponse:
     subscription = await get_user_subscription(db, user.id)
-    return DashboardResponse(balance_kopeks=user.balance_kopeks, subscription=_subscription_out(subscription))
+    return DashboardResponse(
+        balance_kopeks=user.balance_kopeks, subscription=_subscription_out(subscription), is_admin=user.is_admin
+    )
 
 
 @router.get('/tariff', response_model=TariffResponse)

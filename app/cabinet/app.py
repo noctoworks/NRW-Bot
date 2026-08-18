@@ -4,6 +4,7 @@ from aiogram import Bot
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.cabinet.admin_routes import router as admin_router
 from app.cabinet.routes import router
 from app.config import settings
 
@@ -23,6 +24,7 @@ def create_app(bot: Bot) -> FastAPI:
         )
 
     app.include_router(router)
+    app.include_router(admin_router)
 
     @app.get('/health')
     async def health() -> dict[str, str]:

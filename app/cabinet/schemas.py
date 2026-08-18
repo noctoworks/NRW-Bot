@@ -28,6 +28,7 @@ class SubscriptionOut(BaseModel):
 class DashboardResponse(BaseModel):
     balance_kopeks: int
     subscription: SubscriptionOut | None
+    is_admin: bool
 
 
 class PeriodOut(BaseModel):

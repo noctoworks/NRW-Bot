@@ -1,0 +1,278 @@
+"""Аналитика для веб-админки (/cabinet/admin/*, см. app/cabinet/admin_routes.py).
+
+Определение "выручки" — то же, что уже использует бот в
+app/handlers/admin.py::_render_subs_stats: Transaction.type IN
+('subscription_payment', 'topup') AND status='completed'. Не вводим новое
+определение — цифры бота и веба обязаны совпадать.
+
+Методологическая оговорка (см. диалог, важно для пользователя как для
+бизнес-человека): у сервиса нет реального recurring billing — MRR/ARR тут
+НЕ "сумма активных подписок с автосписанием" (такого нет в модели), а прокси
+"выручка за последние 30 дней" (и ×12 для ARR). В UI это должно быть
+подписано явно, не выдаваться за точную SaaS-метрику.
+
+Группировки по датам считаются в Python над выгруженными строками, а не через
+SQL date_trunc/strftime — чтобы одинаково работать на SQLite (dev) и Postgres
+(прод) без дублирования диалект-специфичных запросов.
+"""
+
+from __future__ import annotations
+
+import statistics
+from collections import defaultdict
+from datetime import date, datetime, timedelta, timezone
+
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database.models import ReferralEarning, Subscription, Transaction, User
+
+REVENUE_TYPES = ('subscription_payment', 'topup')
+
+
+def _as_utc(dt: datetime) -> datetime:
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
+async def _revenue_sum(db: AsyncSession, *, since: datetime | None = None) -> int:
+    stmt = select(func.coalesce(func.sum(Transaction.amount_kopeks), 0)).where(
+        Transaction.type.in_(REVENUE_TYPES), Transaction.status == 'completed'
+    )
+    if since is not None:
+        stmt = stmt.where(Transaction.created_at >= since)
+    return (await db.execute(stmt)).scalar_one()
+
+
+async def get_overview(db: AsyncSession) -> dict:
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    revenue_today = await _revenue_sum(db, since=today_start)
+    revenue_7d = await _revenue_sum(db, since=now - timedelta(days=7))
+    revenue_30d = await _revenue_sum(db, since=now - timedelta(days=30))
+
+    active_subscriptions = (
+        await db.execute(select(func.count(Subscription.id)).where(Subscription.status == 'active'))
+    ).scalar_one()
+
+    total_users = (await db.execute(select(func.count(User.id)))).scalar_one()
+    new_users_7d = (
+        await db.execute(select(func.count(User.id)).where(User.created_at >= now - timedelta(days=7)))
+    ).scalar_one()
+
+    paying_users = (
+        await db.execute(
+            select(func.count(func.distinct(Transaction.user_id))).where(
+                Transaction.type.in_(REVENUE_TYPES), Transaction.status == 'completed'
+            )
+        )
+    ).scalar_one()
+    conversion_percent = round(paying_users / total_users * 100, 1) if total_users else 0.0
+
+    tx_count_30d = (
+        await db.execute(
+            select(func.count(Transaction.id)).where(
+                Transaction.type.in_(REVENUE_TYPES),
+                Transaction.status == 'completed',
+                Transaction.created_at >= now - timedelta(days=30),
+            )
+        )
+    ).scalar_one()
+    avg_check_kopeks = round(revenue_30d / tx_count_30d) if tx_count_30d else 0
+
+    churn_percent_30d = await _churn_percent(db, since=now - timedelta(days=30), until=now)
+
+    return {
+        'revenue_today_kopeks': revenue_today,
+        'revenue_7d_kopeks': revenue_7d,
+        'revenue_30d_kopeks': revenue_30d,
+        'active_subscriptions': active_subscriptions,
+        'total_users': total_users,
+        'new_users_7d': new_users_7d,
+        'conversion_percent': conversion_percent,
+        'avg_check_kopeks': avg_check_kopeks,
+        'mrr_kopeks': revenue_30d,
+        'arr_kopeks': revenue_30d * 12,
+        'churn_percent_30d': churn_percent_30d,
+    }
+
+
+async def _churn_percent(db: AsyncSession, *, since: datetime, until: datetime) -> float:
+    """Доля подписок, у которых end_date попал в [since, until] и которые
+    СЕЙЧАС status='expired' (не продлили) — среди всех, у кого end_date вообще
+    попал в этот диапазон."""
+    result = await db.execute(
+        select(Subscription.status).where(Subscription.end_date >= since, Subscription.end_date <= until)
+    )
+    statuses = [row[0] for row in result.all()]
+    if not statuses:
+        return 0.0
+    churned = sum(1 for s in statuses if s == 'expired')
+    return round(churned / len(statuses) * 100, 1)
+
+
+async def get_revenue_timeseries(db: AsyncSession, *, days: int = 30) -> list[dict]:
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    result = await db.execute(
+        select(Transaction.created_at, Transaction.amount_kopeks).where(
+            Transaction.type.in_(REVENUE_TYPES), Transaction.status == 'completed', Transaction.created_at >= since
+        )
+    )
+    buckets: dict[date, dict] = defaultdict(lambda: {'revenue_kopeks': 0, 'count': 0})
+    for created_at, amount_kopeks in result.all():
+        day = _as_utc(created_at).date()
+        buckets[day]['revenue_kopeks'] += amount_kopeks
+        buckets[day]['count'] += 1
+
+    today = datetime.now(timezone.utc).date()
+    series = []
+    for offset in range(days, -1, -1):
+        day = today - timedelta(days=offset)
+        bucket = buckets.get(day, {'revenue_kopeks': 0, 'count': 0})
+        series.append({'date': day.isoformat(), 'revenue_kopeks': bucket['revenue_kopeks'], 'count': bucket['count']})
+    return series
+
+
+async def get_ltv(db: AsyncSession) -> dict:
+    result = await db.execute(
+        select(Transaction.user_id, func.sum(Transaction.amount_kopeks))
+        .where(Transaction.type.in_(REVENUE_TYPES), Transaction.status == 'completed')
+        .group_by(Transaction.user_id)
+    )
+    per_user: dict[int, int] = {user_id: total for user_id, total in result.all()}
+
+    total_users = (await db.execute(select(func.count(User.id)))).scalar_one()
+    totals = list(per_user.values())
+
+    arpu_kopeks = round(sum(totals) / total_users) if total_users else 0
+    avg_ltv_paying_kopeks = round(statistics.fmean(totals)) if totals else 0
+    median_ltv_kopeks = round(statistics.median(totals)) if totals else 0
+
+    top_ids = sorted(per_user.items(), key=lambda kv: kv[1], reverse=True)[:20]
+    top_payers = []
+    if top_ids:
+        users_result = await db.execute(select(User).where(User.id.in_([uid for uid, _ in top_ids])))
+        users_by_id = {u.id: u for u in users_result.scalars().all()}
+        for user_id, total_kopeks in top_ids:
+            user = users_by_id.get(user_id)
+            if user is None:
+                continue
+            top_payers.append(
+                {
+                    'user_id': user.id,
+                    'telegram_id': user.telegram_id,
+                    'username': user.username,
+                    'total_kopeks': total_kopeks,
+                }
+            )
+
+    return {
+        'arpu_kopeks': arpu_kopeks,
+        'avg_ltv_paying_kopeks': avg_ltv_paying_kopeks,
+        'median_ltv_kopeks': median_ltv_kopeks,
+        'paying_users_count': len(totals),
+        'top_payers': top_payers,
+    }
+
+
+def _month_key(dt: datetime) -> tuple[int, int]:
+    dt = _as_utc(dt)
+    return dt.year, dt.month
+
+
+def _month_offset(from_key: tuple[int, int], to_key: tuple[int, int]) -> int:
+    return (to_key[0] - from_key[0]) * 12 + (to_key[1] - from_key[1])
+
+
+async def get_cohorts(db: AsyncSession, *, max_months: int = 6) -> dict:
+    users_result = await db.execute(select(User.id, User.created_at))
+    cohort_by_user: dict[int, tuple[int, int]] = {user_id: _month_key(created_at) for user_id, created_at in users_result.all()}
+
+    cohort_sizes: dict[tuple[int, int], int] = defaultdict(int)
+    for cohort in cohort_by_user.values():
+        cohort_sizes[cohort] += 1
+
+    tx_result = await db.execute(
+        select(Transaction.user_id, Transaction.created_at, Transaction.amount_kopeks).where(
+            Transaction.type.in_(REVENUE_TYPES), Transaction.status == 'completed'
+        )
+    )
+    revenue_by_cohort_offset: dict[tuple[int, int], dict[int, int]] = defaultdict(lambda: defaultdict(int))
+    for user_id, created_at, amount_kopeks in tx_result.all():
+        cohort = cohort_by_user.get(user_id)
+        if cohort is None:
+            continue
+        offset = _month_offset(cohort, _month_key(created_at))
+        if 0 <= offset <= max_months:
+            revenue_by_cohort_offset[cohort][offset] += amount_kopeks
+
+    cohorts = []
+    for cohort in sorted(cohort_sizes.keys()):
+        size = cohort_sizes[cohort]
+        by_offset = revenue_by_cohort_offset.get(cohort, {})
+        revenue_per_user_by_offset = [round(by_offset.get(offset, 0) / size) for offset in range(max_months + 1)]
+        cohorts.append(
+            {
+                'cohort_month': f'{cohort[0]:04d}-{cohort[1]:02d}',
+                'users_count': size,
+                'revenue_per_user_by_month_offset': revenue_per_user_by_offset,
+            }
+        )
+
+    return {'max_months': max_months, 'cohorts': cohorts}
+
+
+async def get_referral_funnel(db: AsyncSession) -> dict:
+    referred_users_count = (
+        await db.execute(select(func.count(User.id)).where(User.referred_by_id.is_not(None)))
+    ).scalar_one()
+
+    referred_paying_result = await db.execute(
+        select(func.count(func.distinct(Transaction.user_id)))
+        .select_from(Transaction)
+        .join(User, User.id == Transaction.user_id)
+        .where(
+            User.referred_by_id.is_not(None),
+            Transaction.type.in_(REVENUE_TYPES),
+            Transaction.status == 'completed',
+        )
+    )
+    referred_paying_count = referred_paying_result.scalar_one()
+    conversion_percent = round(referred_paying_count / referred_users_count * 100, 1) if referred_users_count else 0.0
+
+    total_earnings_kopeks = (
+        await db.execute(select(func.coalesce(func.sum(ReferralEarning.amount_kopeks), 0)))
+    ).scalar_one()
+
+    top_result = await db.execute(
+        select(ReferralEarning.user_id, func.sum(ReferralEarning.amount_kopeks), func.count(func.distinct(ReferralEarning.source_user_id)))
+        .group_by(ReferralEarning.user_id)
+        .order_by(func.sum(ReferralEarning.amount_kopeks).desc())
+        .limit(20)
+    )
+    top_rows = top_result.all()
+    top_referrers = []
+    if top_rows:
+        users_result = await db.execute(select(User).where(User.id.in_([row[0] for row in top_rows])))
+        users_by_id = {u.id: u for u in users_result.scalars().all()}
+        for user_id, earnings_kopeks, referred_count in top_rows:
+            user = users_by_id.get(user_id)
+            if user is None:
+                continue
+            top_referrers.append(
+                {
+                    'user_id': user.id,
+                    'telegram_id': user.telegram_id,
+                    'username': user.username,
+                    'earnings_kopeks': earnings_kopeks,
+                    'referred_count': referred_count,
+                }
+            )
+
+    return {
+        'referred_users_count': referred_users_count,
+        'referred_paying_count': referred_paying_count,
+        'conversion_percent': conversion_percent,
+        'total_earnings_kopeks': total_earnings_kopeks,
+        'top_referrers': top_referrers,
+    }
