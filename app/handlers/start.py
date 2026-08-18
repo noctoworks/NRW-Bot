@@ -269,6 +269,49 @@ async def cb_accept_rules(callback: CallbackQuery, db: AsyncSession, state: FSMC
 
     await callback.message.edit_reply_markup(reply_markup=None)
     await _show_main_menu(callback, db, new_user, is_new=True)
+
+    # Предложение бесплатного пробного периода (Фаза 3, см. диалог) — отдельным
+    # сообщением следом за меню, а не автовыдачей: пользователь должен явно
+    # согласиться, чтобы не "сжигать" триал незаметно для него.
+    from app.handlers.subscription import get_active_tariff, get_user_subscription
+
+    tariff = await get_active_tariff(db)
+    if tariff and tariff.trial_enabled and not new_user.trial_used and await get_user_subscription(db, new_user.id) is None:
+        trial_keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text=f'🎁 Попробовать {tariff.trial_period_days} дн. бесплатно', callback_data='trial:start')]
+            ]
+        )
+        await callback.message.answer('Хотите попробовать сервис бесплатно?', reply_markup=trial_keyboard)
+
+    await callback.answer()
+
+
+@router.callback_query(F.data == 'trial:start')
+async def cb_start_trial(callback: CallbackQuery, db: AsyncSession, db_user: User | None) -> None:
+    if db_user is None:
+        await callback.answer()
+        return
+    if db_user.trial_used:
+        await callback.answer('Пробный период уже использован', show_alert=True)
+        return
+
+    from app.handlers.subscription import get_active_tariff, get_user_subscription
+    from app.services.subscription_provisioning import provision_or_extend_subscription
+
+    tariff = await get_active_tariff(db)
+    if tariff is None or not tariff.trial_enabled:
+        await callback.answer('Пробный период недоступен', show_alert=True)
+        return
+    if await get_user_subscription(db, db_user.id) is not None:
+        await callback.answer('У вас уже есть подписка', show_alert=True)
+        return
+
+    await provision_or_extend_subscription(db, user=db_user, tariff=tariff, period_days=tariff.trial_period_days)
+    db_user.trial_used = True
+    await db.flush()
+
+    await callback.message.edit_text(f'🎉 Пробный период на {tariff.trial_period_days} дн. активирован! Загляните в «Моя подписка».')
     await callback.answer()
 
 

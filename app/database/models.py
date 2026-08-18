@@ -45,6 +45,9 @@ class User(TimestampMixin, Base):
     # Скидочный тир (см. PromoGroup ниже) — NULL значит "без скидки". Назначается
     # через /cabinet/admin/users/{id}/promo-group.
     promo_group_id: Mapped[int | None] = mapped_column(ForeignKey('promo_groups.id', ondelete='SET NULL'), nullable=True)
+    # Пробный период уже использован — не выдаём повторно, даже если подписка
+    # истекла и юзер обнулился по всем остальным полям.
+    trial_used: Mapped[bool] = mapped_column(Boolean, default=False)
 
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     is_blocked: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -88,6 +91,12 @@ class Tariff(TimestampMixin, Base):
     device_limit: Mapped[int] = mapped_column(Integer, default=3)
     squad_uuids: Mapped[list] = mapped_column(JSON, default=list)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    # Бесплатный пробный период (см. диалог, Фаза 3) — переиспользует лимиты
+    # тарифа (traffic_limit_gb/device_limit/squad_uuids), только короче срок.
+    # Отдельных trial-лимитов трафика/устройств сознательно нет — не усложняем.
+    trial_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    trial_period_days: Mapped[int] = mapped_column(Integer, default=3)
 
 
 class Subscription(TimestampMixin, Base):

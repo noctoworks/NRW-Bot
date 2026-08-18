@@ -92,6 +92,8 @@ CB_TARIFF_EDIT_NAME = 'admin:tariff:edit:name'
 CB_TARIFF_EDIT_TRAFFIC = 'admin:tariff:edit:traffic'
 CB_TARIFF_EDIT_DEVICES = 'admin:tariff:edit:devices'
 CB_TARIFF_EDIT_PERIOD = 'admin:tariff:edit:period:'  # + period key
+CB_TARIFF_TOGGLE_TRIAL = 'admin:tariff:toggle_trial:'  # + tariff_id
+CB_TARIFF_EDIT_TRIAL_DAYS = 'admin:tariff:edit:trial_days'
 
 CB_PROMO_MENU = 'admin:promo'
 CB_PROMO_CREATE = 'admin:promo:create'
@@ -929,10 +931,13 @@ def _tariffs_list_keyboard(tariffs: list[Tariff]) -> InlineKeyboardMarkup:
 
 
 def _tariff_keyboard(tariff: Tariff) -> InlineKeyboardMarkup:
+    trial_toggle_text = '🎁 Выключить триал' if tariff.trial_enabled else '🎁 Включить триал'
     rows = [
         [InlineKeyboardButton(text='✏️ Название', callback_data=f'{CB_TARIFF_EDIT_NAME}:{tariff.id}')],
         [InlineKeyboardButton(text='✏️ Лимит трафика', callback_data=f'{CB_TARIFF_EDIT_TRAFFIC}:{tariff.id}')],
         [InlineKeyboardButton(text='✏️ Лимит устройств', callback_data=f'{CB_TARIFF_EDIT_DEVICES}:{tariff.id}')],
+        [InlineKeyboardButton(text=trial_toggle_text, callback_data=f'{CB_TARIFF_TOGGLE_TRIAL}{tariff.id}')],
+        [InlineKeyboardButton(text='✏️ Дней триала', callback_data=f'{CB_TARIFF_EDIT_TRIAL_DAYS}:{tariff.id}')],
     ]
     for period in sorted(tariff.period_prices_kopeks.keys(), key=int):
         rows.append(
@@ -948,10 +953,12 @@ def _tariff_keyboard(tariff: Tariff) -> InlineKeyboardMarkup:
 
 def _tariff_text(tariff: Tariff) -> str:
     traffic = 'безлимит' if tariff.traffic_limit_gb == 0 else f'{tariff.traffic_limit_gb} ГБ'
+    trial = f'включён, {tariff.trial_period_days} дн.' if tariff.trial_enabled else 'выключен'
     lines = [
         f'<b>Тариф: {tariff.name}</b>',
         f'Лимит трафика: {traffic}',
         f'Лимит устройств: {tariff.device_limit}',
+        f'Триал: {trial}',
         '',
         'Цены по периодам:',
     ]
@@ -1050,6 +1057,36 @@ async def cb_tariff_edit_devices(callback: CallbackQuery, db_user: User | None, 
     await callback.answer()
 
 
+@router.callback_query(F.data.startswith(CB_TARIFF_TOGGLE_TRIAL))
+async def cb_tariff_toggle_trial(callback: CallbackQuery, db: AsyncSession, db_user: User | None) -> None:
+    if not _is_admin(db_user):
+        await callback.answer()
+        return
+    tariff_id = int(callback.data[len(CB_TARIFF_TOGGLE_TRIAL):])
+    tariff = await db.get(Tariff, tariff_id)
+    if tariff is None:
+        await callback.answer('Тариф не найден', show_alert=True)
+        return
+    tariff.trial_enabled = not tariff.trial_enabled
+    await db.flush()
+    await _answer_or_edit(callback, _tariff_text(tariff), _tariff_keyboard(tariff))
+    await callback.answer('Обновлено')
+
+
+@router.callback_query(F.data.startswith(f'{CB_TARIFF_EDIT_TRIAL_DAYS}:'))
+async def cb_tariff_edit_trial_days(callback: CallbackQuery, db_user: User | None, state: FSMContext) -> None:
+    if not _is_admin(db_user):
+        await callback.answer()
+        return
+    tariff_id = int(callback.data.rsplit(':', 1)[1])
+    await state.set_state(AdminTariffStates.entering_prices)
+    await state.update_data(tariff_field='trial_days', tariff_id=tariff_id)
+    await _answer_or_edit(
+        callback, '✏️ Введите длительность триала в днях:', _back_keyboard(f'{CB_TARIFF_CARD}{tariff_id}')
+    )
+    await callback.answer()
+
+
 @router.callback_query(F.data.startswith(CB_TARIFF_EDIT_PERIOD))
 async def cb_tariff_edit_period(callback: CallbackQuery, db_user: User | None, state: FSMContext) -> None:
     if not _is_admin(db_user):
@@ -1112,6 +1149,16 @@ async def on_admin_tariff_value_input(message: Message, db: AsyncSession, db_use
         else:
             tariff.device_limit = value
             result_text = f'✅ Лимит устройств обновлён: {value}'
+    elif field == 'trial_days':
+        try:
+            value = int(message.text.strip())
+            if value <= 0:
+                raise ValueError
+        except ValueError:
+            await message.answer('Некорректное число. Введите целое число > 0.')
+            return
+        tariff.trial_period_days = value
+        result_text = f'✅ Длительность триала обновлена: {value} дн.'
     else:
         await state.clear()
         return
