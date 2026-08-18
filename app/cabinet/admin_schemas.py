@@ -119,6 +119,8 @@ class AdminUserDetailResponse(BaseModel):
     referrals_invited_count: int
     referrals_earned_kopeks: int
     referral_commission_percent: int | None
+    promo_group_id: int | None
+    promo_group_name: str | None
 
 
 class BalanceAdjustRequest(BaseModel):
@@ -163,3 +165,24 @@ class PaginatedTransactionsResponse(BaseModel):
     total: int
     page: int
     total_pages: int
+
+
+class PromoGroupOut(BaseModel):
+    id: int
+    name: str
+    discount_percent: int
+    users_count: int
+
+
+class PromoGroupCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+    discount_percent: int = Field(ge=0, le=100)
+
+
+class PromoGroupUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=64)
+    discount_percent: int | None = Field(default=None, ge=0, le=100)
+
+
+class SetUserPromoGroupRequest(BaseModel):
+    promo_group_id: int | None = None

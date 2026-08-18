@@ -31,13 +31,17 @@ from app.cabinet.admin_schemas import (
     MessageRequest,
     OverviewResponse,
     PaginatedTransactionsResponse,
+    PromoGroupCreateRequest,
+    PromoGroupOut,
+    PromoGroupUpdateRequest,
     ReferralCommissionRequest,
     ReferralFunnelResponse,
     RevenuePointOut,
+    SetUserPromoGroupRequest,
     SyncResultResponse,
 )
 from app.cabinet.deps import get_db
-from app.database.models import ReferralEarning, Subscription, Transaction, User
+from app.database.models import PromoGroup, ReferralEarning, Subscription, Transaction, User
 from app.external.remnawave import get_remnawave_client
 from app.services import analytics_service
 from app.services.notification_service import notify_balance_changed
@@ -198,6 +202,8 @@ async def user_detail(
         'referrals_invited_count': invited_count,
         'referrals_earned_kopeks': earned,
         'referral_commission_percent': target.referral_commission_percent,
+        'promo_group_id': target.promo_group_id,
+        'promo_group_name': (await db.get(PromoGroup, target.promo_group_id)).name if target.promo_group_id else None,
     }
 
 
@@ -453,3 +459,83 @@ async def sync_to_panel(
             device_limit=sub.device_limit,
         ),
     }
+
+
+# === Промогруппы (скидочные тиры, см. app/services/pricing_service.py) ========
+
+
+@router.get('/promo-groups', response_model=list[PromoGroupOut])
+async def list_promo_groups(
+    db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> list[dict]:
+    groups = (await db.execute(select(PromoGroup).order_by(PromoGroup.id))).scalars().all()
+    result = []
+    for g in groups:
+        users_count = (
+            await db.execute(select(func.count(User.id)).where(User.promo_group_id == g.id))
+        ).scalar_one()
+        result.append({'id': g.id, 'name': g.name, 'discount_percent': g.discount_percent, 'users_count': users_count})
+    return result
+
+
+@router.post('/promo-groups', response_model=PromoGroupOut)
+async def create_promo_group(
+    payload: PromoGroupCreateRequest, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> dict:
+    group = PromoGroup(name=payload.name, discount_percent=payload.discount_percent)
+    db.add(group)
+    await db.commit()
+    await db.refresh(group)
+    return {'id': group.id, 'name': group.name, 'discount_percent': group.discount_percent, 'users_count': 0}
+
+
+async def _get_promo_group_or_404(db: AsyncSession, group_id: int) -> PromoGroup:
+    group = await db.get(PromoGroup, group_id)
+    if group is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, 'Промогруппа не найдена')
+    return group
+
+
+@router.patch('/promo-groups/{group_id}', response_model=PromoGroupOut)
+async def update_promo_group(
+    group_id: int,
+    payload: PromoGroupUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+) -> dict:
+    group = await _get_promo_group_or_404(db, group_id)
+    if payload.name is not None:
+        group.name = payload.name
+    if payload.discount_percent is not None:
+        group.discount_percent = payload.discount_percent
+    await db.commit()
+
+    users_count = (
+        await db.execute(select(func.count(User.id)).where(User.promo_group_id == group.id))
+    ).scalar_one()
+    return {'id': group.id, 'name': group.name, 'discount_percent': group.discount_percent, 'users_count': users_count}
+
+
+@router.delete('/promo-groups/{group_id}')
+async def delete_promo_group(
+    group_id: int, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> dict[str, str]:
+    group = await _get_promo_group_or_404(db, group_id)
+    await db.delete(group)
+    await db.commit()  # users.promo_group_id -> NULL автоматически (ondelete='SET NULL')
+    return {'status': 'deleted'}
+
+
+@router.post('/users/{user_id}/promo-group', response_model=AdminUserDetailResponse)
+async def set_user_promo_group(
+    user_id: int,
+    payload: SetUserPromoGroupRequest,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+) -> dict:
+    target = await _get_user_or_404(db, user_id)
+    if payload.promo_group_id is not None:
+        await _get_promo_group_or_404(db, payload.promo_group_id)
+    target.promo_group_id = payload.promo_group_id
+    await db.commit()
+    return await user_detail(user_id, db=db, _admin=_admin)

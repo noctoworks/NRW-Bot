@@ -42,6 +42,10 @@ class User(TimestampMixin, Base):
 
     remnawave_uuid: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
+    # Скидочный тир (см. PromoGroup ниже) — NULL значит "без скидки". Назначается
+    # через /cabinet/admin/users/{id}/promo-group.
+    promo_group_id: Mapped[int | None] = mapped_column(ForeignKey('promo_groups.id', ondelete='SET NULL'), nullable=True)
+
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     is_blocked: Mapped[bool] = mapped_column(Boolean, default=False)
 
@@ -58,6 +62,19 @@ class User(TimestampMixin, Base):
         back_populates='user', uselist=False, cascade='all, delete-orphan'
     )
     referred_by: Mapped['User | None'] = relationship(remote_side=[id])
+    promo_group: Mapped['PromoGroup | None'] = relationship()
+
+
+class PromoGroup(TimestampMixin, Base):
+    """Скидочный тир на юзера (см. диалог, портировано из Bedolaga упрощённо —
+    там 3 отдельных процента под отдельные покупки трафика/устройств-аддонов,
+    которых у нас нет; здесь один discount_percent на всю цену подписки)."""
+
+    __tablename__ = 'promo_groups'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(64))
+    discount_percent: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class Tariff(TimestampMixin, Base):

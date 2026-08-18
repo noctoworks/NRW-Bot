@@ -29,6 +29,7 @@ from app.handlers.subscription import (
     get_user_subscription,
     purchase_or_renew_subscription,
 )
+from app.services.pricing_service import apply_discount, get_discount_percent
 from app.services.referral_service import generate_referral_code
 
 router = APIRouter(prefix='/cabinet')
@@ -95,16 +96,17 @@ async def dashboard(
 
 
 @router.get('/tariff', response_model=TariffResponse)
-async def tariff(db: AsyncSession = Depends(get_db), _user: User = Depends(get_current_user)) -> TariffResponse:
+async def tariff(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)) -> TariffResponse:
     active_tariff = await get_active_tariff(db)
     if active_tariff is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, 'Тариф временно недоступен')
 
+    discount_percent = await get_discount_percent(db, user)
     periods = [
         PeriodOut(
             days=int(days_str),
             label=PERIOD_LABELS.get(days_str, f'{days_str} дней'),
-            price_kopeks=int(price_kopeks),
+            price_kopeks=apply_discount(int(price_kopeks), discount_percent),
         )
         for days_str, price_kopeks in sorted(active_tariff.period_prices_kopeks.items(), key=lambda kv: int(kv[0]))
     ]

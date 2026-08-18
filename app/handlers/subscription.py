@@ -47,6 +47,7 @@ from app.external.remnawave import get_remnawave_client
 from app.keyboards.main_menu import CB_SUBSCRIPTION_MY, CB_SUBSCRIPTION_RENEW, back_to_menu_button
 from app.services.notification_service import notify_payment_success
 from app.services.payment import get_payment_provider
+from app.services.pricing_service import get_period_price_kopeks
 from app.services.referral_service import credit_referral_earning
 from app.states import PurchaseStates
 
@@ -144,7 +145,7 @@ async def purchase_or_renew_subscription(
     price_key = str(period_days)
     if price_key not in tariff.period_prices_kopeks:
         raise ValueError(f'Тариф {tariff.name} не имеет цены для периода {period_days} дней')
-    amount_kopeks = int(tariff.period_prices_kopeks[price_key])
+    amount_kopeks = await get_period_price_kopeks(db, tariff, period_days, db_user)
 
     provider = get_payment_provider(method)
     description = f'Подписка «{tariff.name}» на {period_days} дн.'
@@ -618,7 +619,7 @@ async def cb_sub_renew(callback: CallbackQuery, db: AsyncSession, state: FSMCont
 
 
 @router.callback_query(StateFilter(PurchaseStates.choosing_period), lambda c: c.data and c.data.startswith('sub:period:'))
-async def cb_choose_period(callback: CallbackQuery, db: AsyncSession, state: FSMContext) -> None:
+async def cb_choose_period(callback: CallbackQuery, db: AsyncSession, db_user: User, state: FSMContext) -> None:
     days = callback.data.split('sub:period:', 1)[1]
     data = await state.update_data(period_days=int(days))
 
@@ -627,7 +628,7 @@ async def cb_choose_period(callback: CallbackQuery, db: AsyncSession, state: FSM
         await callback.answer('Тариф недоступен', show_alert=True)
         await state.clear()
         return
-    amount_kopeks = int(tariff.period_prices_kopeks[days])
+    amount_kopeks = await get_period_price_kopeks(db, tariff, int(days), db_user)
 
     await state.set_state(PurchaseStates.choosing_payment_method)
     label = PERIOD_LABELS.get(days, f'{days} дней')
@@ -639,7 +640,7 @@ async def cb_choose_period(callback: CallbackQuery, db: AsyncSession, state: FSM
 
 
 @router.callback_query(StateFilter(PurchaseStates.choosing_payment_method), lambda c: c.data and c.data.startswith('sub:method:'))
-async def cb_choose_method(callback: CallbackQuery, db: AsyncSession, state: FSMContext) -> None:
+async def cb_choose_method(callback: CallbackQuery, db: AsyncSession, db_user: User, state: FSMContext) -> None:
     method = callback.data.split('sub:method:', 1)[1]
     data = await state.update_data(method=method)
 
@@ -650,7 +651,7 @@ async def cb_choose_method(callback: CallbackQuery, db: AsyncSession, state: FSM
         return
 
     period_days = data['period_days']
-    price_kopeks = int(tariff.period_prices_kopeks[str(period_days)])
+    price_kopeks = await get_period_price_kopeks(db, tariff, period_days, db_user)
     await state.set_state(PurchaseStates.confirming)
 
     label = PERIOD_LABELS.get(str(period_days), f'{period_days} дней')

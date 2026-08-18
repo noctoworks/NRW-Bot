@@ -18,6 +18,7 @@ from app.database.models import Payment, Tariff, Transaction, User
 from app.keyboards.main_menu import CB_GIFT_MENU, back_to_menu_button
 from app.services.gift_service import create_gift_code
 from app.services.payment import get_payment_provider
+from app.services.pricing_service import apply_discount, get_discount_percent, get_period_price_kopeks
 from app.states import GiftStates
 
 logger = logging.getLogger(__name__)
@@ -73,11 +74,11 @@ def _t(lang: str | None, key: str) -> str:
     return TEXTS.get(lang or 'ru', TEXTS['ru'])[key]
 
 
-def _period_keyboard(tariff: Tariff) -> InlineKeyboardMarkup:
+def _period_keyboard(tariff: Tariff, discount_percent: int = 0) -> InlineKeyboardMarkup:
     rows = []
     for period_str, price_kopeks in sorted(tariff.period_prices_kopeks.items(), key=lambda kv: int(kv[0])):
         days = int(period_str)
-        price = price_kopeks / 100
+        price = apply_discount(price_kopeks, discount_percent) / 100
         rows.append(
             [InlineKeyboardButton(text=f'{days} дн. — {price:.2f} ₽', callback_data=f'gift:period:{days}')]
         )
@@ -117,9 +118,10 @@ async def cb_gift_menu(callback: CallbackQuery, db: AsyncSession, db_user: User 
         await callback.answer()
         return
 
+    discount_percent = await get_discount_percent(db, db_user)
     await state.update_data(tariff_id=tariff.id)
     await state.set_state(GiftStates.choosing_period)
-    await _edit_or_answer(callback, _t(lang, 'choose_period'), _period_keyboard(tariff))
+    await _edit_or_answer(callback, _t(lang, 'choose_period'), _period_keyboard(tariff, discount_percent))
     await callback.answer()
 
 
@@ -138,7 +140,7 @@ async def cb_choose_period(callback: CallbackQuery, db: AsyncSession, db_user: U
         await callback.answer()
         return
 
-    price = tariff.period_prices_kopeks[str(days)] / 100
+    price = await get_period_price_kopeks(db, tariff, days, db_user) / 100
     await state.update_data(period_days=days)
     await state.set_state(GiftStates.choosing_payment_method)
     await _edit_or_answer(callback, _t(lang, 'choose_payment').format(price=price), _payment_keyboard())
@@ -164,7 +166,7 @@ async def cb_choose_payment(callback: CallbackQuery, db: AsyncSession, db_user: 
         await callback.answer()
         return
 
-    amount_kopeks = tariff.period_prices_kopeks[str(period_days)]
+    amount_kopeks = await get_period_price_kopeks(db, tariff, period_days, db_user)
     description = f'Подарок подписки на {period_days} дн. ({tariff.name})'
 
     provider = get_payment_provider(method)
