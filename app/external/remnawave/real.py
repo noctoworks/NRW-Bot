@@ -111,8 +111,9 @@ class RealRemnawaveClient(RemnawaveClient):
     async def create_user(
         self, *, telegram_id: int, squad_uuids: list[str], traffic_limit_gb: int, expire_at: datetime
     ) -> RemnawaveUser:
+        username = f'tg{telegram_id}'
         body = {
-            'username': f'tg{telegram_id}',
+            'username': username,
             'status': 'ACTIVE',
             'expireAt': expire_at.isoformat(),
             'trafficLimitBytes': traffic_limit_gb * 1024**3,
@@ -120,7 +121,29 @@ class RealRemnawaveClient(RemnawaveClient):
             'telegramId': telegram_id,
             'activeInternalSquads': squad_uuids,
         }
-        data = await self._request('POST', '/users', json_data=body)
+        try:
+            data = await self._request('POST', '/users', json_data=body)
+        except RuntimeError as error:
+            # A019 "User username already exists" — наша сторона (User.remnawave_uuid)
+            # потеряла связь с уже существующим панельным аккаунтом (например, локальную
+            # запись удалили/сбросили и завели заново — см. диалог, живой случай на
+            # тесте), а сам аккаунт в Remnawave остался. Переиспользуем его вместо
+            # падения: находим по username, приводим лимиты/срок к запрошенным.
+            if 'A019' not in str(error):
+                raise
+            logger.warning('Remnawave: username %s уже существует — переиспользую существующий аккаунт', username)
+            existing = await self._request('GET', f'/users/by-username/{username}')
+            data = await self._request(
+                'PATCH',
+                '/users',
+                json_data={
+                    'uuid': existing['uuid'],
+                    'status': 'ACTIVE',
+                    'expireAt': expire_at.isoformat(),
+                    'trafficLimitBytes': traffic_limit_gb * 1024**3,
+                    'activeInternalSquads': squad_uuids,
+                },
+            )
         return self._parse_user(data)
 
     async def extend_user_expiration(self, *, remnawave_uuid: str, expire_at: datetime) -> RemnawaveUser:
