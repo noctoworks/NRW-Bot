@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class OverviewResponse(BaseModel):
@@ -118,6 +118,7 @@ class AdminUserDetailResponse(BaseModel):
     transactions: list[AdminTransactionOut]
     referrals_invited_count: int
     referrals_earned_kopeks: int
+    referral_commission_percent: int | None
 
 
 class BalanceAdjustRequest(BaseModel):
@@ -139,3 +140,26 @@ class MassbanRequest(BaseModel):
 class MassbanResponse(BaseModel):
     blocked_count: int
     requested_count: int
+
+
+class ReferralCommissionRequest(BaseModel):
+    commission_percent: int | None = Field(default=None, ge=0, le=100)
+
+
+class DeviceOut(BaseModel):
+    hwid: str
+    platform: str
+    device_model: str
+    created_at: datetime | None
+
+
+class SyncResultResponse(BaseModel):
+    status: str
+    subscription: AdminSubscriptionOut | None = None
+
+
+class PaginatedTransactionsResponse(BaseModel):
+    items: list[AdminTransactionOut]
+    total: int
+    page: int
+    total_pages: int

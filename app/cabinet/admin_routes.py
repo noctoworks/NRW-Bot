@@ -6,6 +6,8 @@ app/services/analytics_service.py."""
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from aiogram.exceptions import TelegramForbiddenError
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func, select, update
@@ -22,16 +24,21 @@ from app.cabinet.admin_schemas import (
     BalanceAdjustRequest,
     BlockRequest,
     CohortsResponse,
+    DeviceOut,
     LtvResponse,
     MassbanRequest,
     MassbanResponse,
     MessageRequest,
     OverviewResponse,
+    PaginatedTransactionsResponse,
+    ReferralCommissionRequest,
     ReferralFunnelResponse,
     RevenuePointOut,
+    SyncResultResponse,
 )
 from app.cabinet.deps import get_db
 from app.database.models import ReferralEarning, Subscription, Transaction, User
+from app.external.remnawave import get_remnawave_client
 from app.services import analytics_service
 from app.services.notification_service import notify_balance_changed
 
@@ -190,6 +197,7 @@ async def user_detail(
         ],
         'referrals_invited_count': invited_count,
         'referrals_earned_kopeks': earned,
+        'referral_commission_percent': target.referral_commission_percent,
     }
 
 
@@ -294,3 +302,154 @@ async def delete_user(
     target.username = None
     await db.commit()
     return {'status': 'anonymized'}
+
+
+@router.get('/users/{user_id}/transactions', response_model=PaginatedTransactionsResponse)
+async def user_transactions(
+    user_id: int,
+    page: int = Query(1, ge=1),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+) -> dict:
+    await _get_user_or_404(db, user_id)
+
+    count_stmt = select(func.count(Transaction.id)).where(Transaction.user_id == user_id)
+    total = (await db.execute(count_stmt)).scalar_one()
+    total_pages = max((total + PAGE_SIZE - 1) // PAGE_SIZE, 1)
+
+    result = await db.execute(
+        select(Transaction)
+        .where(Transaction.user_id == user_id)
+        .order_by(Transaction.created_at.desc())
+        .limit(PAGE_SIZE)
+        .offset((page - 1) * PAGE_SIZE)
+    )
+    items = [
+        AdminTransactionOut(
+            id=t.id, type=t.type, amount_kopeks=t.amount_kopeks, status=t.status, description=t.description, created_at=t.created_at
+        )
+        for t in result.scalars().all()
+    ]
+    return {'items': items, 'total': total, 'page': page, 'total_pages': total_pages}
+
+
+@router.post('/users/{user_id}/referral-commission', response_model=AdminUserDetailResponse)
+async def set_referral_commission(
+    user_id: int,
+    payload: ReferralCommissionRequest,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+) -> dict:
+    target = await _get_user_or_404(db, user_id)
+    target.referral_commission_percent = payload.commission_percent
+    await db.commit()
+    return await user_detail(user_id, db=db, _admin=_admin)
+
+
+# === Устройства (живой запрос к Remnawave, ничего не хранится в БД — см. §5
+# clone-architecture.md) ========================================================
+
+
+@router.get('/users/{user_id}/devices', response_model=list[DeviceOut])
+async def list_devices(
+    user_id: int, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> list[dict]:
+    target = await _get_user_or_404(db, user_id)
+    if not target.remnawave_uuid:
+        return []
+
+    devices = await get_remnawave_client().get_user_devices(remnawave_uuid=target.remnawave_uuid)
+    return [
+        {'hwid': d.hwid, 'platform': d.platform, 'device_model': d.device_model, 'created_at': d.created_at}
+        for d in devices
+    ]
+
+
+@router.delete('/users/{user_id}/devices/{hwid}')
+async def remove_device(
+    user_id: int, hwid: str, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> dict[str, str]:
+    target = await _get_user_or_404(db, user_id)
+    if not target.remnawave_uuid:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, 'У пользователя нет активной подписки в Remnawave')
+    await get_remnawave_client().remove_device(remnawave_uuid=target.remnawave_uuid, hwid=hwid)
+    return {'status': 'removed'}
+
+
+@router.delete('/users/{user_id}/devices')
+async def reset_devices(
+    user_id: int, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> dict[str, str]:
+    target = await _get_user_or_404(db, user_id)
+    if not target.remnawave_uuid:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, 'У пользователя нет активной подписки в Remnawave')
+    await get_remnawave_client().reset_user_devices(remnawave_uuid=target.remnawave_uuid)
+    return {'status': 'reset'}
+
+
+# === Синхронизация с Remnawave =================================================
+
+
+@router.post('/users/{user_id}/sync/from-panel', response_model=SyncResultResponse)
+async def sync_from_panel(
+    user_id: int, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> dict:
+    """Панель — источник истины: подтягиваем трафик/срок/статус в БД."""
+    target = await _get_user_or_404(db, user_id)
+    if not target.remnawave_uuid:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, 'У пользователя нет remnawave_uuid')
+
+    sub = (await db.execute(select(Subscription).where(Subscription.user_id == target.id))).scalar_one_or_none()
+    if sub is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, 'У пользователя нет подписки в БД')
+
+    remote = await get_remnawave_client().get_subscription_info(remnawave_uuid=target.remnawave_uuid)
+    sub.traffic_used_gb = remote.traffic_used_gb
+    if remote.expire_at is not None:
+        sub.end_date = remote.expire_at
+    sub.status = 'active' if remote.is_enabled else 'disabled'
+    await db.commit()
+
+    return {
+        'status': 'synced',
+        'subscription': AdminSubscriptionOut(
+            status=sub.status,
+            end_date=sub.end_date,
+            traffic_limit_gb=sub.traffic_limit_gb,
+            traffic_used_gb=sub.traffic_used_gb,
+            device_limit=sub.device_limit,
+        ),
+    }
+
+
+@router.post('/users/{user_id}/sync/to-panel', response_model=SyncResultResponse)
+async def sync_to_panel(
+    user_id: int, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> dict:
+    """БД — источник истины: прописываем срок/статус в панель."""
+    target = await _get_user_or_404(db, user_id)
+    if not target.remnawave_uuid:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, 'У пользователя нет remnawave_uuid')
+
+    sub = (await db.execute(select(Subscription).where(Subscription.user_id == target.id))).scalar_one_or_none()
+    if sub is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, 'У пользователя нет подписки в БД')
+
+    client = get_remnawave_client()
+    end_date = sub.end_date if sub.end_date.tzinfo else sub.end_date.replace(tzinfo=timezone.utc)
+    await client.extend_user_expiration(remnawave_uuid=target.remnawave_uuid, expire_at=end_date)
+    if sub.status == 'active' and end_date > datetime.now(timezone.utc):
+        await client.enable_user(remnawave_uuid=target.remnawave_uuid)
+    else:
+        await client.disable_user(remnawave_uuid=target.remnawave_uuid)
+
+    return {
+        'status': 'synced',
+        'subscription': AdminSubscriptionOut(
+            status=sub.status,
+            end_date=sub.end_date,
+            traffic_limit_gb=sub.traffic_limit_gb,
+            traffic_used_gb=sub.traffic_used_gb,
+            device_limit=sub.device_limit,
+        ),
+    }

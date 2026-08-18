@@ -35,6 +35,10 @@ class User(TimestampMixin, Base):
 
     referral_code: Mapped[str] = mapped_column(String(16), unique=True, index=True)
     referred_by_id: Mapped[int | None] = mapped_column(ForeignKey('users.id'), nullable=True)
+    # Персональная переопределённая ставка реферала (0-100) — NULL значит "взять
+    # settings.REFERRAL_PERCENT" (см. services/referral_service.py::credit_referral_earning).
+    # Не 0 по умолчанию: 0 означало бы "начислять 0%", а не "используй глобальную".
+    referral_commission_percent: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     remnawave_uuid: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 

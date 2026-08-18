@@ -30,10 +30,12 @@ async def credit_referral_earning(db: AsyncSession, payment: Payment) -> None:
     """Вызывается ПОСЛЕ фиксации успешного платежа (topup или subscription_payment).
 
     Логика: найти payment.user; если у него есть referred_by_id — начислить
-    REFERRAL_PERCENT от payment.amount_kopeks на баланс реферера, создать
-    ReferralEarning(source=purchase|topup), не бросать исключение наружу
-    (реферальная программа не должна ломать основной платёжный флоу — только
-    логировать ошибку, если что-то пошло не так).
+    от payment.amount_kopeks на баланс реферера процент, равный
+    referrer.referral_commission_percent (если задан персонально админом,
+    см. /cabinet/admin/users/{id}/referral-commission) или settings.REFERRAL_PERCENT
+    по умолчанию, создать ReferralEarning(source=purchase|topup), не бросать
+    исключение наружу (реферальная программа не должна ломать основной
+    платёжный флоу — только логировать ошибку, если что-то пошло не так).
     """
     try:
         if payment.status != 'success':
@@ -49,7 +51,10 @@ async def credit_referral_earning(db: AsyncSession, payment: Payment) -> None:
         if referrer is None:
             return
 
-        amount_kopeks = (payment.amount_kopeks * settings.REFERRAL_PERCENT) // 100
+        percent = referrer.referral_commission_percent
+        if percent is None:
+            percent = settings.REFERRAL_PERCENT
+        amount_kopeks = (payment.amount_kopeks * percent) // 100
         if amount_kopeks <= 0:
             return
 
