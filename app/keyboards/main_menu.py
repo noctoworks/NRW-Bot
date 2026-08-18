@@ -23,6 +23,11 @@ CB_SUPPORT_MENU = 'support:menu'
 CB_INFO_ABOUT = 'info:about'
 CB_SETTINGS_MENU = 'settings:menu'
 
+# Владелец экрана — handlers/admin.py, но константа живёт здесь (как и остальные
+# callback_data главного меню), чтобы get_main_menu_keyboard() не импортировал
+# admin.py (там уже импортируется main_menu.py — цикл).
+CB_ADMIN_ROOT = 'admin:root'
+
 # Возврат в главное меню — реализован в handlers/start.py (единственный владелец
 # показа главного меню). Все остальные модули ссылаются на эту константу вместо
 # того чтобы хардкодить строку 'menu:main' — так исключается риск рассинхрона
@@ -37,19 +42,20 @@ def back_to_menu_button() -> InlineKeyboardButton:
     return InlineKeyboardButton(text='⬅️ В меню', callback_data=CB_MENU_MAIN)
 
 
-def get_main_menu_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text='🌐 Моя подписка', callback_data=CB_SUBSCRIPTION_MY)],
-            [InlineKeyboardButton(text='💎 Продлить подписку', callback_data=CB_SUBSCRIPTION_RENEW)],
-            [InlineKeyboardButton(text='🎁 Подарить подписку', callback_data=CB_GIFT_MENU)],
-            [
-                InlineKeyboardButton(text='👥 Пригласить', callback_data=CB_REFERRAL_MENU),
-                InlineKeyboardButton(text='❓ Поддержка', callback_data=CB_SUPPORT_MENU),
-            ],
-            [
-                InlineKeyboardButton(text='ℹ️ О сервисе', callback_data=CB_INFO_ABOUT),
-                InlineKeyboardButton(text='⚙️ Настройки', callback_data=CB_SETTINGS_MENU),
-            ],
-        ]
-    )
+def get_main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text='🌐 Моя подписка', callback_data=CB_SUBSCRIPTION_MY)],
+        [InlineKeyboardButton(text='💎 Продлить подписку', callback_data=CB_SUBSCRIPTION_RENEW)],
+        [InlineKeyboardButton(text='🎁 Подарить подписку', callback_data=CB_GIFT_MENU)],
+        [
+            InlineKeyboardButton(text='👥 Пригласить', callback_data=CB_REFERRAL_MENU),
+            InlineKeyboardButton(text='❓ Поддержка', callback_data=CB_SUPPORT_MENU),
+        ],
+        [
+            InlineKeyboardButton(text='ℹ️ О сервисе', callback_data=CB_INFO_ABOUT),
+            InlineKeyboardButton(text='⚙️ Настройки', callback_data=CB_SETTINGS_MENU),
+        ],
+    ]
+    if is_admin:
+        rows.append([InlineKeyboardButton(text='🛠 Админ панель', callback_data=CB_ADMIN_ROOT)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)

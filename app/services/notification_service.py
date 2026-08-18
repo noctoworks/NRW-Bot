@@ -52,3 +52,22 @@ async def notify_gift_redeemed_to_gifter(bot: Bot, *, gifter_telegram_id: int, r
     who = f'@{recipient_username}' if recipient_username else 'пользователь'
     text = f'🎁 Ваш подарок активировал {who}!'
     await _safe_send(bot, telegram_id=gifter_telegram_id, text=text)
+
+
+async def notify_balance_changed(bot: Bot, *, telegram_id: int, amount_kopeks: int, new_balance_kopeks: int) -> None:
+    """Уведомление о ручном начислении/списании баланса администратором
+    (portированное поведение из оригинального бота, см. UserService._send_balance_notification) —
+    без упоминания имени админа, оно не должно попадать в текст для пользователя."""
+    if amount_kopeks > 0:
+        text = (
+            f'💰 Баланс пополнен!\n\n'
+            f'Сумма: +{amount_kopeks / 100:.2f}₽\n'
+            f'Текущий баланс: {new_balance_kopeks / 100:.2f}₽'
+        )
+    else:
+        text = (
+            f'💸 Средства списаны с баланса\n\n'
+            f'Сумма: -{abs(amount_kopeks) / 100:.2f}₽\n'
+            f'Текущий баланс: {new_balance_kopeks / 100:.2f}₽'
+        )
+    await _safe_send(bot, telegram_id=telegram_id, text=text)

@@ -189,9 +189,9 @@ async def _show_main_menu(target: Message | CallbackQuery, db: AsyncSession, db_
         # обычный приветственный текст, а не пустую карточку.
         text = _t(db_user.language, 'welcome')
         if isinstance(target, CallbackQuery):
-            await _edit_or_answer(target, text, get_main_menu_keyboard())
+            await _edit_or_answer(target, text, get_main_menu_keyboard(is_admin=db_user.is_admin))
         else:
-            await target.answer(text, reply_markup=get_main_menu_keyboard())
+            await target.answer(text, reply_markup=get_main_menu_keyboard(is_admin=db_user.is_admin))
         return
 
     # Уже зарегистрированный пользователь возвращается в меню — вместо общей фразы
@@ -203,9 +203,9 @@ async def _show_main_menu(target: Message | CallbackQuery, db: AsyncSession, db_
     html = format_subscription_summary(subscription, db_user.balance_kopeks)
 
     if isinstance(target, CallbackQuery):
-        await _edit_or_answer_rich(target, html, get_main_menu_keyboard())
+        await _edit_or_answer_rich(target, html, get_main_menu_keyboard(is_admin=db_user.is_admin))
     else:
-        await target.answer_rich(rich_message=InputRichMessage(html=html), reply_markup=get_main_menu_keyboard())
+        await target.answer_rich(rich_message=InputRichMessage(html=html), reply_markup=get_main_menu_keyboard(is_admin=db_user.is_admin))
 
 
 @router.message(CommandStart())

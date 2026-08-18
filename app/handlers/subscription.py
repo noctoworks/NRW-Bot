@@ -677,8 +677,12 @@ async def cb_confirm_purchase(
 
 @router.callback_query(lambda c: c.data == 'sub:cancel')
 async def cb_cancel_purchase(callback: CallbackQuery, db: AsyncSession, db_user: User, state: FSMContext) -> None:
-    await state.clear()
-    await cb_subscription_my(callback, db, db_user, state)
+    """Отмена покупки/продления — всегда в главное меню, а не назад в карточку
+    подписки: пользователь явно жмёт "Отмена" на любом шаге мастера (тариф/период/
+    способ оплаты/подтверждение), и ожидает выйти из процесса целиком."""
+    from app.handlers.start import cb_menu_main
+
+    await cb_menu_main(callback, db, db_user, state)
 
 
 def register_handlers(dp: Dispatcher) -> None:

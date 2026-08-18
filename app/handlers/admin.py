@@ -45,12 +45,14 @@ from app.database.models import BroadcastHistory, PromoCode, Subscription, Tarif
 from app.handlers.promocode import CB_PROMO_ENTER
 from app.handlers.subscription import get_active_tariffs
 from app.keyboards.main_menu import (
+    CB_ADMIN_ROOT,
     CB_MENU_MAIN,
     CB_REFERRAL_MENU,
     CB_SUBSCRIPTION_MY,
     CB_SUBSCRIPTION_RENEW,
     CB_SUPPORT_MENU,
 )
+from app.services.notification_service import notify_balance_changed
 from app.states import AdminBroadcastStates, AdminEmojiStates, AdminPromoCodeStates, AdminTariffStates, AdminUserStates
 
 logger = logging.getLogger(__name__)
@@ -62,7 +64,6 @@ PAGE_SIZE = 10
 
 # --- вспомогательные ---
 
-CB_ADMIN_ROOT = 'admin:root'
 CB_ADMIN_TARIFF = 'admin:tariff'
 CB_ADMIN_BROADCAST = 'admin:broadcast'
 CB_ADMIN_SERVERS = 'admin:servers'
@@ -421,7 +422,7 @@ async def _render_users_list(
         rows.append(
             [
                 InlineKeyboardButton(
-                    text=f'{status_icon}{sub_icon} {label} | 🕐 {_time_ago(u.last_activity_at)}',
+                    text=f'{status_icon}{sub_icon} {label} | 📆 {_time_ago(u.last_activity_at)}',
                     callback_data=f'{CB_USER_CARD}{u.id}',
                 )
             ]
@@ -676,6 +677,12 @@ async def on_admin_balance_input(message: Message, db: AsyncSession, db_user: Us
     )
     await db.flush()
     await state.clear()
+    await notify_balance_changed(
+        message.bot,
+        telegram_id=target.telegram_id,
+        amount_kopeks=kopeks,
+        new_balance_kopeks=target.balance_kopeks,
+    )
     await message.answer(
         f'✅ Баланс обновлён: {target.balance_kopeks / 100:.2f} ₽', reply_markup=_back_keyboard(f'{CB_USER_CARD}{target.id}')
     )
