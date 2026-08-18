@@ -12,7 +12,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -23,6 +23,17 @@ class Settings(BaseSettings):
     BOT_TOKEN: str
     BOT_USERNAME: str = ''
     ADMIN_TELEGRAM_IDS: str = ''  # CSV, напр. "123,456"
+
+    @field_validator('BOT_USERNAME')
+    @classmethod
+    def _strip_bot_username_at(cls, value: str) -> str:
+        # BOT_USERNAME используется как есть в t.me/{BOT_USERNAME}?start=... по
+        # всему проекту (referral.py, gift.py, cabinet/admin_routes.py) — с
+        # ведущим '@' ссылка ломается (t.me/@name вместо t.me/name). Найдено
+        # живьём: пользователь заполнил .env с '@', как принято в остальных
+        # местах Telegram UI — нормализуем один раз здесь, а не в каждом
+        # вызывающем месте.
+        return value.lstrip('@')
 
     # --- Database ---
     DATABASE_URL: str = 'sqlite+aiosqlite:///./bot.db'

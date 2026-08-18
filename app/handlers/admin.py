@@ -2045,10 +2045,15 @@ async def _render_subs_stats(db: AsyncSession) -> str:
     active = (await db.execute(select(func.count(Subscription.id)).where(Subscription.status == 'active'))).scalar_one()
     expired = (await db.execute(select(func.count(Subscription.id)).where(Subscription.status == 'expired'))).scalar_one()
     total = (await db.execute(select(func.count(Subscription.id)))).scalar_one()
+    # Выручка = реальные платежи юзеров (своя подписка + купленные подарки).
+    # НЕ 'topup': в продукте нет пользовательского пополнения без покупки —
+    # 'topup' бывает только при ручном начислении админом или бонусе кампании
+    # (см. app/services/analytics_service.py::REVENUE_TYPES, тот же баг был
+    # исправлен там одновременно — цифры бота и веб-админки обязаны совпадать).
     revenue_kopeks = (
         await db.execute(
             select(func.coalesce(func.sum(Transaction.amount_kopeks), 0)).where(
-                Transaction.type.in_(['subscription_payment', 'topup']),
+                Transaction.type.in_(['subscription_payment', 'gift']),
                 Transaction.status == 'completed',
             )
         )
@@ -2058,7 +2063,7 @@ async def _render_subs_stats(db: AsyncSession) -> str:
         f'Всего подписок: {total}\n'
         f'Активных: {active}\n'
         f'Истёкших: {expired}\n'
-        f'Выручка (topup + подписки): {revenue_kopeks / 100:.2f}₽'
+        f'Выручка (подписки + подарки): {revenue_kopeks / 100:.2f}₽'
     )
 
 

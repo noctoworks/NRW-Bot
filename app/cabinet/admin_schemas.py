@@ -186,3 +186,36 @@ class PromoGroupUpdateRequest(BaseModel):
 
 class SetUserPromoGroupRequest(BaseModel):
     promo_group_id: int | None = None
+
+
+class CampaignOut(BaseModel):
+    id: int
+    name: str
+    start_parameter: str
+    bonus_type: str
+    balance_bonus_kopeks: int
+    subscription_duration_days: int | None
+    is_active: bool
+    deep_link: str
+
+
+class CampaignCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    start_parameter: str = Field(min_length=1, max_length=64, pattern=r'^[a-zA-Z0-9_-]+$')
+    bonus_type: str = Field(pattern=r'^(balance|subscription|none)$')
+    balance_bonus_kopeks: int = Field(default=0, ge=0)
+    subscription_duration_days: int | None = Field(default=None, ge=1)
+
+
+class CampaignUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    is_active: bool | None = None
+    balance_bonus_kopeks: int | None = Field(default=None, ge=0)
+    subscription_duration_days: int | None = Field(default=None, ge=1)
+
+
+class CampaignStatsResponse(BaseModel):
+    registrations_count: int
+    paying_count: int
+    conversion_percent: float
+    revenue_kopeks: int

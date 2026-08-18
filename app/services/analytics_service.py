@@ -1,9 +1,18 @@
 """Аналитика для веб-админки (/cabinet/admin/*, см. app/cabinet/admin_routes.py).
 
-Определение "выручки" — то же, что уже использует бот в
-app/handlers/admin.py::_render_subs_stats: Transaction.type IN
-('subscription_payment', 'topup') AND status='completed'. Не вводим новое
-определение — цифры бота и веба обязаны совпадать.
+Определение "выручки": Transaction.type IN ('subscription_payment', 'gift')
+AND status='completed' — это единственные два типа транзакций, которые
+означают "юзер реально заплатил деньги" (subscription_payment — покупка/
+продление своей подписки, gift — покупка подарочного кода кому-то). НЕ
+'topup': в этом продукте нет пользовательского пополнения баланса без
+покупки — 'topup' создаётся ТОЛЬКО при ручном начислении админом
+(app/cabinet/admin_routes.py::adjust_balance, handlers/admin.py::
+on_admin_balance_input) или бонусе кампании (services/campaign_service.py) —
+то есть деньги, которые бизнес сам раздал, а не заработал. Раньше здесь было
+('subscription_payment', 'topup') — унаследовано от того же бага в
+app/handlers/admin.py::_render_subs_stats (исправлено там же одновременно с
+этим файлом, см. диалог) — обе цифры считались завышенными на сумму всех
+админских/кампанейских начислений.
 
 Методологическая оговорка (см. диалог, важно для пользователя как для
 бизнес-человека): у сервиса нет реального recurring billing — MRR/ARR тут
@@ -27,7 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import ReferralEarning, Subscription, Transaction, User
 
-REVENUE_TYPES = ('subscription_payment', 'topup')
+REVENUE_TYPES = ('subscription_payment', 'gift')
 
 
 def _as_utc(dt: datetime) -> datetime:

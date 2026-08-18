@@ -111,17 +111,20 @@ def _rules_keyboard(lang: str) -> InlineKeyboardMarkup:
     )
 
 
-def _parse_payload(args: str | None) -> tuple[str | None, str | None]:
-    """Возвращает (ref_code, gift_code) — deep-link payload после /start."""
+def _parse_payload(args: str | None) -> tuple[str | None, str | None, str | None]:
+    """Возвращает (ref_code, gift_code, campaign_param) — deep-link payload
+    после /start. Кампания (Фаза 4) — единственный вариант БЕЗ префикса: наши
+    ref_/gift_ ссылки всегда с явным префиксом, поэтому голый payload
+    однозначно трактуется как start_parameter кампании, коллизий нет."""
     if not args:
-        return None, None
+        return None, None, None
     if args.startswith('ref_'):
         code = args[len('ref_') :].strip()
-        return (code or None), None
+        return (code or None), None, None
     if args.startswith('gift_'):
         code = args[len('gift_') :].strip()
-        return None, (code or None)
-    return None, None
+        return None, (code or None), None
+    return None, None, (args.strip() or None)
 
 
 async def _generate_unique_referral_code(db: AsyncSession) -> str:
@@ -210,10 +213,10 @@ async def _show_main_menu(target: Message | CallbackQuery, db: AsyncSession, db_
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, command: CommandObject, db: AsyncSession, db_user: User | None, state: FSMContext) -> None:
-    ref_code, gift_code = _parse_payload(command.args)
+    ref_code, gift_code, campaign_param = _parse_payload(command.args)
 
     if db_user is None:
-        await state.update_data(ref_code=ref_code, gift_code=gift_code)
+        await state.update_data(ref_code=ref_code, gift_code=gift_code, campaign_param=campaign_param)
         await state.set_state(RegistrationStates.choosing_language)
         await message.answer(_t('ru', 'choose_language'), reply_markup=_language_keyboard('reg:lang'))
         return
@@ -241,6 +244,7 @@ async def cb_accept_rules(callback: CallbackQuery, db: AsyncSession, state: FSMC
     lang = data.get('language', 'ru')
     ref_code = data.get('ref_code')
     gift_code = data.get('gift_code')
+    campaign_param = data.get('campaign_param')
 
     telegram_user = callback.from_user
     referred_by_id: int | None = None
@@ -266,6 +270,13 @@ async def cb_accept_rules(callback: CallbackQuery, db: AsyncSession, state: FSMC
 
     if gift_code:
         await _apply_gift_payload(callback, db, new_user, gift_code)
+
+    if campaign_param:
+        from app.services.campaign_service import apply_campaign_bonus, get_campaign_by_start_parameter
+
+        campaign = await get_campaign_by_start_parameter(db, campaign_param)
+        if campaign is not None:
+            await apply_campaign_bonus(db, campaign=campaign, user=new_user)
 
     await callback.message.edit_reply_markup(reply_markup=None)
     await _show_main_menu(callback, db, new_user, is_new=True)

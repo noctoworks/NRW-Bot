@@ -80,6 +80,38 @@ class PromoGroup(TimestampMixin, Base):
     discount_percent: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class Campaign(TimestampMixin, Base):
+    """Маркетинговая кампания — deep-link /start <start_parameter> без префикса
+    (в отличие от нашего ref_CODE/gift_CODE — не пересекается, см. диалог/Фаза 4
+    и handlers/start.py::_parse_payload). Портировано из Bedolaga упрощённо: без
+    партнёрской сети/affiliate click-id, bonus_type 'tariff' не заводим отдельно
+    от 'subscription' — у нас один тариф, они совпадают."""
+
+    __tablename__ = 'campaigns'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(128))
+    start_parameter: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    bonus_type: Mapped[str] = mapped_column(String(16))  # balance|subscription|none
+    balance_bonus_kopeks: Mapped[int] = mapped_column(BigInteger, default=0)
+    subscription_duration_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class CampaignRegistration(Base):
+    """Дедуп + учёт — ровно одна запись на юзера на кампанию (по факту у нас и
+    так только новые юзеры попадают сюда, см. handlers/start.py, но constraint
+    оставлен как страховка от повторного начисления)."""
+
+    __tablename__ = 'campaign_registrations'
+    __table_args__ = (UniqueConstraint('campaign_id', 'user_id', name='uq_campaign_user'),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    campaign_id: Mapped[int] = mapped_column(ForeignKey('campaigns.id', ondelete='CASCADE'), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Tariff(TimestampMixin, Base):
     __tablename__ = 'tariffs'
 

@@ -23,6 +23,10 @@ from app.cabinet.admin_schemas import (
     AdminUserListResponse,
     BalanceAdjustRequest,
     BlockRequest,
+    CampaignCreateRequest,
+    CampaignOut,
+    CampaignStatsResponse,
+    CampaignUpdateRequest,
     CohortsResponse,
     DeviceOut,
     LtvResponse,
@@ -41,9 +45,10 @@ from app.cabinet.admin_schemas import (
     SyncResultResponse,
 )
 from app.cabinet.deps import get_db
-from app.database.models import PromoGroup, ReferralEarning, Subscription, Transaction, User
+from app.config import settings
+from app.database.models import Campaign, PromoGroup, ReferralEarning, Subscription, Transaction, User
 from app.external.remnawave import get_remnawave_client
-from app.services import analytics_service
+from app.services import analytics_service, campaign_service
 from app.services.notification_service import notify_balance_changed
 
 router = APIRouter(prefix='/cabinet/admin')
@@ -539,3 +544,95 @@ async def set_user_promo_group(
     target.promo_group_id = payload.promo_group_id
     await db.commit()
     return await user_detail(user_id, db=db, _admin=_admin)
+
+
+# === Кампании (маркетинговая атрибуция, см. app/services/campaign_service.py) =
+
+
+def _campaign_out(campaign: Campaign) -> dict:
+    bot_username = settings.BOT_USERNAME or '<укажите_BOT_USERNAME>'
+    return {
+        'id': campaign.id,
+        'name': campaign.name,
+        'start_parameter': campaign.start_parameter,
+        'bonus_type': campaign.bonus_type,
+        'balance_bonus_kopeks': campaign.balance_bonus_kopeks,
+        'subscription_duration_days': campaign.subscription_duration_days,
+        'is_active': campaign.is_active,
+        'deep_link': f'https://t.me/{bot_username}?start={campaign.start_parameter}',
+    }
+
+
+@router.get('/campaigns', response_model=list[CampaignOut])
+async def list_campaigns(db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)) -> list[dict]:
+    campaigns = (await db.execute(select(Campaign).order_by(Campaign.id.desc()))).scalars().all()
+    return [_campaign_out(c) for c in campaigns]
+
+
+@router.post('/campaigns', response_model=CampaignOut)
+async def create_campaign(
+    payload: CampaignCreateRequest, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> dict:
+    existing = (
+        await db.execute(select(Campaign.id).where(Campaign.start_parameter == payload.start_parameter))
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, 'start_parameter уже занят другой кампанией')
+
+    campaign = Campaign(
+        name=payload.name,
+        start_parameter=payload.start_parameter,
+        bonus_type=payload.bonus_type,
+        balance_bonus_kopeks=payload.balance_bonus_kopeks,
+        subscription_duration_days=payload.subscription_duration_days,
+    )
+    db.add(campaign)
+    await db.commit()
+    await db.refresh(campaign)
+    return _campaign_out(campaign)
+
+
+async def _get_campaign_or_404(db: AsyncSession, campaign_id: int) -> Campaign:
+    campaign = await db.get(Campaign, campaign_id)
+    if campaign is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, 'Кампания не найдена')
+    return campaign
+
+
+@router.patch('/campaigns/{campaign_id}', response_model=CampaignOut)
+async def update_campaign(
+    campaign_id: int,
+    payload: CampaignUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+) -> dict:
+    campaign = await _get_campaign_or_404(db, campaign_id)
+    if payload.name is not None:
+        campaign.name = payload.name
+    if payload.is_active is not None:
+        campaign.is_active = payload.is_active
+    if payload.balance_bonus_kopeks is not None:
+        campaign.balance_bonus_kopeks = payload.balance_bonus_kopeks
+    if payload.subscription_duration_days is not None:
+        campaign.subscription_duration_days = payload.subscription_duration_days
+    await db.commit()
+    await db.refresh(campaign)
+    return _campaign_out(campaign)
+
+
+@router.delete('/campaigns/{campaign_id}')
+async def delete_campaign(
+    campaign_id: int, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> dict[str, str]:
+    campaign = await _get_campaign_or_404(db, campaign_id)
+    await db.delete(campaign)
+    await db.commit()
+    return {'status': 'deleted'}
+
+
+@router.get('/campaigns/{campaign_id}/stats', response_model=CampaignStatsResponse)
+async def campaign_stats(
+    campaign_id: int, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> dict:
+    campaign = await _get_campaign_or_404(db, campaign_id)
+    return await campaign_service.get_campaign_stats(db, campaign)
