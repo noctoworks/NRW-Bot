@@ -20,7 +20,7 @@ from aiogram import Bot
 from sqlalchemy import select
 
 from app.database.database import AsyncSessionLocal
-from app.database.models import Subscription
+from app.database.models import Payment, Subscription, Transaction
 from app.external.remnawave import get_remnawave_client
 from app.services.notification_service import notify_subscription_expired, notify_subscription_expiring
 
@@ -118,25 +118,48 @@ async def traffic_sync_loop(interval_seconds: int = 900) -> None:
         await asyncio.sleep(interval_seconds)
 
 
-async def payment_poll_loop(interval_seconds: int = 600) -> None:
-    """В PAYMENTS_MODE=stub опрашивать нечего — StubPaymentProvider всегда сразу
-    возвращает success, зачисление происходит синхронно в момент оплаты.
+async def run_payment_poll_once(bot: Bot) -> None:
+    """Одна итерация опроса pending-платежей (PAYMENTS_MODE=real, см. §12 и
+    app/services/payment_finalization.py). Нет публичного URL для вебхука Platega
+    (см. диалог) — подтверждение платежа идёт только через этот поллинг."""
+    from app.services.payment import get_payment_provider
+    from app.services.payment_finalization import finalize_pending_payment
 
-    TODO(PAYMENTS_MODE=real): выбрать Payment(status='pending'), для каждого вызвать
-    get_payment_provider(payment.provider).check_payment_status(payment.external_id);
-    если результат 'success' — довести до конца ту же логику зачисления/провижининга,
-    что выполняется в subscription.py при синхронном успешном платеже (создание/продление
-    Subscription, начисление баланса, credit_referral_earning, notify_payment_success).
-    Эта точка переиспользования на момент написания background.py ещё не существует
-    в subscription.py (параллельная разработка) — сюда нужно будет добавить вызов,
-    когда appears общая функция вида `finalize_successful_payment(db, payment)`.
-    """
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(select(Payment).where(Payment.status == 'pending'))
+        pending_payments = list(result.scalars())
+
+        for payment in pending_payments:
+            try:
+                provider = get_payment_provider(payment.provider)
+                status = await provider.check_payment_status(payment.external_id)
+            except Exception:
+                logger.warning('payment_poll_loop: не удалось опросить payment_id=%s', payment.id, exc_info=True)
+                continue
+
+            try:
+                if status == 'success':
+                    await finalize_pending_payment(db, payment, bot)
+                elif status == 'failed':
+                    payment.status = 'failed'
+                    if payment.transaction_id is not None:
+                        transaction = await db.get(Transaction, payment.transaction_id)
+                        if transaction is not None:
+                            transaction.status = 'failed'
+                    await db.commit()
+            except Exception:
+                logger.exception('payment_poll_loop: сбой при обработке payment_id=%s', payment.id)
+
+
+async def payment_poll_loop(bot: Bot, interval_seconds: int = 600) -> None:
+    """В PAYMENTS_MODE=stub опрашивать нечего — StubPaymentProvider всегда сразу
+    возвращает success, зачисление происходит синхронно в момент оплаты."""
     from app.config import settings
 
     while True:
         try:
             if settings.PAYMENTS_MODE == 'real':
-                logger.debug('payment_poll_loop: PAYMENTS_MODE=real, но опрос ещё не реализован (см. TODO)')
+                await run_payment_poll_once(bot)
             # stub-режим: намеренно no-op.
         except Exception:
             logger.exception('payment_poll_loop: сбой на итерации, продолжаем')

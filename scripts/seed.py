@@ -1,10 +1,6 @@
-"""Разовый сид: два тарифа (Онлайн/Семейный) + сквады из Remnawave (мок или
-реальный — не важно, интерфейс один).
-
-Цены — ПЛЕЙСХОЛДЕРЫ (кроме 1-месячной цены "Онлайн" — она взята буквально из
-референс-скрина в диалоге, 444₽, чтобы курсы $/★ по умолчанию совпадали с тем,
-что там показано). Поменять можно тут же или потом через админку
-(handlers/admin.py, AdminTariffStates) — таблица TARIFF на это рассчитана с самого начала.
+"""Разовый сид: единый тариф "Онлайн" (активен) + "Семейный" сохранён неактивным
+на будущее (см. диалог: "оставим один единый тариф пока что, но прошлый сохраним")
++ сквады из Remnawave (мок или реальный — не важно, интерфейс один).
 
 Запуск: .venv\\Scripts\\python.exe scripts\\seed.py
 """
@@ -24,10 +20,9 @@ from app.database.models import ServerSquad, Tariff
 from app.external.remnawave import get_remnawave_client
 
 ONLINE_PERIOD_PRICES_KOPEKS = {
-    '30': 44400,   # 444₽ — как в референс-скрине
-    '90': 119900,
-    '180': 219900,
-    '360': 399900,
+    '30': 24900,
+    '90': 66900,
+    '360': 239000,
 }
 FAMILY_PERIOD_PRICES_KOPEKS = {
     '30': 69900,
@@ -51,7 +46,7 @@ async def seed() -> None:
                     name='Онлайн',
                     period_prices_kopeks=ONLINE_PERIOD_PRICES_KOPEKS,
                     traffic_limit_gb=0,  # безлимит
-                    device_limit=3,
+                    device_limit=5,
                     squad_uuids=squad_uuids,
                     is_active=True,
                 )
@@ -65,13 +60,13 @@ async def seed() -> None:
                 Tariff(
                     name='Семейный',
                     period_prices_kopeks=FAMILY_PERIOD_PRICES_KOPEKS,
-                    traffic_limit_gb=0,  # безлимит, отличие от "Онлайн" — только device_limit (см. диалог)
+                    traffic_limit_gb=0,
                     device_limit=6,
                     squad_uuids=squad_uuids,
-                    is_active=True,
+                    is_active=False,  # сохранён на будущее, сейчас единый тариф — только "Онлайн"
                 )
             )
-            print(f'Создан тариф "Семейный": {FAMILY_PERIOD_PRICES_KOPEKS}')
+            print(f'Создан (неактивный) тариф "Семейный": {FAMILY_PERIOD_PRICES_KOPEKS}')
         else:
             print('Тариф "Семейный" уже есть')
 

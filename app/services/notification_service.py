@@ -54,6 +54,17 @@ async def notify_gift_redeemed_to_gifter(bot: Bot, *, gifter_telegram_id: int, r
     await _safe_send(bot, telegram_id=gifter_telegram_id, text=text)
 
 
+async def notify_gift_code_ready(bot: Bot, *, telegram_id: int, link: str) -> None:
+    """Платёж за подарок подтверждён асинхронно (payment_poll_loop) — исходное
+    сообщение бота уже недоступно для редактирования, поэтому шлём новое."""
+    text = (
+        f'🎉 Оплата прошла успешно! Подарочный код создан.\n\n'
+        f'Отправьте эту ссылку тому, кому хотите подарить подписку:\n{link}\n\n'
+        f'Код действителен 30 дней.'
+    )
+    await _safe_send(bot, telegram_id=telegram_id, text=text)
+
+
 async def notify_balance_changed(bot: Bot, *, telegram_id: int, amount_kopeks: int, new_balance_kopeks: int) -> None:
     """Уведомление о ручном начислении/списании баланса администратором
     (portированное поведение из оригинального бота, см. UserService._send_balance_notification) —

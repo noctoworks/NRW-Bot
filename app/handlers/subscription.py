@@ -117,7 +117,7 @@ async def purchase_or_renew_subscription(
     period_days: int,
     method: str,
     bot: Bot | None = None,
-) -> Subscription:
+) -> Subscription | None:
     """Оплата (сразу успешна в stub-режиме) + create/extend в Remnawave + запись
     Subscription/Transaction/Payment. См. §9.2/§9.3.
 
@@ -168,13 +168,18 @@ async def purchase_or_renew_subscription(
     await db.flush()
 
     if not payment_success:
-        # В stub-режиме это не должно происходить (create_payment всегда success),
-        # но реальные провайдеры создают платёж как pending до вебхука — тогда
-        # подписку не выдаём, ждём payment_poll/webhook.
-        existing = await get_user_subscription(db, db_user.id)
-        if existing is None:
-            raise RuntimeError('Платёж не подтверждён сразу — подписка не создана (ждите вебхук)')
-        return existing
+        # В stub-режиме это не должно происходить (create_payment всегда success).
+        # Реальный провайдер создаёт платёж как pending — подписку не выдаём сразу,
+        # сохраняем контекст в raw_payload, чтобы payment_poll_loop доделал выдачу
+        # после подтверждения (см. app/services/payment_finalization.py).
+        payment.raw_payload = {
+            'kind': 'subscription',
+            'tariff_id': tariff.id,
+            'period_days': period_days,
+            'payment_url': created.payment_url,
+        }
+        await db.flush()
+        return None
 
     client = get_remnawave_client()
     now = datetime.now(timezone.utc)
@@ -658,7 +663,7 @@ async def cb_confirm_purchase(
         return
 
     try:
-        await purchase_or_renew_subscription(
+        subscription = await purchase_or_renew_subscription(
             db, db_user, tariff, period_days=data['period_days'], method=data['method'], bot=bot
         )
     except Exception:
@@ -668,7 +673,33 @@ async def cb_confirm_purchase(
         return
 
     await state.clear()
-    subscription = await get_user_subscription(db, db_user.id)
+
+    if subscription is None:
+        # Реальный провайдер — платёж создан, но ещё не подтверждён (см.
+        # purchase_or_renew_subscription). Подписка будет выдана автоматически
+        # после подтверждения (payment_poll_loop), пользователь получит уведомление.
+        result = await db.execute(
+            select(Payment)
+            .where(Payment.user_id == db_user.id, Payment.status == 'pending')
+            .order_by(Payment.id.desc())
+            .limit(1)
+        )
+        payment = result.scalar_one_or_none()
+        payment_url = (payment.raw_payload or {}).get('payment_url') if payment else None
+
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=(
+                [[InlineKeyboardButton(text='💳 Перейти к оплате', url=payment_url)]] if payment_url else []
+            )
+            + [[back_to_menu_button()]]
+        )
+        await callback.message.edit_text(
+            'Платёж создан, но ещё не подтверждён. Перейдите по ссылке для оплаты — '
+            'подписка будет выдана автоматически после подтверждения платежа.',
+            reply_markup=keyboard,
+        )
+        await callback.answer()
+        return
 
     text = f'<p>{SUCCESS} <b>Оплата прошла успешно!</b></p>' + format_subscription_summary(subscription, db_user.balance_kopeks)
     await _send_subscription_view(callback, text, subscription.subscription_url)

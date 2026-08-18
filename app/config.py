@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     PAYMENTS_MODE: Literal['stub', 'real'] = 'stub'
     PLATEGA_MERCHANT_ID: str = ''
     PLATEGA_SECRET_KEY: str = ''
+    PLATEGA_BASE_URL: str = 'https://app.platega.io'
+    PLATEGA_API_VERSION: Literal['v1', 'v2'] = 'v1'
+    # Непрозрачный код способа оплаты, который Platega выдаёт под конкретный мерчант-каскад
+    # (СБП/карты/что-то ещё) — сверьте в личном кабинете Platega или у их поддержки,
+    # значение по умолчанию НЕ гарантированно подходит именно вашему мерчанту.
+    PLATEGA_PAYMENT_METHOD_CODE: int = 2
     CRYPTOBOT_API_TOKEN: str = ''
 
     # --- Курсы для отображения цены в других валютах на экране оплаты (см. диалог,

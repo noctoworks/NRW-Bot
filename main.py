@@ -45,7 +45,7 @@ async def main() -> None:
     background_tasks: list[asyncio.Task] = [
         asyncio.create_task(expiry_checker_loop(bot)),
         asyncio.create_task(traffic_sync_loop()),
-        asyncio.create_task(payment_poll_loop()),
+        asyncio.create_task(payment_poll_loop(bot)),
     ]
     # === END BACKGROUND TASKS ===
 

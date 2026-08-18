@@ -165,15 +165,53 @@ async def cb_choose_payment(callback: CallbackQuery, db: AsyncSession, db_user: 
         return
 
     amount_kopeks = tariff.period_prices_kopeks[str(period_days)]
+    description = f'Подарок подписки на {period_days} дн. ({tariff.name})'
 
     provider = get_payment_provider(method)
-    created = await provider.create_payment(
-        user_id=db_user.id,
-        amount_kopeks=amount_kopeks,
-        description=f'Подарок подписки на {period_days} дн. ({tariff.name})',
-    )
+    try:
+        created = await provider.create_payment(
+            user_id=db_user.id,
+            amount_kopeks=amount_kopeks,
+            description=description,
+        )
+    except Exception:
+        logger.exception('Ошибка создания платежа для подарка')
+        await state.clear()
+        await callback.answer('Не удалось создать платёж, попробуйте позже', show_alert=True)
+        return
 
     if created.status != 'success':
+        # Реальный провайдер — платёж создан, но не подтверждён сразу. Сохраняем
+        # контекст в raw_payload, чтобы payment_poll_loop доделал выдачу подарочного
+        # кода после подтверждения (см. app/services/payment_finalization.py).
+        transaction = Transaction(
+            user_id=db_user.id,
+            type='gift',
+            amount_kopeks=amount_kopeks,
+            status='pending',
+            description=description,
+        )
+        db.add(transaction)
+        await db.flush()
+
+        db.add(
+            Payment(
+                user_id=db_user.id,
+                transaction_id=transaction.id,
+                provider=method,
+                external_id=created.external_id,
+                amount_kopeks=amount_kopeks,
+                status='pending',
+                raw_payload={
+                    'kind': 'gift',
+                    'tariff_id': tariff.id,
+                    'period_days': period_days,
+                    'payment_url': created.payment_url,
+                },
+            )
+        )
+        await db.flush()
+
         await state.clear()
         if created.payment_url:
             keyboard = InlineKeyboardMarkup(inline_keyboard=[[back_to_menu_button()]])
