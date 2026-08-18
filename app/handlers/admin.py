@@ -43,7 +43,7 @@ from sqlalchemy.orm import selectinload
 from app.config import settings
 from app.database.models import BroadcastHistory, PromoCode, Subscription, Tariff, Transaction, User
 from app.handlers.promocode import CB_PROMO_ENTER
-from app.handlers.subscription import get_active_tariffs
+from app.handlers.subscription import PERIOD_LABELS, get_active_tariff, get_active_tariffs
 from app.keyboards.main_menu import (
     CB_ADMIN_ROOT,
     CB_MENU_MAIN,
@@ -87,6 +87,8 @@ CB_USER_BALANCE = 'admin:user:balance:'  # + user_id
 CB_USER_MESSAGE = 'admin:user:message:'  # + user_id
 CB_USER_REFERRALS = 'admin:user:referrals:'  # + user_id
 CB_USER_TRANSACTIONS = 'admin:user:transactions:'  # + user_id
+CB_USER_GRANT_SUB = 'admin:user:grant_sub:'  # + user_id
+CB_USER_GRANT_SUB_PICK = 'admin:user:grant_sub_pick:'  # + user_id:period ('trial' or days)
 
 CB_TARIFF_EDIT_NAME = 'admin:tariff:edit:name'
 CB_TARIFF_EDIT_TRAFFIC = 'admin:tariff:edit:traffic'
@@ -527,6 +529,7 @@ def _user_card_keyboard(user: User) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text='📋 Транзакции', callback_data=f'{CB_USER_TRANSACTIONS}{user.id}'),
                 InlineKeyboardButton(text='✉️ Сообщение', callback_data=f'{CB_USER_MESSAGE}{user.id}'),
             ],
+            [InlineKeyboardButton(text='🎁 Выдать подписку', callback_data=f'{CB_USER_GRANT_SUB}{user.id}')],
             [
                 InlineKeyboardButton(text=block_text, callback_data=f'{CB_USER_BLOCK_TOGGLE}{user.id}'),
                 InlineKeyboardButton(text='🗑️ Удалить', callback_data=f'{CB_USER_DELETE}{user.id}'),
@@ -777,6 +780,84 @@ async def cb_user_transactions(callback: CallbackQuery, db: AsyncSession, db_use
             lines.append(f'{t.created_at:%Y-%m-%d %H:%M} · {t.type} · {sign}{t.amount_kopeks / 100:.2f} ₽ · {t.status}')
         text = '\n'.join(lines)
     await _answer_or_edit(callback, text, _back_keyboard(f'{CB_USER_CARD}{target_id}'))
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith(CB_USER_GRANT_SUB) & ~F.data.startswith(CB_USER_GRANT_SUB_PICK))
+async def cb_user_grant_sub(callback: CallbackQuery, db: AsyncSession, db_user: User | None) -> None:
+    if not _is_admin(db_user):
+        await callback.answer()
+        return
+    target_id = int(callback.data[len(CB_USER_GRANT_SUB):])
+    tariff = await get_active_tariff(db)
+    if tariff is None:
+        await callback.answer('Нет активного тарифа', show_alert=True)
+        return
+
+    buttons: list[list[InlineKeyboardButton]] = []
+    if tariff.trial_enabled:
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text=f'🎁 Триал ({tariff.trial_period_days} дн.)',
+                    callback_data=f'{CB_USER_GRANT_SUB_PICK}{target_id}:trial',
+                )
+            ]
+        )
+    period_row: list[InlineKeyboardButton] = []
+    for days_str in sorted(tariff.period_prices_kopeks, key=int):
+        label = PERIOD_LABELS.get(days_str, f'{days_str} дн.')
+        period_row.append(InlineKeyboardButton(text=label, callback_data=f'{CB_USER_GRANT_SUB_PICK}{target_id}:{days_str}'))
+        if len(period_row) == 2:
+            buttons.append(period_row)
+            period_row = []
+    if period_row:
+        buttons.append(period_row)
+    buttons.append([_back_button(f'{CB_USER_CARD}{target_id}')])
+
+    await _answer_or_edit(
+        callback,
+        '🎁 <b>Выдать подписку</b>\n\nБесплатно, без оплаты — продлевает/создаёт подписку пользователя через Remnawave. Выберите период:',
+        InlineKeyboardMarkup(inline_keyboard=buttons),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith(CB_USER_GRANT_SUB_PICK))
+async def cb_user_grant_sub_pick(callback: CallbackQuery, db: AsyncSession, db_user: User | None) -> None:
+    if not _is_admin(db_user):
+        await callback.answer()
+        return
+    target_id_str, _, period = callback.data[len(CB_USER_GRANT_SUB_PICK):].partition(':')
+    target_id = int(target_id_str)
+    target = await db.get(User, target_id)
+    if target is None:
+        await callback.answer('Пользователь не найден', show_alert=True)
+        return
+    tariff = await get_active_tariff(db)
+    if tariff is None:
+        await callback.answer('Нет активного тарифа', show_alert=True)
+        return
+
+    is_trial = period == 'trial'
+    period_days = tariff.trial_period_days if is_trial else int(period)
+
+    from app.services.subscription_provisioning import provision_or_extend_subscription
+
+    try:
+        await provision_or_extend_subscription(db, user=target, tariff=tariff, period_days=period_days)
+    except Exception:
+        logger.exception('Админская выдача подписки упала: user_id=%s period=%s', target_id, period)
+        await callback.answer('Не удалось выдать подписку — Remnawave недоступна, попробуйте позже', show_alert=True)
+        return
+
+    if is_trial:
+        target.trial_used = True
+    await db.flush()
+    logger.info('Админ выдал подписку вручную: user_id=%s telegram_id=%s дней=%s', target.id, target.telegram_id, period_days)
+
+    text = await _render_user_card(db, target)
+    await _answer_or_edit(callback, f'✅ Подписка выдана на {period_days} дн.\n\n{text}', _user_card_keyboard(target))
     await callback.answer()
 
 
