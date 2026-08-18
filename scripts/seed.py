@@ -22,6 +22,7 @@ from app.external.remnawave import get_remnawave_client
 ONLINE_PERIOD_PRICES_KOPEKS = {
     '30': 24900,
     '90': 66900,
+    '180': 115000,
     '360': 239000,
 }
 FAMILY_PERIOD_PRICES_KOPEKS = {

@@ -30,10 +30,15 @@ class Settings(BaseSettings):
     # --- Redis ---
     REDIS_URL: str = ''
 
-    # --- Cabinet (Mini App), подключаем на отдельном этапе ---
+    # --- Cabinet (Mini App) ---
     CABINET_ENABLED: bool = False
     CABINET_JWT_SECRET: str = ''
     CABINET_ALLOWED_ORIGINS: str = ''
+    CABINET_PORT: int = 8080
+    # Публичный https-адрес задеплоенного Mini App — используется кнопкой
+    # "Подключить VPN" в боте (WebAppInfo требует https). Пусто = кнопка
+    # использует прежний прямой happ://-fallback (см. handlers/subscription.py).
+    MINIAPP_URL: str = ''
 
     # --- Remnawave ---
     REMNAWAVE_MODE: Literal['mock', 'real'] = 'mock'

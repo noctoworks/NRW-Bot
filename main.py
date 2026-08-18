@@ -1,4 +1,5 @@
-"""Точка входа. Пока без FastAPI/webserver — тот появится вместе с Mini App (этап 2)."""
+"""Точка входа. FastAPI (Mini App API, /cabinet/*) поднимается опционально —
+только когда CABINET_ENABLED=true, см. app/cabinet/app.py."""
 
 from __future__ import annotations
 
@@ -6,6 +7,7 @@ import asyncio
 import logging
 
 from app.bot import setup_bot
+from app.config import settings
 from app.database.database import AsyncSessionLocal, init_sqlite_pragmas
 
 logger = logging.getLogger(__name__)
@@ -48,6 +50,17 @@ async def main() -> None:
         asyncio.create_task(payment_poll_loop(bot)),
     ]
     # === END BACKGROUND TASKS ===
+
+    if settings.CABINET_ENABLED:
+        import uvicorn
+
+        from app.cabinet.app import create_app
+
+        cabinet_server = uvicorn.Server(
+            uvicorn.Config(create_app(bot), host='0.0.0.0', port=settings.CABINET_PORT, log_level='warning')
+        )
+        background_tasks.append(asyncio.create_task(cabinet_server.serve()))
+        logger.info('Cabinet API запущен на порту %s', settings.CABINET_PORT)
 
     try:
         await dp.start_polling(bot, skip_updates=False)

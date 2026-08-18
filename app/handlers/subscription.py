@@ -29,7 +29,14 @@ from aiogram import Bot, Dispatcher, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, CopyTextButton, InlineKeyboardButton, InlineKeyboardMarkup, InputRichMessage
+from aiogram.types import (
+    CallbackQuery,
+    CopyTextButton,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputRichMessage,
+    WebAppInfo,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -335,7 +342,14 @@ COPY_TEXT_MAX_LENGTH = 256  # ограничение Telegram Bot API для Cop
 def kb_subscription_active(subscription_url: str | None, *, use_deep_link: bool = True) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
 
-    if subscription_url and use_deep_link:
+    if settings.MINIAPP_URL:
+        # Гарантированно ведём пользователя в Mini App для подключения (см.
+        # диалог) — пока MINIAPP_URL не задан (нет https-домена), остаётся
+        # прежний прямой happ://-fallback ниже, чтобы не сломать кнопку.
+        rows.append(
+            [InlineKeyboardButton(text='🔌 Подключить VPN', web_app=WebAppInfo(url=settings.MINIAPP_URL))]
+        )
+    elif subscription_url and use_deep_link:
         rows.append(
             [InlineKeyboardButton(text='🔌 Подключить VPN', url=f'happ://add/{subscription_url}')]
         )
