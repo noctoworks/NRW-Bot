@@ -6,3 +6,4 @@ bot.db
 bot.db-*
 mock_remnawave_state.json
 *.log
+/backup/

@@ -73,7 +73,13 @@ async def redeem_gift_code(
     уведомление просто не отправляется.
     """
     normalized = code.strip().upper()
-    result = await db.execute(select(GiftCode).where(func.upper(GiftCode.code) == normalized))
+    # with_for_update() блокирует строку до конца транзакции (на Postgres в проде;
+    # SQLite это условие молча игнорирует — см. диалог, там однопроцессный dev-сценарий)
+    # — без этого два одновременных redeem одного кода оба проходят проверку
+    # redeemed_at is None до того, как первый закоммитит, и оба получают подписку.
+    result = await db.execute(
+        select(GiftCode).where(func.upper(GiftCode.code) == normalized).with_for_update()
+    )
     gift_code = result.scalar_one_or_none()
 
     if gift_code is None:

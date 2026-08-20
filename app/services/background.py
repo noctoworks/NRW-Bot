@@ -149,6 +149,12 @@ async def run_payment_poll_once(bot: Bot) -> None:
                     await db.commit()
             except Exception:
                 logger.exception('payment_poll_loop: сбой при обработке payment_id=%s', payment.id)
+                # Без явного rollback изменения, которые finalize_pending_payment
+                # успел flush'нуть до падения (например payment.status='success' до
+                # исключения в provision_or_extend_subscription), остались бы
+                # "грязными" в ЭТОЙ ЖЕ сессии — и утекли бы в БД со следующим
+                # успешным db.commit() дальше по циклу, для другого payment_id.
+                await db.rollback()
 
 
 async def payment_poll_loop(bot: Bot, interval_seconds: int = 600) -> None:

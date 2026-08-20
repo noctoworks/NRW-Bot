@@ -29,7 +29,10 @@ from app.external.remnawave.base import (
     RemnawaveDevice,
     RemnawaveUser,
     SubscriptionPageApp,
+    SubscriptionPageBlock,
+    SubscriptionPageButton,
     SubscriptionPageConfig,
+    SubscriptionPagePlatform,
 )
 
 logger = logging.getLogger(__name__)
@@ -98,7 +101,13 @@ class MockRemnawaveClient(RemnawaveClient):
     _state: _State = _load_state()
 
     async def create_user(
-        self, *, telegram_id: int, squad_uuids: list[str], traffic_limit_gb: int, expire_at: datetime
+        self,
+        *,
+        telegram_id: int,
+        squad_uuids: list[str],
+        traffic_limit_gb: int,
+        expire_at: datetime,
+        description: str | None = None,
     ) -> RemnawaveUser:
         remnawave_uuid = str(uuid.uuid4())
         short_uuid = uuid.uuid4().hex[:12]
@@ -166,17 +175,85 @@ class MockRemnawaveClient(RemnawaveClient):
             {'uuid': 'mock-squad-nl', 'name': 'Netherlands', 'country': 'NL'},
         ]
 
-    async def get_subscription_page_config(self, uuid: str) -> SubscriptionPageConfig | None:
+    async def get_subscription_page_config(self) -> SubscriptionPageConfig | None:
+        # Урезанная копия реального Subpage Builder боевой панели (см. диалог,
+        # проверено вживую 2026-08-19) — только по одному приложению на платформу,
+        # достаточно для разработки/превью Mini App без живой панели.
+        def _happ_app(store_url: str, store_label: str) -> SubscriptionPageApp:
+            return SubscriptionPageApp(
+                name='Happ',
+                featured=True,
+                blocks=[
+                    SubscriptionPageBlock(
+                        title={'ru': 'Установка приложения', 'en': 'App installation'},
+                        description={
+                            'ru': 'Скачайте и установите приложение по кнопке ниже.',
+                            'en': 'Download and install the app using the button below.',
+                        },
+                        icon_key='DownloadIcon',
+                        icon_color='violet',
+                        buttons=[
+                            SubscriptionPageButton(
+                                type='external', link=store_url, text={'ru': store_label, 'en': store_label}
+                            )
+                        ],
+                    ),
+                    SubscriptionPageBlock(
+                        title={'ru': 'Добавление подписки', 'en': 'Add subscription'},
+                        description={
+                            'ru': 'Нажмите кнопку ниже, чтобы добавить подписку.',
+                            'en': 'Tap the button below to add the subscription.',
+                        },
+                        icon_key='CloudDownload',
+                        icon_color='cyan',
+                        buttons=[
+                            SubscriptionPageButton(
+                                type='subscriptionLink',
+                                link='happ://add/{{SUBSCRIPTION_LINK}}',
+                                text={'ru': 'Добавить подписку', 'en': 'Add subscription'},
+                            )
+                        ],
+                    ),
+                    SubscriptionPageBlock(
+                        title={'ru': 'Подключение и использование', 'en': 'Connect and use'},
+                        description={
+                            'ru': 'Включите VPN в приложении — готово.',
+                            'en': 'Turn on the VPN in the app — done.',
+                        },
+                        icon_key='Check',
+                        icon_color='teal',
+                    ),
+                ],
+            )
+
         return SubscriptionPageConfig(
-            uuid=uuid,
-            platforms={
-                'android': [
-                    SubscriptionPageApp(id='happ', name='Happ', url_scheme='happ://add/', needs_base64=False),
-                ],
-                'ios': [
-                    SubscriptionPageApp(id='happ', name='Happ', url_scheme='happ://add/', needs_base64=False),
-                ],
-            },
+            platforms=[
+                SubscriptionPagePlatform(
+                    key='android',
+                    display_name={'ru': 'Android', 'en': 'Android'},
+                    apps=[_happ_app('https://play.google.com/store/apps/details?id=com.happproxy', 'Google Play')],
+                ),
+                SubscriptionPagePlatform(
+                    key='ios',
+                    display_name={'ru': 'iOS', 'en': 'iOS'},
+                    apps=[_happ_app('https://apps.apple.com/us/app/happ-proxy-utility/id6504287215', 'App Store')],
+                ),
+                SubscriptionPagePlatform(
+                    key='windows',
+                    display_name={'ru': 'Windows', 'en': 'Windows'},
+                    apps=[
+                        _happ_app(
+                            'https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe',
+                            'GitHub',
+                        )
+                    ],
+                ),
+                SubscriptionPagePlatform(
+                    key='macos',
+                    display_name={'ru': 'macOS', 'en': 'macOS'},
+                    apps=[_happ_app('https://apps.apple.com/us/app/happ-proxy-utility/id6504287215', 'App Store')],
+                ),
+            ]
         )
 
     def _require_user(self, remnawave_uuid: str) -> RemnawaveUser:

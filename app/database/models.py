@@ -29,6 +29,12 @@ class User(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
     username: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Перенесено из бэкапа старого бота (email/OAuth-логин в старой панели) —
+    # новый бот его никак не использует (нет email-аутентификации), только хранит.
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Telegram full_name (first_name [+ last_name]) на момент регистрации — только
+    # для случая, когда у пользователя нет @username. Не ресинкается (как и username).
+    full_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     language: Mapped[str] = mapped_column(String(8), default='ru')
 
     balance_kopeks: Mapped[int] = mapped_column(BigInteger, default=0)
@@ -39,6 +45,11 @@ class User(TimestampMixin, Base):
     # settings.REFERRAL_PERCENT" (см. services/referral_service.py::credit_referral_earning).
     # Не 0 по умолчанию: 0 означало бы "начислять 0%", а не "используй глобальную".
     referral_commission_percent: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Наибольший порог реф-программы (см. services/referral_service.py::REFERRAL_MILESTONES),
+    # за который уже начислен бонус — без этого при каждой новой регистрации
+    # рефералы пришлось бы пересчитывать и начислять заново. 0 = ни один порог
+    # ещё не достигнут.
+    referral_milestone_reached: Mapped[int] = mapped_column(Integer, default=0)
 
     remnawave_uuid: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
@@ -124,11 +135,19 @@ class Tariff(TimestampMixin, Base):
     squad_uuids: Mapped[list] = mapped_column(JSON, default=list)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    # Бесплатный пробный период (см. диалог, Фаза 3) — переиспользует лимиты
-    # тарифа (traffic_limit_gb/device_limit/squad_uuids), только короче срок.
-    # Отдельных trial-лимитов трафика/устройств сознательно нет — не усложняем.
+    # Бесплатный пробный период (см. диалог, Фаза 3) — по умолчанию переиспользует
+    # лимиты тарифа (traffic_limit_gb/device_limit/squad_uuids), только короче срок.
+    # trial_squad_uuids/trial_traffic_limit_gb — необязательные оверрайды: если
+    # заданы, триал-пользователя заводят в отдельный сквад (напр. "Trial") со
+    # своим лимитом трафика вместо сквадов/лимита обычного тарифа (см. диалог:
+    # отдельный сквад Trial + 15GB). Пустой список/NULL — старое поведение.
     trial_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     trial_period_days: Mapped[int] = mapped_column(Integer, default=3)
+    trial_squad_uuids: Mapped[list] = mapped_column(JSON, default=list)
+    trial_traffic_limit_gb: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Оверрайд лимита устройств для триала (см. trial_traffic_limit_gb выше) —
+    # NULL значит "взять device_limit обычного тарифа".
+    trial_device_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class Subscription(TimestampMixin, Base):
@@ -141,6 +160,13 @@ class Subscription(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(16), default='active')  # active|expired|disabled
     start_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     end_date: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    # True — выдана автовыдачей триала (start.py) или админом через "🎁 Триал"
+    # (handlers/admin.py cb_user_grant_sub); сбрасывается в False реальной оплатой
+    # (subscription.py, services/payment_finalization.py). Продление бесплатными
+    # днями (реферал/подарок/промокод/кампания) флаг НЕ трогает — см.
+    # subscription_provisioning.py::provision_or_extend_subscription(is_trial=None).
+    is_trial: Mapped[bool] = mapped_column(Boolean, default=False)
 
     traffic_limit_gb: Mapped[int] = mapped_column(BigInteger, default=0)
     traffic_used_gb: Mapped[float] = mapped_column(default=0)

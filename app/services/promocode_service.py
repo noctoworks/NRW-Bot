@@ -34,7 +34,14 @@ async def activate_promocode(db: AsyncSession, *, code: str, user: User) -> Prom
     если подписки ещё нет — создать через create_user, как при обычной покупке).
     Бросает PromoCodeError с человекочитаемым текстом при любой невалидности."""
     normalized = code.strip().upper()
-    result = await db.execute(select(PromoCode).where(func.upper(PromoCode.code) == normalized))
+    # with_for_update() блокирует строку промокода до конца транзакции (реально
+    # работает на Postgres в проде; SQLite это условие молча игнорирует) — без
+    # этого два одновременных активатора могут оба пройти проверку
+    # activations_count >= max_activations до того, как первый закоммитит,
+    # и превысить заявленный лимит активаций.
+    result = await db.execute(
+        select(PromoCode).where(func.upper(PromoCode.code) == normalized).with_for_update()
+    )
     promocode = result.scalar_one_or_none()
 
     if promocode is None:

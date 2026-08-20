@@ -96,6 +96,8 @@ CB_TARIFF_EDIT_DEVICES = 'admin:tariff:edit:devices'
 CB_TARIFF_EDIT_PERIOD = 'admin:tariff:edit:period:'  # + period key
 CB_TARIFF_TOGGLE_TRIAL = 'admin:tariff:toggle_trial:'  # + tariff_id
 CB_TARIFF_EDIT_TRIAL_DAYS = 'admin:tariff:edit:trial_days'
+CB_TARIFF_EDIT_TRIAL_TRAFFIC = 'admin:tariff:edit:trial_traffic'
+CB_TARIFF_EDIT_TRIAL_DEVICES = 'admin:tariff:edit:trial_devices'
 
 CB_PROMO_MENU = 'admin:promo'
 CB_PROMO_CREATE = 'admin:promo:create'
@@ -421,8 +423,11 @@ async def _render_users_list(
     rows = []
     for u in users:
         status_icon = '🚫' if u.is_blocked else '✅'
-        sub_icon = '💎' if u.subscription and u.subscription.status == 'active' else '❌'
-        label = u.username or f'id{u.telegram_id}'
+        if u.subscription and u.subscription.status == 'active':
+            sub_icon = '🎁' if u.subscription.is_trial else '💎'
+        else:
+            sub_icon = '❌'
+        label = u.full_name or u.username or f'id{u.telegram_id}'
         rows.append(
             [
                 InlineKeyboardButton(
@@ -845,7 +850,16 @@ async def cb_user_grant_sub_pick(callback: CallbackQuery, db: AsyncSession, db_u
     from app.services.subscription_provisioning import provision_or_extend_subscription
 
     try:
-        await provision_or_extend_subscription(db, user=target, tariff=tariff, period_days=period_days)
+        await provision_or_extend_subscription(
+            db,
+            user=target,
+            tariff=tariff,
+            period_days=period_days,
+            squad_uuids=(tariff.trial_squad_uuids or None) if is_trial else None,
+            traffic_limit_gb=tariff.trial_traffic_limit_gb if is_trial else None,
+            device_limit=tariff.trial_device_limit if is_trial else None,
+            is_trial=is_trial,
+        )
     except Exception:
         logger.exception('Админская выдача подписки упала: user_id=%s period=%s', target_id, period)
         await callback.answer('Не удалось выдать подписку — Remnawave недоступна, попробуйте позже', show_alert=True)
@@ -970,8 +984,8 @@ async def cb_subs_menu(callback: CallbackQuery, db: AsyncSession, db_user: User 
 
     rows = []
     for sub, user in rows_data:
-        icon = '💎' if sub.status == 'active' else '⛔'
-        label = user.username or f'id{user.telegram_id}'
+        icon = ('🎁' if sub.is_trial else '💎') if sub.status == 'active' else '⛔'
+        label = user.full_name or user.username or f'id{user.telegram_id}'
         rows.append(
             [
                 InlineKeyboardButton(
@@ -1019,6 +1033,8 @@ def _tariff_keyboard(tariff: Tariff) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text='✏️ Лимит устройств', callback_data=f'{CB_TARIFF_EDIT_DEVICES}:{tariff.id}')],
         [InlineKeyboardButton(text=trial_toggle_text, callback_data=f'{CB_TARIFF_TOGGLE_TRIAL}{tariff.id}')],
         [InlineKeyboardButton(text='✏️ Дней триала', callback_data=f'{CB_TARIFF_EDIT_TRIAL_DAYS}:{tariff.id}')],
+        [InlineKeyboardButton(text='✏️ Трафик триала', callback_data=f'{CB_TARIFF_EDIT_TRIAL_TRAFFIC}:{tariff.id}')],
+        [InlineKeyboardButton(text='✏️ Устройства триала', callback_data=f'{CB_TARIFF_EDIT_TRIAL_DEVICES}:{tariff.id}')],
     ]
     for period in sorted(tariff.period_prices_kopeks.keys(), key=int):
         rows.append(
@@ -1035,11 +1051,18 @@ def _tariff_keyboard(tariff: Tariff) -> InlineKeyboardMarkup:
 def _tariff_text(tariff: Tariff) -> str:
     traffic = 'безлимит' if tariff.traffic_limit_gb == 0 else f'{tariff.traffic_limit_gb} ГБ'
     trial = f'включён, {tariff.trial_period_days} дн.' if tariff.trial_enabled else 'выключен'
+    trial_traffic = (
+        'как у тарифа' if tariff.trial_traffic_limit_gb is None
+        else ('безлимит' if tariff.trial_traffic_limit_gb == 0 else f'{tariff.trial_traffic_limit_gb} ГБ')
+    )
+    trial_devices = 'как у тарифа' if tariff.trial_device_limit is None else str(tariff.trial_device_limit)
     lines = [
         f'<b>Тариф: {tariff.name}</b>',
         f'Лимит трафика: {traffic}',
         f'Лимит устройств: {tariff.device_limit}',
         f'Триал: {trial}',
+        f'Трафик триала: {trial_traffic}',
+        f'Устройства триала: {trial_devices}',
         '',
         'Цены по периодам:',
     ]
@@ -1168,6 +1191,36 @@ async def cb_tariff_edit_trial_days(callback: CallbackQuery, db_user: User | Non
     await callback.answer()
 
 
+@router.callback_query(F.data.startswith(f'{CB_TARIFF_EDIT_TRIAL_TRAFFIC}:'))
+async def cb_tariff_edit_trial_traffic(callback: CallbackQuery, db_user: User | None, state: FSMContext) -> None:
+    if not _is_admin(db_user):
+        await callback.answer()
+        return
+    tariff_id = int(callback.data.rsplit(':', 1)[1])
+    await state.set_state(AdminTariffStates.entering_prices)
+    await state.update_data(tariff_field='trial_traffic', tariff_id=tariff_id)
+    await _answer_or_edit(
+        callback,
+        '✏️ Введите лимит трафика триала в ГБ (0 = безлимит):',
+        _back_keyboard(f'{CB_TARIFF_CARD}{tariff_id}'),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith(f'{CB_TARIFF_EDIT_TRIAL_DEVICES}:'))
+async def cb_tariff_edit_trial_devices(callback: CallbackQuery, db_user: User | None, state: FSMContext) -> None:
+    if not _is_admin(db_user):
+        await callback.answer()
+        return
+    tariff_id = int(callback.data.rsplit(':', 1)[1])
+    await state.set_state(AdminTariffStates.entering_prices)
+    await state.update_data(tariff_field='trial_devices', tariff_id=tariff_id)
+    await _answer_or_edit(
+        callback, '✏️ Введите лимит устройств триала:', _back_keyboard(f'{CB_TARIFF_CARD}{tariff_id}')
+    )
+    await callback.answer()
+
+
 @router.callback_query(F.data.startswith(CB_TARIFF_EDIT_PERIOD))
 async def cb_tariff_edit_period(callback: CallbackQuery, db_user: User | None, state: FSMContext) -> None:
     if not _is_admin(db_user):
@@ -1240,6 +1293,26 @@ async def on_admin_tariff_value_input(message: Message, db: AsyncSession, db_use
             return
         tariff.trial_period_days = value
         result_text = f'✅ Длительность триала обновлена: {value} дн.'
+    elif field == 'trial_traffic':
+        try:
+            value = int(message.text.strip())
+            if value < 0:
+                raise ValueError
+        except ValueError:
+            await message.answer('Некорректное число. Введите целое число ≥ 0.')
+            return
+        tariff.trial_traffic_limit_gb = value
+        result_text = f'✅ Трафик триала обновлён: {"безлимит" if value == 0 else f"{value} ГБ"}'
+    elif field == 'trial_devices':
+        try:
+            value = int(message.text.strip())
+            if value <= 0:
+                raise ValueError
+        except ValueError:
+            await message.answer('Некорректное число. Введите целое число > 0.')
+            return
+        tariff.trial_device_limit = value
+        result_text = f'✅ Лимит устройств триала обновлён: {value}'
     else:
         await state.clear()
         return
@@ -1828,21 +1901,30 @@ async def _show_broadcast_button_selector(message: Message, state: FSMContext, *
         await message.answer(text, reply_markup=keyboard)
 
 
-@router.callback_query(F.data == CB_BROADCAST_MEDIA_CONFIRM)
-async def cb_broadcast_media_confirm(callback: CallbackQuery, state: FSMContext) -> None:
+@router.callback_query(AdminBroadcastStates.awaiting_media, F.data == CB_BROADCAST_MEDIA_CONFIRM)
+async def cb_broadcast_media_confirm(callback: CallbackQuery, db_user: User | None, state: FSMContext) -> None:
+    if not _is_admin(db_user):
+        await callback.answer()
+        return
     await _show_broadcast_button_selector(callback.message, state, use_edit=False)
     await callback.answer()
 
 
-@router.callback_query(F.data == CB_BROADCAST_MEDIA_CHANGE)
-async def cb_broadcast_media_change(callback: CallbackQuery, state: FSMContext) -> None:
+@router.callback_query(AdminBroadcastStates.awaiting_media, F.data == CB_BROADCAST_MEDIA_CHANGE)
+async def cb_broadcast_media_change(callback: CallbackQuery, db_user: User | None, state: FSMContext) -> None:
+    if not _is_admin(db_user):
+        await callback.answer()
+        return
     await state.set_state(AdminBroadcastStates.choosing_media)
     await callback.message.answer('🖼️ Выберите новый тип медиа:', reply_markup=_broadcast_media_keyboard())
     await callback.answer()
 
 
 @router.callback_query(AdminBroadcastStates.choosing_buttons, F.data.startswith(CB_BROADCAST_BTN_TOGGLE))
-async def cb_broadcast_btn_toggle(callback: CallbackQuery, state: FSMContext) -> None:
+async def cb_broadcast_btn_toggle(callback: CallbackQuery, db_user: User | None, state: FSMContext) -> None:
+    if not _is_admin(db_user):
+        await callback.answer()
+        return
     key = callback.data[len(CB_BROADCAST_BTN_TOGGLE):]
     data = await state.get_data()
     selected = list(data.get('selected_buttons') or DEFAULT_BROADCAST_BUTTONS)
@@ -1856,9 +1938,16 @@ async def cb_broadcast_btn_toggle(callback: CallbackQuery, state: FSMContext) ->
 
 
 @router.callback_query(AdminBroadcastStates.choosing_buttons, F.data == CB_BROADCAST_BTN_CONTINUE)
-async def cb_broadcast_btn_continue(callback: CallbackQuery, db: AsyncSession, state: FSMContext) -> None:
+async def cb_broadcast_btn_continue(callback: CallbackQuery, db: AsyncSession, db_user: User | None, state: FSMContext) -> None:
+    if not _is_admin(db_user):
+        await callback.answer()
+        return
     data = await state.get_data()
-    target = data['broadcast_target']
+    target = data.get('broadcast_target')
+    if target is None:
+        await state.clear()
+        await callback.answer()
+        return
     text = data.get('broadcast_text')
     selected = data.get('selected_buttons') or list(DEFAULT_BROADCAST_BUTTONS)
     has_media = data.get('has_media', False)
@@ -1890,7 +1979,10 @@ async def cb_broadcast_btn_continue(callback: CallbackQuery, db: AsyncSession, s
 
 
 @router.callback_query(AdminBroadcastStates.confirming, F.data == CB_BROADCAST_CANCEL)
-async def cb_admin_broadcast_cancel(callback: CallbackQuery, state: FSMContext) -> None:
+async def cb_admin_broadcast_cancel(callback: CallbackQuery, db_user: User | None, state: FSMContext) -> None:
+    if not _is_admin(db_user):
+        await callback.answer()
+        return
     await state.clear()
     await _answer_or_edit(callback, 'Рассылка отменена.', _back_keyboard())
     await callback.answer()

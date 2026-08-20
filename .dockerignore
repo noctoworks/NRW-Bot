@@ -8,3 +8,4 @@ bot.db-shm
 bot.db-wal
 mock_remnawave_state.json
 .git
+/backup

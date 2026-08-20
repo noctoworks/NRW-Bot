@@ -59,6 +59,7 @@ async def get_overview(db: AsyncSession) -> dict:
     revenue_today = await _revenue_sum(db, since=today_start)
     revenue_7d = await _revenue_sum(db, since=now - timedelta(days=7))
     revenue_30d = await _revenue_sum(db, since=now - timedelta(days=30))
+    revenue_all_time = await _revenue_sum(db)
 
     active_subscriptions = (
         await db.execute(select(func.count(Subscription.id)).where(Subscription.status == 'active'))
@@ -95,6 +96,7 @@ async def get_overview(db: AsyncSession) -> dict:
         'revenue_today_kopeks': revenue_today,
         'revenue_7d_kopeks': revenue_7d,
         'revenue_30d_kopeks': revenue_30d,
+        'revenue_all_time_kopeks': revenue_all_time,
         'active_subscriptions': active_subscriptions,
         'total_users': total_users,
         'new_users_7d': new_users_7d,

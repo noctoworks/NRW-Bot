@@ -11,13 +11,22 @@ import logging
 import secrets
 import string
 
-from sqlalchemy import select
+from aiogram import Bot
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database.models import Payment, ReferralEarning, Transaction, User
+from app.services.subscription_provisioning import provision_or_extend_subscription
 
 logger = logging.getLogger(__name__)
+
+# Виральность (см. диалог): "пригласил N друзей -> +N дней подписки" —
+# реферер получает бонусные дни за КОЛИЧЕСТВО приглашённых (не за оплаты —
+# это отдельно уже покрыто REFERRAL_PERCENT/credit_referral_earning), простой
+# игровой стимул позвать ещё. threshold -> бонусные дни за пересечение
+# именно этого порога (не накопительно с предыдущих — см. check_referral_milestones).
+REFERRAL_MILESTONES: dict[int, int] = {3: 3, 5: 5, 10: 10, 25: 25, 50: 50}
 
 
 def generate_referral_code(length: int = 8) -> str:
@@ -48,7 +57,7 @@ async def credit_referral_earning(db: AsyncSession, payment: Payment) -> None:
 
         result = await db.execute(select(User).where(User.id == buyer.referred_by_id))
         referrer = result.scalar_one_or_none()
-        if referrer is None:
+        if referrer is None or referrer.is_blocked:
             return
 
         percent = referrer.referral_commission_percent
@@ -78,3 +87,57 @@ async def credit_referral_earning(db: AsyncSession, payment: Payment) -> None:
         await db.flush()
     except Exception:
         logger.exception('credit_referral_earning failed for payment_id=%s', getattr(payment, 'id', None))
+
+
+async def check_referral_milestones(db: AsyncSession, referrer: User, bot: Bot | None = None) -> None:
+    """Вызывается после регистрации нового пользователя по реф-ссылке (см.
+    handlers/start.py::cb_accept_rules) — считает текущее число приглашённых
+    реферером и начисляет бонусные дни подписки за каждый впервые пересечённый
+    порог REFERRAL_MILESTONES (может быть сразу несколько, если реферер долго
+    не открывал бота, а по факту уже накопил много приглашений — например
+    зарегистрировали 12 друзей за раз через рассылку своей ссылки, пороги 3+5+10
+    начислятся все разом). Не бросает исключение наружу — бонус за регистрацию
+    не должен ломать саму регистрацию нового пользователя."""
+    try:
+        if referrer.is_blocked:
+            return
+
+        count_result = await db.execute(select(func.count(User.id)).where(User.referred_by_id == referrer.id))
+        invited_count = count_result.scalar_one() or 0
+
+        newly_reached = sorted(
+            threshold
+            for threshold in REFERRAL_MILESTONES
+            if threshold <= invited_count and threshold > referrer.referral_milestone_reached
+        )
+        if not newly_reached:
+            return
+
+        bonus_days = sum(REFERRAL_MILESTONES[t] for t in newly_reached)
+        referrer.referral_milestone_reached = newly_reached[-1]
+
+        # Локальный импорт — get_active_tariff живёт в handlers/subscription.py,
+        # который сам импортирует этот модуль (credit_referral_earning) на
+        # уровне модуля; импорт на верхнем уровне здесь создал бы цикл
+        # (тот же приём уже используется в handlers/start.py).
+        from app.handlers.subscription import get_active_tariff
+
+        tariff = await get_active_tariff(db)
+        if tariff is None:
+            logger.warning('check_referral_milestones: нет активного тарифа, бонус не начислен referrer_id=%s', referrer.id)
+            return
+
+        await provision_or_extend_subscription(db, user=referrer, tariff=tariff, period_days=bonus_days)
+        await db.flush()
+
+        if bot is not None:
+            try:
+                from app.services.notification_service import notify_referral_milestone
+
+                await notify_referral_milestone(
+                    bot, telegram_id=referrer.telegram_id, invited_count=invited_count, bonus_days=bonus_days
+                )
+            except Exception:
+                logger.exception('notify_referral_milestone failed for referrer_id=%s', referrer.id)
+    except Exception:
+        logger.exception('check_referral_milestones failed for referrer_id=%s', getattr(referrer, 'id', None))

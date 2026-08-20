@@ -14,24 +14,29 @@ Transaction, а Payment.raw_payload/external_id старых провайдер�
 Remnawave НЕ трогаем — ничего не создаём и не меняем в панели. Единственная
 задача — восстановить у нового User.remnawave_uuid ссылку на УЖЕ существующего
 там пользователя, чтобы не плодить новые VPN-аккаунты при следующей покупке/
-синхронизации. Проблема: старый бот после апгрейда на Remnawave 3.0.0 хранит
-панельную связь как ЧИСЛОВОЙ users.remnawave_id, а users.remnawave_uuid —
-легаси-поле, у части строк NULL (см. remnawave-bedolaga-telegram-bot/app/services/
-remnawave_identity_backfill.py — тот же самый бэкфил-паттерн, ту же проблему уже
-решали в референсе). Здесь для таких строк делается один live-запрос
-GET /api/users/by-id/{remnawave_id} к реальной панели.
+синхронизации.
+
+ВАЖНО (проверено на реальном ответе панели, 2026-08-19 — предыдущая версия этого
+докстринга/кода была основана на устаревшем контракте, см. app/external/remnawave/
+real.py:7-17 "это меняли предыдущий агент по ошибке — не возвращать обратно"):
+после апгрейда панели (коммит "replace all users routes to use id instead of
+uuid", июль 2026, уже в стабильных релизах) поле `uuid` из ответа GET /users
+ПРОПАЛО ВООБЩЕ — там только `id: number` + `shortUuid`. Живой резолв через
+GET /api/users/by-id/{id} в ожидании поля `uuid` в ответе больше не работает
+(вернёт None на каждой строке). Правильный текущий контракт: remnawave_uuid в
+нашей БД — это просто str(remnawave_id) старой базы, БЕЗ каких-либо API-запросов
+к панели. Старое легаси-поле users.remnawave_uuid (настоящий UUID-формат) больше
+не резолвится панелью и не используется.
 
 Предусловия:
   - .env новой базы (DATABASE_URL) указывает на ЦЕЛЕВОЙ Postgres, alembic upgrade
-    head уже прогнан.
-  - scripts/seed.py уже создал тариф "Онлайн" (нужен валидный tariff_id для
-    старых подписок) и засеял server_squads.
-  - REMNAWAVE_MODE=real с рабочими REMNAWAVE_BASE_URL/REMNAWAVE_API_KEY — нужны
-    для резолва remnawave_id -> uuid (см. выше). Если панель недоступна прямо
-    сейчас — можно мигрировать и без этого (--skip-remnawave-resolve), но тогда
-    подписки таких юзеров останутся без remnawave_uuid и первое же действие
-    с ними (продление/устройства) в bedolaga-lite упадёт, пока не резолвится
-    вручную.
+    head уже прогнан, в базе есть хотя бы один Tariff (см. scripts/seed.py) —
+    остальные тарифы (Семейный/Корпоративный/Легаси и т.д.) скрипт создаёт сам
+    по именам старых тарифов, см. ниже.
+  - REMNAWAVE_BASE_URL этого бота указывает на ТУ ЖЕ панель, где физически жили
+    старые аккаунты — иначе перенесённый remnawave_uuid будет числом с чужой
+    панели и все действия с юзером (продление/устройства/enable) будут падать
+    404/400. Никакого сетевого запроса к панели сам скрипт не делает.
 
 Запуск (dry-run по умолчанию показывает, что будет сделано, без записи):
     OLD_DATABASE_URL=postgresql://user:pass@host/old_db \\
@@ -42,13 +47,14 @@ GET /api/users/by-id/{remnawave_id} к реальной панели.
     .venv/Scripts/python.exe scripts/migrate_from_old_bot.py
 
 Идемпотентность: юзеры матчатся по telegram_id (unique в обеих базах) — повторный
-запуск не создаёт дублей среди уже перенесённых, только досоздаёt то, чего не было.
+запуск не создаёт дублей среди уже перенесённых, только досоздаёт то, чего не было
+(включая backfill remnawave_uuid/email на уже перенесённых). Subscription тоже
+безопасен при повторном запуске — пропускается, если у юзера уже есть подписка.
 Transaction/ReferralEarning НЕ дедуплицируются по контенту (в старой базе нет
-стабильного внешнего ключа, который можно было бы сверить) — поэтому если
-процесс упал ПОСЛЕ переноса транзакций одного юзера и перезапущен, транзакции
-этого юзера задвоятся. Чтобы этого избежать, скрипт коммитит per-user (одна
-транзакция БД на одного старого юзера) — при сбое повторный запуск продолжит
-с юзеров, ещё не отмеченных как перенесённые (см. _MigratedMarker ниже).
+стабильного внешнего ключа, который можно было бы сверить) — если процесс упал
+ПОСЛЕ переноса транзакций одного юзера и перезапущен, транзакции этого юзера
+задвоятся. Чтобы ограничить масштаб такого сбоя, скрипт коммитит per-user
+(одна транзакция БД на одного старого юзера), а не всё разом в конце.
 """
 
 from __future__ import annotations
@@ -64,10 +70,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import asyncpg
-import httpx
 from sqlalchemy import select
 
-from app.config import settings
 from app.database.database import AsyncSessionLocal
 from app.database.models import PromoGroup, ReferralEarning, Subscription, Tariff, Transaction, User
 
@@ -86,33 +90,9 @@ def _aware(dt: datetime | None) -> datetime | None:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
-async def _resolve_uuid_by_panel_id(panel_id: int) -> str | None:
-    """GET /api/users/by-id/{id} — см. диалог, официальная схема Remnawave.
-    Разовый резолв legacy remnawave_uuid=NULL при remnawave_id заполненном."""
-    url = f'{settings.REMNAWAVE_BASE_URL.rstrip("/")}/api/users/by-id/{panel_id}'
-    headers = {'Authorization': f'Bearer {settings.REMNAWAVE_API_KEY}', 'Accept': 'application/json'}
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.get(url, headers=headers)
-        if response.status_code != 200:
-            logger.warning('Резолв remnawave_id=%s -> uuid: HTTP %s', panel_id, response.status_code)
-            return None
-        raw = response.json()
-        data = raw.get('response', raw) if isinstance(raw, dict) else raw
-        return data.get('uuid')
-    except httpx.HTTPError as error:
-        logger.warning('Резолв remnawave_id=%s -> uuid не удался: %s', panel_id, error)
-        return None
-
-
 async def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument('--dry-run', action='store_true', help='Только посчитать/показать, ничего не писать в новую БД')
-    parser.add_argument(
-        '--skip-remnawave-resolve',
-        action='store_true',
-        help='Не резолвить remnawave_id -> uuid живым запросом (юзеры без uuid останутся непривязанными к панели)',
-    )
     args = parser.parse_args()
 
     old_dsn = os.environ.get('OLD_DATABASE_URL')
@@ -121,16 +101,54 @@ async def main() -> None:
 
     old_conn = await asyncpg.connect(old_dsn)
     try:
-        await _run(old_conn, dry_run=args.dry_run, skip_remnawave_resolve=args.skip_remnawave_resolve)
+        await _run(old_conn, dry_run=args.dry_run)
     finally:
         await old_conn.close()
 
 
-async def _run(old_conn: asyncpg.Connection, *, dry_run: bool, skip_remnawave_resolve: bool) -> None:
+async def _run(old_conn: asyncpg.Connection, *, dry_run: bool) -> None:
     async with AsyncSessionLocal() as db:
-        tariff = (await db.execute(select(Tariff).where(Tariff.is_active.is_(True)))).scalars().first()
-        if tariff is None:
-            raise SystemExit('В новой базе нет активного тарифа — сначала прогоните scripts/seed.py')
+        any_tariff = (await db.execute(select(Tariff.id).limit(1))).scalar_one_or_none()
+        if any_tariff is None:
+            raise SystemExit('В новой базе нет ни одного тарифа — сначала прогоните scripts/seed.py')
+
+        # === Тарифы: old tariff_id -> new tariff_id, по имени. Тариф без аналога
+        # (например "Корпоративный") создаётся новым, неактивным — только чтобы
+        # существующие подписчики не потеряли обозначение своего плана; новым
+        # покупателям такой тариф не показывается. NULL tariff_id старой подписки
+        # (легаси/до введения тарифов) — отдельный тариф-заглушка "Легаси". ===
+        old_tariffs = await old_conn.fetch('SELECT id, name, device_limit FROM tariffs')
+        existing_tariff_by_name = {
+            name: tid for tid, name in (await db.execute(select(Tariff.id, Tariff.name))).all()
+        }
+        old_tariff_id_to_new: dict[int | None, int] = {}
+        for row in old_tariffs:
+            name = row['name']
+            if name in existing_tariff_by_name:
+                new_id = existing_tariff_by_name[name]
+            else:
+                t = Tariff(name=name, period_prices_kopeks={}, traffic_limit_gb=0,
+                            device_limit=row['device_limit'] or 3, squad_uuids=[], is_active=False)
+                db.add(t)
+                await db.flush()
+                existing_tariff_by_name[name] = t.id
+                new_id = t.id
+                logger.info('Тариф создан (для существующих подписчиков, неактивный): %s', name)
+            old_tariff_id_to_new[row['id']] = new_id
+
+        legacy_name = 'Легаси (перенесено из старого бота)'
+        if legacy_name in existing_tariff_by_name:
+            legacy_tariff_id = existing_tariff_by_name[legacy_name]
+        else:
+            t = Tariff(name=legacy_name, period_prices_kopeks={}, traffic_limit_gb=0,
+                        device_limit=5, squad_uuids=[], is_active=False)
+            db.add(t)
+            await db.flush()
+            legacy_tariff_id = t.id
+            logger.info('Тариф создан (для существующих подписчиков, неактивный): %s', legacy_name)
+        old_tariff_id_to_new[None] = legacy_tariff_id
+        if not dry_run:
+            await db.commit()
 
         # === Промогруппы: id старой -> id новой (по имени, создаём при отсутствии) ===
         old_groups = await old_conn.fetch('SELECT id, name, server_discount_percent FROM promo_groups')
@@ -151,28 +169,31 @@ async def _run(old_conn: asyncpg.Connection, *, dry_run: bool, skip_remnawave_re
             await db.commit()
 
         # === Пользователи ===
+        # status != 'deleted' — уважаем удаление аккаунта в старом боте, не
+        # воскрешаем такие записи при переносе.
         old_users = await old_conn.fetch(
-            'SELECT id, telegram_id, username, language, balance_kopeks, referral_code, referred_by_id, '
-            'remnawave_id, remnawave_uuid, promo_group_id, referral_commission_percent, '
-            'has_had_paid_subscription, created_at '
-            'FROM users WHERE telegram_id IS NOT NULL ORDER BY id'
+            "SELECT id, telegram_id, username, email, language, balance_kopeks, referral_code, referred_by_id, "
+            "remnawave_id, promo_group_id, referral_commission_percent, "
+            "has_had_paid_subscription, status, created_at "
+            "FROM users WHERE telegram_id IS NOT NULL AND status != 'deleted' ORDER BY id"
         )
         skipped_email_only = await old_conn.fetchval('SELECT count(*) FROM users WHERE telegram_id IS NULL')
-        total_old_users = len(old_users) + skipped_email_only
+        skipped_deleted = await old_conn.fetchval(
+            "SELECT count(*) FROM users WHERE telegram_id IS NOT NULL AND status = 'deleted'"
+        )
+        total_old_users = len(old_users) + skipped_email_only + skipped_deleted
 
         old_id_to_new_id: dict[int, int] = {}
         pending_referred_by: dict[int, int] = {}  # new_user_id -> old_referred_by_id (второй проход)
-        created, updated, resolved_uuid = 0, 0, 0
+        created, updated, email_backfilled = 0, 0, 0
 
         for row in old_users:
             telegram_id = row['telegram_id']
             existing = (await db.execute(select(User).where(User.telegram_id == telegram_id))).scalar_one_or_none()
 
-            remnawave_uuid = row['remnawave_uuid']
-            if not remnawave_uuid and row['remnawave_id'] and not skip_remnawave_resolve:
-                remnawave_uuid = await _resolve_uuid_by_panel_id(row['remnawave_id'])
-                if remnawave_uuid:
-                    resolved_uuid += 1
+            # remnawave_uuid = str(remnawave_id) панели, без резолва по API (см. докстринг).
+            remnawave_uuid = str(row['remnawave_id']) if row['remnawave_id'] else None
+            is_blocked = row['status'] == 'blocked'
 
             lang = (row['language'] or 'ru')[:2]
             if lang not in ('ru', 'en'):
@@ -202,6 +223,7 @@ async def _run(old_conn: asyncpg.Connection, *, dry_run: bool, skip_remnawave_re
                 new_user = User(
                     telegram_id=telegram_id,
                     username=row['username'],
+                    email=row['email'],
                     language=lang,
                     balance_kopeks=row['balance_kopeks'] or 0,
                     referral_code=referral_code,
@@ -209,6 +231,7 @@ async def _run(old_conn: asyncpg.Connection, *, dry_run: bool, skip_remnawave_re
                     promo_group_id=promo_group_id_map.get(row['promo_group_id']),
                     referral_commission_percent=row['referral_commission_percent'],
                     trial_used=bool(row['has_had_paid_subscription']),
+                    is_blocked=is_blocked,
                 )
                 db.add(new_user)
                 await db.flush()
@@ -221,6 +244,9 @@ async def _run(old_conn: asyncpg.Connection, *, dry_run: bool, skip_remnawave_re
                 if remnawave_uuid and not existing.remnawave_uuid:
                     existing.remnawave_uuid = remnawave_uuid
                     updated += 1
+                if row['email'] and not existing.email:
+                    existing.email = row['email']
+                    email_backfilled += 1
 
         # Второй проход: referred_by_id (self-FK, требует, чтобы ВСЕ юзеры уже
         # существовали — иначе циклические/форвардные ссылки не резолвились бы).
@@ -232,13 +258,14 @@ async def _run(old_conn: asyncpg.Connection, *, dry_run: bool, skip_remnawave_re
             user_obj.referred_by_id = new_referrer_id
 
         logger.info(
-            'Пользователи: %s всего в старой базе (%s email-only пропущено), создано %s, обновлено %s, '
-            'резолвнуто remnawave_uuid %s',
+            'Пользователи: %s всего в старой базе (%s email-only, %s deleted пропущено), создано %s, '
+            'обновлено (remnawave_uuid) %s, email добавлен %s',
             total_old_users,
             skipped_email_only,
+            skipped_deleted,
             created,
             updated,
-            resolved_uuid,
+            email_backfilled,
         )
         if not dry_run:
             await db.commit()
@@ -259,7 +286,7 @@ async def _run(old_conn: asyncpg.Connection, *, dry_run: bool, skip_remnawave_re
             ).scalar_one_or_none()
             if already_has_sub is None:
                 sub_row = await old_conn.fetchrow(
-                    "SELECT status, is_trial, end_date, traffic_limit_gb, traffic_used_gb, device_limit, "
+                    "SELECT status, is_trial, tariff_id, end_date, traffic_limit_gb, traffic_used_gb, device_limit, "
                     "subscription_url, remnawave_short_uuid, autopay_enabled "
                     "FROM subscriptions WHERE user_id = $1 "
                     "ORDER BY (status IN ('active','trial','limited')) DESC, created_at DESC LIMIT 1",
@@ -273,7 +300,7 @@ async def _run(old_conn: asyncpg.Connection, *, dry_run: bool, skip_remnawave_re
                     db.add(
                         Subscription(
                             user_id=new_user_id,
-                            tariff_id=tariff.id,
+                            tariff_id=old_tariff_id_to_new[sub_row['tariff_id']],
                             status=new_status,
                             end_date=_aware(sub_row['end_date']) or datetime.now(timezone.utc),
                             traffic_limit_gb=sub_row['traffic_limit_gb'] or 0,

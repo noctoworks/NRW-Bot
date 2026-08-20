@@ -6,10 +6,12 @@ Update/CallbackQuery), чтобы их можно было дергать нап
 скрипта: ``get_active_tariff``, ``purchase_or_renew_subscription``,
 ``format_subscription_summary``, ``remove_user_device``, ``reset_user_devices``.
 
-One-tap connect (§8) — упрощённая тестовая версия, без полноценного
-get_subscription_page_config (это часть Mini App, отдельный этап): кнопка
-"Подключить VPN" — inline-URL-кнопка с deep-link'ом `happ://add/<url>` (plain-режим
-Happ, см. §8 clone-architecture.md). ВАЖНО: официально Telegram Bot API разрешает
+One-tap connect (§8) в самом БОТЕ (не в Mini App) — упрощённая версия без
+полноценного выбора приложения: кнопка "Подключить VPN" — inline-URL-кнопка
+с deep-link'ом `happ://add/<url>` (plain-режим Happ, см. §8 clone-architecture.md).
+Полноценный список VPN-клиентов по платформам (из Subpage Builder панели
+Remnawave) реализован в Mini App — см. RemnawaveClient.get_subscription_page_config
+и app/cabinet/routes.py::connect_apps. ВАЖНО: официально Telegram Bot API разрешает
 для InlineKeyboardButton.url только http(s):// и tg:// схемы — happ:// официально
 не документирована. Часть клиентов Telegram всё равно её открывает (как показано
 в референсе — системный диалог "Открыть приложение?"), но Telegram может отклонить
@@ -43,7 +45,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database.models import Payment, Subscription, Tariff, Transaction, User
 from app.emoji import CALENDAR, CHART, CRYPTO, EXPIRED, GLOBE, HOURGLASS, MONEY, SBP, STARS, SUCCESS
-from app.external.remnawave import get_remnawave_client
+from app.external.remnawave import get_remnawave_client, remnawave_user_description
 from app.keyboards.main_menu import CB_SUBSCRIPTION_MY, CB_SUBSCRIPTION_RENEW, back_to_menu_button
 from app.services.notification_service import notify_payment_success
 from app.services.payment import get_payment_provider
@@ -200,6 +202,7 @@ async def purchase_or_renew_subscription(
             squad_uuids=tariff.squad_uuids,
             traffic_limit_gb=tariff.traffic_limit_gb,
             expire_at=now + timedelta(days=period_days),
+            description=remnawave_user_description(db_user),
         )
         db_user.remnawave_uuid = rw_user.uuid
         subscription = Subscription(
@@ -213,6 +216,7 @@ async def purchase_or_renew_subscription(
             device_limit=tariff.device_limit,
             subscription_url=rw_user.subscription_url,
             short_uuid=rw_user.short_uuid,
+            is_trial=False,
         )
         db.add(subscription)
     else:
@@ -236,6 +240,7 @@ async def purchase_or_renew_subscription(
         # недостижимо, поэтому не проявлялось.
         subscription.device_limit = tariff.device_limit
         subscription.traffic_limit_gb = tariff.traffic_limit_gb
+        subscription.is_trial = False
         subscription.reminder_3d_sent = False
         subscription.reminder_1d_sent = False
         if rw_user.subscription_url:
@@ -583,7 +588,11 @@ async def _show_period_selection(callback: CallbackQuery, state: FSMContext, tar
     await callback.answer()
 
 
-async def _start_purchase_flow(callback: CallbackQuery, db: AsyncSession, state: FSMContext) -> None:
+async def _start_purchase_flow(callback: CallbackQuery, db: AsyncSession, db_user: User, state: FSMContext) -> None:
+    if db_user.is_blocked:
+        await callback.answer('Ваш аккаунт заблокирован.', show_alert=True)
+        return
+
     tariffs = await get_active_tariffs(db)
     if not tariffs:
         await callback.answer('Тариф временно недоступен', show_alert=True)
@@ -609,13 +618,13 @@ async def cb_choose_tariff(callback: CallbackQuery, db: AsyncSession, state: FSM
 
 
 @router.callback_query(lambda c: c.data == 'sub:buy')
-async def cb_sub_buy(callback: CallbackQuery, db: AsyncSession, state: FSMContext) -> None:
-    await _start_purchase_flow(callback, db, state)
+async def cb_sub_buy(callback: CallbackQuery, db: AsyncSession, db_user: User, state: FSMContext) -> None:
+    await _start_purchase_flow(callback, db, db_user, state)
 
 
 @router.callback_query(lambda c: c.data == CB_SUBSCRIPTION_RENEW)
-async def cb_sub_renew(callback: CallbackQuery, db: AsyncSession, state: FSMContext) -> None:
-    await _start_purchase_flow(callback, db, state)
+async def cb_sub_renew(callback: CallbackQuery, db: AsyncSession, db_user: User, state: FSMContext) -> None:
+    await _start_purchase_flow(callback, db, db_user, state)
 
 
 @router.callback_query(StateFilter(PurchaseStates.choosing_period), lambda c: c.data and c.data.startswith('sub:period:'))
@@ -670,6 +679,11 @@ async def cb_choose_method(callback: CallbackQuery, db: AsyncSession, db_user: U
 async def cb_confirm_purchase(
     callback: CallbackQuery, db: AsyncSession, db_user: User, state: FSMContext, bot: Bot
 ) -> None:
+    if db_user.is_blocked:
+        await callback.answer('Ваш аккаунт заблокирован.', show_alert=True)
+        await state.clear()
+        return
+
     data = await state.get_data()
     tariff = await db.get(Tariff, data['tariff_id'])
     if tariff is None:
@@ -683,6 +697,15 @@ async def cb_confirm_purchase(
         )
     except Exception:
         logger.exception('Ошибка оформления подписки')
+        # Критично: purchase_or_renew_subscription уже успел flush'нуть в сессию
+        # Payment(status='success')/Transaction(status='completed') ДО похода в
+        # Remnawave — если Remnawave упала, эти "успешные" записи не должны
+        # уйти в БД (иначе платёж выглядит оплаченным, а подписки нет). Явный
+        # rollback здесь обязателен: AuthMiddleware коммитит сессию безусловно
+        # после возврата из хендлера, а мы гасим исключение (чтобы показать
+        # пользователю дружелюбный алерт вместо краша), не давая ему
+        # распространиться и вызвать неявный откат самому.
+        await db.rollback()
         await callback.answer('Не удалось оформить подписку, попробуйте позже', show_alert=True)
         await state.clear()
         return

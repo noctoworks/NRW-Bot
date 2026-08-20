@@ -38,6 +38,14 @@ async def notify_referral_bonus(bot: Bot, *, telegram_id: int, amount_kopeks: in
     await _safe_send(bot, telegram_id=telegram_id, text=text)
 
 
+async def notify_referral_milestone(bot: Bot, *, telegram_id: int, invited_count: int, bonus_days: int) -> None:
+    text = (
+        f'🚀 Вы пригласили уже {invited_count} друзей!\n\n'
+        f'Начислено +{bonus_days} дн. подписки за это достижение — загляните в «Моя подписка».'
+    )
+    await _safe_send(bot, telegram_id=telegram_id, text=text)
+
+
 async def notify_subscription_expiring(bot: Bot, *, telegram_id: int, days_left: int) -> None:
     text = f'⏳ Ваша подписка истекает через {days_left} дн.'
     await _safe_send(bot, telegram_id=telegram_id, text=text)

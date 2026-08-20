@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 
 from aiogram import Bot
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -23,7 +24,16 @@ logger = logging.getLogger(__name__)
 
 
 async def finalize_pending_payment(db: AsyncSession, payment: Payment, bot: Bot) -> None:
-    if payment.status != 'pending':
+    # payment_poll_loop (интервал по умолчанию 600с) и scripts/poll_payments_once.py
+    # (ручной параллельный запуск, см. диалог) могут выбрать один и тот же pending-
+    # платёж одновременно. with_for_update() + повторная проверка status=='pending'
+    # ПОСЛЕ захвата блокировки строки (реально работает на Postgres в проде, SQLite
+    # это условие молча игнорирует) закрывают это окно: второй процесс, дождавшись
+    # снятия блокировки первым, увидит уже не-pending статус и тихо выйдет — вместо
+    # повторной выдачи подписки/подарка и повторного реферального начисления.
+    locked = await db.execute(select(Payment).where(Payment.id == payment.id).with_for_update())
+    payment = locked.scalar_one_or_none()
+    if payment is None or payment.status != 'pending':
         return
 
     raw_payload = payment.raw_payload or {}
@@ -45,6 +55,18 @@ async def finalize_pending_payment(db: AsyncSession, payment: Payment, bot: Bot)
         )
         return
 
+    # Провижининг (Remnawave/создание gift-кода) — ДО того, как платёж помечается
+    # success. Если это упадёт, исключение уходит наружу к вызывающему коду
+    # (run_payment_poll_once), который обязан откатить сессию — иначе payment.status
+    # так и останется 'pending' в БД, и следующий цикл поллинга/ручной скрипт
+    # попробуют доделать выдачу снова, вместо того чтобы навсегда зафиксировать
+    # "успешный" платёж без реально выданной подписки/подарка (тот же класс бага,
+    # что был найден в handlers/subscription.py::cb_confirm_purchase).
+    if kind == 'subscription':
+        await provision_or_extend_subscription(db, user=user, tariff=tariff, period_days=period_days, is_trial=False)
+    else:
+        gift_code = await create_gift_code(db, tariff=tariff, period_days=period_days, gifter=user)
+
     payment.status = 'success'
     if payment.transaction_id is not None:
         transaction = await db.get(Transaction, payment.transaction_id)
@@ -52,7 +74,6 @@ async def finalize_pending_payment(db: AsyncSession, payment: Payment, bot: Bot)
             transaction.status = 'completed'
 
     if kind == 'subscription':
-        await provision_or_extend_subscription(db, user=user, tariff=tariff, period_days=period_days)
         description = f'Подписка «{tariff.name}» на {period_days} дн.'
         try:
             await notify_payment_success(
@@ -61,7 +82,6 @@ async def finalize_pending_payment(db: AsyncSession, payment: Payment, bot: Bot)
         except Exception:
             logger.exception('notify_payment_success упал (не блокирует выдачу подписки)')
     else:
-        gift_code = await create_gift_code(db, tariff=tariff, period_days=period_days, gifter=user)
         bot_username = settings.BOT_USERNAME or '<укажите_BOT_USERNAME>'
         link = f'https://t.me/{bot_username}?start=gift_{gift_code.code}'
         try:

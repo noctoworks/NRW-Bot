@@ -1,15 +1,25 @@
 """Боевой Remnawave-клиент (REMNAWAVE_MODE=real).
 
-Эндпоинты/поля сверены с официальной документацией панели (docs.rw, Remnawave
-Python SDK reference — актуальная версия API на момент интеграции, см. диалог:
-"docs.rw/api изучи там недавно были обновления") — НЕ с более старым
-remnawave-bedolaga-telegram-bot/app/external/remnawave_api.py, который ключует
-пользователей числовым internal id (/api/hwid/devices/{userId} и т.п.) —
-там это устаревшая для нашей версии панели схема. Актуальная официальная схема
-полностью UUID-based (/api/users/{uuid}, /api/users/{uuid}/hwid/...), что
-дословно совпадает с уже зафиксированным контрактом RemnawaveClient
-(remnawave_uuid: str везде) — адаптировать интерфейс под numeric id не
-потребовалось.
+Эндпоинты/поля сверены построчно с исходниками бэкенда панели
+(github.com/remnawave/backend, ветка main, актуально на релиз 3.2.3 /
+2026-08-10 — см. диалог "docs.rw/api изучи там недавно были обновления").
+
+ВАЖНО (это меняли предыдущий агент по ошибке — не возвращать обратно):
+коммитом "refactor: replace all users routes to use id instaed of uuid"
+(2026-07-13, уже в стабильных релизах) панель перешла с UUID на числовой
+внутренний `id` для ВСЕХ users-экшенов (/users/{id}/actions/..., GET
+/users/{id}) и для HWID-устройств (вынесены в отдельный контроллер
+/hwid/devices/..., адресуются numeric userId). Поля `uuid` в ответе
+пользователя больше нет вообще (UsersSchema: только `id: number` +
+`shortUuid`). RemnawaveClient (base.py) по-прежнему держит контракт
+remnawave_uuid: str — это НЕ настоящий UUID, а str(id) панели; менять
+интерфейс/имя поля в БД не нужно, он используется просто как непрозрачный
+идентификатор везде, кроме этого файла.
+
+Не изменилось: POST /users (create), PATCH /users (update; тело — id ИЛИ
+username, не uuid), GET /users/by-username/{username}, GET /internal-squads
+(это по-прежнему честный uuid), статусы ACTIVE/DISABLED/LIMITED/EXPIRED,
+код ошибки A019.
 
 Базовый URL: SDK автоматически добавляет префикс /api — здесь то же самое,
 явно в _request().
@@ -18,6 +28,7 @@ remnawave-bedolaga-telegram-bot/app/external/remnawave_api.py, который к
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime
 from typing import Any
 
@@ -27,10 +38,22 @@ from app.external.remnawave.base import (
     RemnawaveClient,
     RemnawaveDevice,
     RemnawaveUser,
+    SubscriptionPageApp,
+    SubscriptionPageBlock,
+    SubscriptionPageButton,
     SubscriptionPageConfig,
+    SubscriptionPagePlatform,
 )
 
 logger = logging.getLogger(__name__)
+
+# Конфиг Subpage Builder одинаков для всех пользователей и меняется редко
+# (админ правит его в самой панели) — кэшируем на уровне модуля (не инстанса:
+# get_remnawave_client() создаёт новый RealRemnawaveClient на каждый вызов),
+# чтобы не ходить в Remnawave по два запроса (список конфигов + конфиг по uuid)
+# на каждое открытие экрана подключения.
+_SUBPAGE_CONFIG_TTL_SECONDS = 600
+_subpage_config_cache: dict[str, tuple[float, SubscriptionPageConfig | None]] = {}
 
 
 def _parse_dt(value: str | None) -> datetime | None:
@@ -90,11 +113,13 @@ class RealRemnawaveClient(RemnawaveClient):
 
     def _parse_user(self, data: dict[str, Any]) -> RemnawaveUser:
         traffic_limit_bytes = int(data.get('trafficLimitBytes') or 0)
+        # usedTrafficBytes переехал в userTraffic.usedTrafficBytes (было плоским полем).
+        used_traffic_bytes = int((data.get('userTraffic') or {}).get('usedTrafficBytes') or 0)
         return RemnawaveUser(
-            uuid=data['uuid'],
+            uuid=str(data['id']),
             subscription_url=data.get('subscriptionUrl') or '',
             short_uuid=data.get('shortUuid') or '',
-            traffic_used_gb=int(data.get('usedTrafficBytes') or 0) / 1024**3,
+            traffic_used_gb=used_traffic_bytes / 1024**3,
             traffic_limit_gb=traffic_limit_bytes // 1024**3,
             expire_at=_parse_dt(data.get('expireAt')),
             is_enabled=data.get('status') == 'ACTIVE',
@@ -109,10 +134,16 @@ class RealRemnawaveClient(RemnawaveClient):
         )
 
     async def create_user(
-        self, *, telegram_id: int, squad_uuids: list[str], traffic_limit_gb: int, expire_at: datetime
+        self,
+        *,
+        telegram_id: int,
+        squad_uuids: list[str],
+        traffic_limit_gb: int,
+        expire_at: datetime,
+        description: str | None = None,
     ) -> RemnawaveUser:
         username = f'tg{telegram_id}'
-        body = {
+        body: dict[str, Any] = {
             'username': username,
             'status': 'ACTIVE',
             'expireAt': expire_at.isoformat(),
@@ -121,6 +152,10 @@ class RealRemnawaveClient(RemnawaveClient):
             'telegramId': telegram_id,
             'activeInternalSquads': squad_uuids,
         }
+        if description:
+            # CreateUserBodyDto.description — optional, но НЕ nullable: явный
+            # null в теле не пройдёт валидацию, поэтому ключ либо есть, либо его нет.
+            body['description'] = description
         try:
             data = await self._request('POST', '/users', json_data=body)
         except RuntimeError as error:
@@ -133,27 +168,44 @@ class RealRemnawaveClient(RemnawaveClient):
                 raise
             logger.warning('Remnawave: username %s уже существует — переиспользую существующий аккаунт', username)
             existing = await self._request('GET', f'/users/by-username/{username}')
-            data = await self._request(
-                'PATCH',
-                '/users',
-                json_data={
-                    'uuid': existing['uuid'],
-                    'status': 'ACTIVE',
-                    'expireAt': expire_at.isoformat(),
-                    'trafficLimitBytes': traffic_limit_gb * 1024**3,
-                    'activeInternalSquads': squad_uuids,
-                },
-            )
+            patch_body: dict[str, Any] = {
+                'id': existing['id'],
+                'status': 'ACTIVE',
+                'expireAt': expire_at.isoformat(),
+                'trafficLimitBytes': traffic_limit_gb * 1024**3,
+                'activeInternalSquads': squad_uuids,
+            }
+            if description:
+                patch_body['description'] = description
+            data = await self._request('PATCH', '/users', json_data=patch_body)
         return self._parse_user(data)
 
     async def extend_user_expiration(self, *, remnawave_uuid: str, expire_at: datetime) -> RemnawaveUser:
-        data = await self._request('PATCH', '/users', json_data={'uuid': remnawave_uuid, 'expireAt': expire_at.isoformat()})
+        data = await self._request(
+            'PATCH', '/users', json_data={'id': int(remnawave_uuid), 'expireAt': expire_at.isoformat()}
+        )
         return self._parse_user(data)
 
     async def enable_user(self, *, remnawave_uuid: str) -> None:
-        await self._request('POST', f'/users/{remnawave_uuid}/actions/enable')
+        # A030 "User already enabled" — панель считает повторный enable ошибкой,
+        # а не идемпотентной операцией. Вызывающий код (subscription_provisioning.py,
+        # handlers/subscription.py, cabinet/admin_routes.py::adjust_subscription_days)
+        # безусловно шлёт enable после ЛЮБОГО продления, включая продление ещё
+        # активной (не отключённой) подписки — это основной, самый частый случай.
+        # Без этого перехвата такое продление 500-ит целиком, хотя сама дата
+        # окончания уже успешно обновлена строкой выше по стеку. Найдено вживую
+        # при добавлении adjust_subscription_days (см. диалог).
+        try:
+            await self._request('POST', f'/users/{remnawave_uuid}/actions/enable')
+        except RuntimeError as error:
+            if 'A030' not in str(error):
+                raise
 
     async def disable_user(self, *, remnawave_uuid: str) -> None:
+        # Не применяю тот же перехват, что у enable_user — реальный errorCode для
+        # "уже отключён" не подтверждён вживую (в отличие от A030 у enable),
+        # гадать не стал. Если всплывёт та же проблема — искать код в тексте
+        # ошибки и добавить сюда по аналогии.
         await self._request('POST', f'/users/{remnawave_uuid}/actions/disable')
 
     async def revoke_user_subscription(self, *, remnawave_uuid: str) -> RemnawaveUser:
@@ -168,22 +220,90 @@ class RealRemnawaveClient(RemnawaveClient):
         return self._parse_user(data)
 
     async def get_user_devices(self, *, remnawave_uuid: str) -> list[RemnawaveDevice]:
-        data = await self._request('GET', f'/users/{remnawave_uuid}/hwid')
+        data = await self._request('GET', f'/hwid/devices/{remnawave_uuid}')
         devices = data.get('devices', []) if isinstance(data, dict) else (data or [])
         return [self._parse_device(d) for d in devices]
 
     async def reset_user_devices(self, *, remnawave_uuid: str) -> None:
-        await self._request('DELETE', f'/users/{remnawave_uuid}/hwid')
+        await self._request('POST', '/hwid/devices/delete-all', json_data={'userId': int(remnawave_uuid)})
 
     async def remove_device(self, *, remnawave_uuid: str, hwid: str) -> None:
-        await self._request('DELETE', f'/users/{remnawave_uuid}/hwid/{hwid}')
+        await self._request('POST', '/hwid/devices/delete', json_data={'userId': int(remnawave_uuid), 'hwid': hwid})
 
     async def list_internal_squads(self) -> list[dict]:
         data = await self._request('GET', '/internal-squads')
         squads = data.get('internalSquads', []) if isinstance(data, dict) else (data or [])
         return [{'uuid': s['uuid'], 'name': s.get('name', ''), 'country': ''} for s in squads]
 
-    async def get_subscription_page_config(self, uuid: str) -> SubscriptionPageConfig | None:
-        # Не используется: список VPN-клиентов в Mini App захардкожен (см. диалог,
-        # §8 clone-architecture.md отложен — "это часть Mini App, отдельный этап").
-        return None
+    async def get_subscription_page_config(self) -> SubscriptionPageConfig | None:
+        # Эндпоинты сверены вживую с боевой панелью (см. диалог, 2026-08-19):
+        # GET /api/subscription-page-configs -> {"total", "configs": [{"uuid","name","config": null}, ...]}
+        # (список НЕ включает сам config — это оптимизация ответа на их стороне),
+        # GET /api/subscription-page-configs/{uuid} -> {"uuid","name","config": {...}}
+        # с полным Subpage Builder JSON (locales/platforms/apps/blocks/buttons).
+        # На практике на панели всегда ровно один конфиг ("Default") — берём первый
+        # по списку, а не хардкодим well-known uuid 00000000-0000-0000-0000-000000000000,
+        # на случай если админ когда-нибудь заведёт несколько и сменит порядок.
+        cache_key = self.base_url
+        cached = _subpage_config_cache.get(cache_key)
+        if cached is not None and time.monotonic() - cached[0] < _SUBPAGE_CONFIG_TTL_SECONDS:
+            return cached[1]
+
+        result: SubscriptionPageConfig | None = None
+        try:
+            listing = await self._request('GET', '/subscription-page-configs')
+            configs = listing.get('configs') or [] if isinstance(listing, dict) else []
+            if configs:
+                detail = await self._request('GET', f"/subscription-page-configs/{configs[0]['uuid']}")
+                raw_config = detail.get('config') if isinstance(detail, dict) else None
+                if raw_config:
+                    result = self._parse_subpage_config(raw_config)
+        except Exception:
+            logger.warning('Не удалось получить subscription-page-config панели', exc_info=True)
+
+        _subpage_config_cache[cache_key] = (time.monotonic(), result)
+        return result
+
+    @staticmethod
+    def _parse_subpage_config(raw: dict[str, Any]) -> SubscriptionPageConfig:
+        platforms: list[SubscriptionPagePlatform] = []
+        for key, platform_data in (raw.get('platforms') or {}).items():
+            apps: list[SubscriptionPageApp] = []
+            for app_data in platform_data.get('apps') or []:
+                blocks: list[SubscriptionPageBlock] = []
+                for block_data in app_data.get('blocks') or []:
+                    buttons = [
+                        SubscriptionPageButton(
+                            type=button.get('type', ''),
+                            link=button.get('link', ''),
+                            text=button.get('text') or {},
+                        )
+                        for button in block_data.get('buttons') or []
+                    ]
+                    # Чисто текстовые шаги ("Предупреждение", "Если подписка не
+                    # добавилась") — тоже часть таймлайна инструкции в Mini App
+                    # (см. референс sub_page), не фильтруем по наличию кнопок.
+                    blocks.append(
+                        SubscriptionPageBlock(
+                            title=block_data.get('title') or {},
+                            description=block_data.get('description') or {},
+                            icon_key=block_data.get('svgIconKey') or '',
+                            icon_color=block_data.get('svgIconColor') or '',
+                            buttons=buttons,
+                        )
+                    )
+                apps.append(
+                    SubscriptionPageApp(
+                        name=app_data.get('name', ''),
+                        featured=bool(app_data.get('featured')),
+                        blocks=blocks,
+                    )
+                )
+            platforms.append(
+                SubscriptionPagePlatform(
+                    key=key,
+                    display_name=platform_data.get('displayName') or {},
+                    apps=apps,
+                )
+            )
+        return SubscriptionPageConfig(platforms=platforms)

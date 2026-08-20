@@ -50,6 +50,13 @@ async def seed() -> None:
                     device_limit=5,
                     squad_uuids=squad_uuids,
                     is_active=True,
+                    # Новый пользователь сразу получает пробный период при
+                    # регистрации (см. handlers/start.py) — 5 дней, 3 устройства,
+                    # 25 ГБ трафика (продуктовое решение владельца бота).
+                    trial_enabled=True,
+                    trial_period_days=5,
+                    trial_traffic_limit_gb=25,
+                    trial_device_limit=3,
                 )
             )
             print(f'Создан тариф "Онлайн": {ONLINE_PERIOD_PRICES_KOPEKS}')

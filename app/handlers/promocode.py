@@ -51,6 +51,9 @@ async def cmd_promo(message: Message, state: FSMContext, db_user: User | None) -
     if db_user is None:
         await message.answer(_t(lang, 'not_registered'))
         return
+    if db_user.is_blocked:
+        await message.answer('Ваш аккаунт заблокирован.')
+        return
     await state.set_state(PromoCodeStates.entering_code)
     await message.answer(_t(lang, 'enter_code'))
 
@@ -61,6 +64,9 @@ async def cb_promo_enter(callback: CallbackQuery, state: FSMContext, db_user: Us
     if db_user is None:
         await callback.answer()
         return
+    if db_user.is_blocked:
+        await callback.answer('Ваш аккаунт заблокирован.', show_alert=True)
+        return
     await state.set_state(PromoCodeStates.entering_code)
     await callback.message.answer(_t(lang, 'enter_code'))
     await callback.answer()
@@ -70,6 +76,9 @@ async def cb_promo_enter(callback: CallbackQuery, state: FSMContext, db_user: Us
 async def process_promo_code(message: Message, db: AsyncSession, db_user: User | None, state: FSMContext) -> None:
     await state.clear()
     if db_user is None:
+        return
+    if db_user.is_blocked:
+        await message.answer('Ваш аккаунт заблокирован.')
         return
     lang = db_user.language
     code = message.text.strip()

@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.database.models import Payment, Tariff, Transaction, User
+from app.database.models import GiftCode, Payment, Tariff, Transaction, User
 from app.keyboards.main_menu import CB_GIFT_MENU, back_to_menu_button
 from app.services.gift_service import create_gift_code
 from app.services.payment import get_payment_provider
@@ -104,10 +104,87 @@ async def _get_active_tariff(db: AsyncSession) -> Tariff | None:
     return result.scalar_one_or_none()
 
 
+async def purchase_gift_subscription(
+    db: AsyncSession, db_user: User, tariff: Tariff, period_days: int, method: str
+) -> GiftCode | None:
+    """Оплата + создание GiftCode — тот же паттерн, что и
+    handlers/subscription.py::purchase_or_renew_subscription (в т.ч. то же
+    решение с флешем Payment/Transaction ДО прихода ответа платёжного
+    провайдера). Возвращает None, если реальный провайдер вернул платёж как
+    pending — тогда GiftCode будет создан позже payment_finalization.py
+    после подтверждения (см. payment_poll_loop). Переиспользуется и ботом
+    (cb_choose_payment), и /cabinet/gift/purchase — бизнес-логика не
+    дублируется на два места.
+
+    ВАЖНО (см. диалог/ревью про handlers/subscription.py): если это упадёт
+    ПОСЛЕ флеша Payment(status='success') — например create_gift_code не
+    сумеет сгенерировать уникальный код — caller ОБЯЗАН явно откатить сессию
+    (db.rollback()) в except-блоке, если он гасит исключение сам, а не
+    пробрасывает наружу. AuthMiddleware/get_db коммитят сессию безусловно
+    после успешного возврата хендлера/роута.
+    """
+    amount_kopeks = await get_period_price_kopeks(db, tariff, period_days, db_user)
+    description = f'Подарок подписки на {period_days} дн. ({tariff.name})'
+
+    provider = get_payment_provider(method)
+    created = await provider.create_payment(user_id=db_user.id, amount_kopeks=amount_kopeks, description=description)
+
+    if created.status != 'success':
+        # Реальный провайдер — платёж создан, но не подтверждён сразу. Сохраняем
+        # контекст в raw_payload, чтобы payment_poll_loop доделал выдачу подарочного
+        # кода после подтверждения (см. app/services/payment_finalization.py).
+        transaction = Transaction(
+            user_id=db_user.id, type='gift', amount_kopeks=amount_kopeks, status='pending', description=description
+        )
+        db.add(transaction)
+        await db.flush()
+
+        db.add(
+            Payment(
+                user_id=db_user.id,
+                transaction_id=transaction.id,
+                provider=method,
+                external_id=created.external_id,
+                amount_kopeks=amount_kopeks,
+                status='pending',
+                raw_payload={
+                    'kind': 'gift',
+                    'tariff_id': tariff.id,
+                    'period_days': period_days,
+                    'payment_url': created.payment_url,
+                },
+            )
+        )
+        await db.flush()
+        return None
+
+    transaction = Transaction(
+        user_id=db_user.id, type='gift', amount_kopeks=amount_kopeks, status='completed', description=description
+    )
+    db.add(transaction)
+    await db.flush()
+
+    db.add(
+        Payment(
+            user_id=db_user.id,
+            transaction_id=transaction.id,
+            provider=method,
+            external_id=created.external_id,
+            amount_kopeks=amount_kopeks,
+            status='success',
+        )
+    )
+
+    return await create_gift_code(db, tariff=tariff, period_days=period_days, gifter=db_user)
+
+
 @router.callback_query(F.data == CB_GIFT_MENU)
 async def cb_gift_menu(callback: CallbackQuery, db: AsyncSession, db_user: User | None, state: FSMContext) -> None:
     if db_user is None:
         await callback.answer()
+        return
+    if db_user.is_blocked:
+        await callback.answer('Ваш аккаунт заблокирован.', show_alert=True)
         return
     lang = db_user.language
 
@@ -166,88 +243,40 @@ async def cb_choose_payment(callback: CallbackQuery, db: AsyncSession, db_user: 
         await callback.answer()
         return
 
-    amount_kopeks = await get_period_price_kopeks(db, tariff, period_days, db_user)
-    description = f'Подарок подписки на {period_days} дн. ({tariff.name})'
-
-    provider = get_payment_provider(method)
     try:
-        created = await provider.create_payment(
-            user_id=db_user.id,
-            amount_kopeks=amount_kopeks,
-            description=description,
-        )
+        gift_code = await purchase_gift_subscription(db, db_user, tariff, period_days, method)
     except Exception:
-        logger.exception('Ошибка создания платежа для подарка')
+        logger.exception('Ошибка оформления подарка')
+        # См. handlers/subscription.py::cb_confirm_purchase — purchase_gift_subscription
+        # уже мог успеть flush'нуть Payment(status='success') до сбоя (например
+        # create_gift_code не сгенерировал уникальный код за 10 попыток); гася
+        # исключение здесь вместо проброса наружу, обязаны откатить сессию сами —
+        # иначе AuthMiddleware закоммитит "успешный" платёж без выданного подарка.
+        await db.rollback()
         await state.clear()
         await callback.answer('Не удалось создать платёж, попробуйте позже', show_alert=True)
         return
 
-    if created.status != 'success':
-        # Реальный провайдер — платёж создан, но не подтверждён сразу. Сохраняем
-        # контекст в raw_payload, чтобы payment_poll_loop доделал выдачу подарочного
-        # кода после подтверждения (см. app/services/payment_finalization.py).
-        transaction = Transaction(
-            user_id=db_user.id,
-            type='gift',
-            amount_kopeks=amount_kopeks,
-            status='pending',
-            description=description,
-        )
-        db.add(transaction)
-        await db.flush()
+    await state.clear()
 
-        db.add(
-            Payment(
-                user_id=db_user.id,
-                transaction_id=transaction.id,
-                provider=method,
-                external_id=created.external_id,
-                amount_kopeks=amount_kopeks,
-                status='pending',
-                raw_payload={
-                    'kind': 'gift',
-                    'tariff_id': tariff.id,
-                    'period_days': period_days,
-                    'payment_url': created.payment_url,
-                },
-            )
+    if gift_code is None:
+        # Реальный провайдер — платёж создан, но не подтверждён сразу. Подарочный
+        # код будет создан автоматически после подтверждения (payment_poll_loop).
+        result = await db.execute(
+            select(Payment)
+            .where(Payment.user_id == db_user.id, Payment.status == 'pending')
+            .order_by(Payment.id.desc())
+            .limit(1)
         )
-        await db.flush()
-
-        await state.clear()
-        if created.payment_url:
+        payment = result.scalar_one_or_none()
+        payment_url = (payment.raw_payload or {}).get('payment_url') if payment else None
+        if payment_url:
             keyboard = InlineKeyboardMarkup(inline_keyboard=[[back_to_menu_button()]])
             await _edit_or_answer(
-                callback,
-                _t(lang, 'payment_pending').format(provider=method, url=created.payment_url),
-                keyboard,
+                callback, _t(lang, 'payment_pending').format(provider=method, url=payment_url), keyboard
             )
         await callback.answer()
         return
-
-    transaction = Transaction(
-        user_id=db_user.id,
-        type='gift',
-        amount_kopeks=amount_kopeks,
-        status='completed',
-        description=f'Подарок подписки на {period_days} дн.',
-    )
-    db.add(transaction)
-    await db.flush()
-
-    db.add(
-        Payment(
-            user_id=db_user.id,
-            transaction_id=transaction.id,
-            provider=method,
-            external_id=created.external_id,
-            amount_kopeks=amount_kopeks,
-            status='success',
-        )
-    )
-
-    gift_code = await create_gift_code(db, tariff=tariff, period_days=period_days, gifter=db_user)
-    await state.clear()
 
     bot_username = settings.BOT_USERNAME or '<укажите_BOT_USERNAME>'
     link = f'https://t.me/{bot_username}?start=gift_{gift_code.code}'

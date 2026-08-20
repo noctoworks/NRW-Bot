@@ -25,6 +25,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database.models import User
 from app.keyboards.main_menu import (
     CB_INFO_ABOUT,
@@ -34,7 +35,7 @@ from app.keyboards.main_menu import (
     get_main_menu_keyboard,
 )
 from app.services.gift_service import GiftCodeError, redeem_gift_code
-from app.services.referral_service import generate_referral_code
+from app.services.referral_service import check_referral_milestones, generate_referral_code
 from app.states import RegistrationStates
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,11 @@ TEXTS = {
         'gift_error': '⚠️ Не удалось активировать подарочный код: {error}',
         'gift_not_ready': '⚠️ Активация подарочных кодов временно недоступна, попробуйте позже.',
         'trial_granted': '🎉 Вам начислен бесплатный пробный период на {days} дн.! Загляните в «Моя подписка», чтобы подключиться.',
+        'trial_granted_ref_bonus': (
+            '🎉 Вам начислен бесплатный пробный период на {days} дн. '
+            '(+{bonus} дн. — бонус за переход по ссылке друга)! '
+            'Загляните в «Моя подписка», чтобы подключиться.'
+        ),
         'back': '⬅️ Назад',
     },
     'en': {
@@ -85,6 +91,10 @@ TEXTS = {
         'gift_error': '⚠️ Could not redeem the gift code: {error}',
         'gift_not_ready': '⚠️ Gift code redemption is temporarily unavailable, please try again later.',
         'trial_granted': '🎉 You got a free {days}-day trial! Check "My subscription" to connect.',
+        'trial_granted_ref_bonus': (
+            '🎉 You got a free {days}-day trial (+{bonus} days — bonus for using a friend\'s link)! '
+            'Check "My subscription" to connect.'
+        ),
         'back': '⬅️ Back',
     },
 }
@@ -261,6 +271,7 @@ async def cb_accept_rules(callback: CallbackQuery, db: AsyncSession, state: FSMC
     new_user = User(
         telegram_id=telegram_user.id,
         username=telegram_user.username,
+        full_name=telegram_user.full_name,
         language=lang,
         referral_code=referral_code,
         referred_by_id=referred_by_id,
@@ -290,6 +301,13 @@ async def cb_accept_rules(callback: CallbackQuery, db: AsyncSession, state: FSMC
     from app.handlers.subscription import get_active_tariff, get_user_subscription
     from app.services.subscription_provisioning import provision_or_extend_subscription
 
+    # Двусторонний бонус (см. диалог "виральность"): раньше по реф-ссылке
+    # приходил ровно тот же триал, что и без неё — приглашённый не получал
+    # ничего лишнего за переход именно по ссылке друга (только реферер
+    # зарабатывал REFERRAL_PERCENT с его оплат). REFERRAL_SIGNUP_BONUS_DAYS
+    # добавляется поверх обычного триала, только если распознан ref_CODE.
+    signup_bonus_days = settings.REFERRAL_SIGNUP_BONUS_DAYS if referred_by_id is not None else 0
+
     trial_days: int | None = None
     trial_tariff = await get_active_tariff(db)
     if (
@@ -299,17 +317,44 @@ async def cb_accept_rules(callback: CallbackQuery, db: AsyncSession, state: FSMC
         and await get_user_subscription(db, new_user.id) is None
     ):
         try:
-            await provision_or_extend_subscription(db, user=new_user, tariff=trial_tariff, period_days=trial_tariff.trial_period_days)
+            await provision_or_extend_subscription(
+                db,
+                user=new_user,
+                tariff=trial_tariff,
+                period_days=trial_tariff.trial_period_days + signup_bonus_days,
+                squad_uuids=trial_tariff.trial_squad_uuids or None,
+                traffic_limit_gb=trial_tariff.trial_traffic_limit_gb,
+                device_limit=trial_tariff.trial_device_limit,
+                is_trial=True,
+            )
             new_user.trial_used = True
             await db.flush()
-            trial_days = trial_tariff.trial_period_days
+            trial_days = trial_tariff.trial_period_days + signup_bonus_days
         except Exception:
             logger.exception('Автовыдача триала упала (не блокирует регистрацию)')
+
+    # Пороговые бонусы рефереру ("пригласил N друзей -> +N дней", см.
+    # services/referral_service.py::REFERRAL_MILESTONES) — считаются от факта
+    # регистрации, не от оплаты (в отличие от credit_referral_earning). Ошибка
+    # здесь не должна ломать регистрацию нового пользователя — сам
+    # check_referral_milestones уже не бросает исключения наружу, но на
+    # всякий случай (например обрыв со стороны Remnawave) не оборачиваем
+    # весь остальной флоу зависимостью от него.
+    if referred_by_id is not None:
+        referrer_result = await db.execute(select(User).where(User.id == referred_by_id))
+        referrer = referrer_result.scalar_one_or_none()
+        if referrer is not None:
+            await check_referral_milestones(db, referrer, callback.bot)
 
     await callback.message.edit_reply_markup(reply_markup=None)
     await _show_main_menu(callback, db, new_user, is_new=True)
     if trial_days is not None:
-        await callback.message.answer(_t(lang, 'trial_granted').format(days=trial_days))
+        if signup_bonus_days > 0:
+            await callback.message.answer(
+                _t(lang, 'trial_granted_ref_bonus').format(days=trial_days, bonus=signup_bonus_days)
+            )
+        else:
+            await callback.message.answer(_t(lang, 'trial_granted').format(days=trial_days))
     await callback.answer()
 
 

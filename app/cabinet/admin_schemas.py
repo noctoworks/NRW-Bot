@@ -12,6 +12,7 @@ class OverviewResponse(BaseModel):
     revenue_today_kopeks: int
     revenue_7d_kopeks: int
     revenue_30d_kopeks: int
+    revenue_all_time_kopeks: int
     active_subscriptions: int
     total_users: int
     new_users_7d: int
@@ -74,8 +75,10 @@ class AdminUserListItem(BaseModel):
     id: int
     telegram_id: int
     username: str | None
+    full_name: str | None
     is_blocked: bool
     has_active_subscription: bool
+    is_trial: bool
     last_activity_at: datetime | None
     created_at: datetime
 
@@ -93,6 +96,7 @@ class AdminSubscriptionOut(BaseModel):
     traffic_limit_gb: int
     traffic_used_gb: float
     device_limit: int
+    is_trial: bool
 
 
 class AdminTransactionOut(BaseModel):
@@ -108,6 +112,7 @@ class AdminUserDetailResponse(BaseModel):
     id: int
     telegram_id: int
     username: str | None
+    full_name: str | None
     language: str
     is_blocked: bool
     blocked_bot: bool
@@ -125,6 +130,10 @@ class AdminUserDetailResponse(BaseModel):
 
 class BalanceAdjustRequest(BaseModel):
     amount_rub: float
+
+
+class SubscriptionDaysAdjustRequest(BaseModel):
+    days: int
 
 
 class BlockRequest(BaseModel):

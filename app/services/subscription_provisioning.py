@@ -18,21 +18,48 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import Subscription, Tariff, User
-from app.external.remnawave import get_remnawave_client
+from app.external.remnawave import get_remnawave_client, remnawave_user_description
 
 logger = logging.getLogger(__name__)
 
 
 async def provision_or_extend_subscription(
-    db: AsyncSession, *, user: User, tariff: Tariff, period_days: int
+    db: AsyncSession,
+    *,
+    user: User,
+    tariff: Tariff,
+    period_days: int,
+    squad_uuids: list[str] | None = None,
+    traffic_limit_gb: int | None = None,
+    device_limit: int | None = None,
+    is_trial: bool | None = None,
 ) -> Subscription:
     """Создаёт новую подписку (первая активация) либо продлевает существующую.
+
+    squad_uuids/traffic_limit_gb/device_limit — необязательные оверрайды лимитов
+    тарифа, нужны для триала с отдельным сквадом/лимитами (см. Tariff.trial_squad_uuids,
+    Tariff.trial_traffic_limit_gb, Tariff.trial_device_limit — caller передаёт их
+    сюда, а не читает поля tariff напрямую). Действуют только при первой выдаче
+    (create_user) — на продление уже выданной подписки не влияют, т.к. трафик/сквад/
+    устройства там не меняются.
+
+    is_trial — явное намерение вызывающего насчёт Subscription.is_trial (влияет на
+    иконку 🎁/💎 в админке). None (по умолчанию) — не трогать существующий флаг при
+    продлении (бесплатные дни от реферала/подарка/промокода/кампании не должны сами
+    по себе снимать/ставить триал), при создании трактуется как False. True/False —
+    передаётся явно из start.py (автовыдача триала) / admin.py (ручная выдача триала)
+    и из "это была настоящая оплата" веток (payment_finalization.py).
 
     Обновляет remnawave-состояние синхронно (create_user/extend_user_expiration) —
     если это упадёт, исключение пробрасывается наружу (в отличие от referral_service,
     здесь ошибка Remnawave критична для флоу и должна откатить транзакцию/показать
     пользователю ошибку).
     """
+    squad_uuids = squad_uuids or tariff.squad_uuids
+    if traffic_limit_gb is None:
+        traffic_limit_gb = tariff.traffic_limit_gb
+    if device_limit is None:
+        device_limit = tariff.device_limit
     now = datetime.now(timezone.utc)
     client = get_remnawave_client()
 
@@ -59,6 +86,8 @@ async def provision_or_extend_subscription(
         subscription.end_date = new_end
         subscription.status = 'active'
         subscription.tariff_id = tariff.id
+        if is_trial is not None:
+            subscription.is_trial = is_trial
         # Сброс флагов напоминаний — иначе после продления expiry_checker (§12а)
         # не пришлёт напоминание для НОВОЙ даты окончания, т.к. флаг уже стоит True
         # с предыдущего цикла подписки (то же самое делает subscription.py).
@@ -70,9 +99,10 @@ async def provision_or_extend_subscription(
     new_end = now + timedelta(days=period_days)
     rw_user = await client.create_user(
         telegram_id=user.telegram_id,
-        squad_uuids=tariff.squad_uuids,
-        traffic_limit_gb=tariff.traffic_limit_gb,
+        squad_uuids=squad_uuids,
+        traffic_limit_gb=traffic_limit_gb,
         expire_at=new_end,
+        description=remnawave_user_description(user),
     )
     user.remnawave_uuid = rw_user.uuid
 
@@ -81,10 +111,11 @@ async def provision_or_extend_subscription(
         tariff_id=tariff.id,
         status='active',
         end_date=new_end,
-        traffic_limit_gb=tariff.traffic_limit_gb,
-        device_limit=tariff.device_limit,
+        traffic_limit_gb=traffic_limit_gb,
+        device_limit=device_limit,
         subscription_url=rw_user.subscription_url,
         short_uuid=rw_user.short_uuid,
+        is_trial=bool(is_trial),
     )
     db.add(subscription)
     await db.flush()

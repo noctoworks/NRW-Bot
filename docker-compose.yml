@@ -23,6 +23,10 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    ports:
+      # Cabinet API (/cabinet/*) — только на loopback, наружу торчит через
+      # nginx (remnawave-nginx, network_mode: host) на mini.tinymini.online.
+      - "127.0.0.1:8080:8080"
     environment:
       # Переопределяет DATABASE_URL из .env (там по умолчанию SQLite) — здесь
       # бот всегда ходит в postgres-контейнер выше.

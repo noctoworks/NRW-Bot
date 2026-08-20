@@ -32,24 +32,63 @@ class RemnawaveDevice:
 
 
 @dataclass
+class SubscriptionPageButton:
+    """Одна кнопка внутри блока инструкции — либо внешняя ссылка (магазин
+    приложений/GitHub-релиз), либо deep-link на добавление подписки в
+    приложение. `link` может содержать плейсхолдеры {{SUBSCRIPTION_LINK}}/
+    {{USERNAME}} (см. Subpage Builder Remnawave) — подстановка на стороне
+    caller'а (app/cabinet/routes.py), не здесь."""
+
+    type: str  # 'external' | 'subscriptionLink'
+    link: str
+    text: dict[str, str] = field(default_factory=dict)  # locale -> подпись кнопки
+
+
+@dataclass
+class SubscriptionPageBlock:
+    """Один шаг инструкции (см. референс sub_page — "Установка приложения",
+    "Предупреждение", "Добавление подписки", "Если подписка не добавилась",
+    "Подключение и использование") — рендерится как шаг вертикального
+    таймлайна, поэтому title/description нужны ВСЕГДА, даже если у блока
+    нет кнопок (чисто текстовые шаги вроде "Предупреждение" тоже часть
+    таймлайна, не просто мусор для фильтрации)."""
+
+    title: dict[str, str] = field(default_factory=dict)
+    description: dict[str, str] = field(default_factory=dict)
+    icon_key: str = ''
+    icon_color: str = ''
+    buttons: list[SubscriptionPageButton] = field(default_factory=list)
+
+
+@dataclass
 class SubscriptionPageApp:
-    id: str
     name: str
-    url_scheme: str
-    needs_base64: bool = False
+    featured: bool = False
+    blocks: list[SubscriptionPageBlock] = field(default_factory=list)
+
+
+@dataclass
+class SubscriptionPagePlatform:
+    key: str  # android|ios|windows|macos|linux|appleTV|androidTV
+    display_name: dict[str, str] = field(default_factory=dict)  # locale -> название платформы
+    apps: list[SubscriptionPageApp] = field(default_factory=list)
 
 
 @dataclass
 class SubscriptionPageConfig:
-    uuid: str
-    # platform_key -> список приложений, см. §8 clone-architecture.md
-    platforms: dict[str, list[SubscriptionPageApp]] = field(default_factory=dict)
+    platforms: list[SubscriptionPagePlatform] = field(default_factory=list)
 
 
 class RemnawaveClient(ABC):
     @abstractmethod
     async def create_user(
-        self, *, telegram_id: int, squad_uuids: list[str], traffic_limit_gb: int, expire_at: datetime
+        self,
+        *,
+        telegram_id: int,
+        squad_uuids: list[str],
+        traffic_limit_gb: int,
+        expire_at: datetime,
+        description: str | None = None,
     ) -> RemnawaveUser: ...
 
     @abstractmethod
@@ -85,5 +124,8 @@ class RemnawaveClient(ABC):
         """[{"uuid": ..., "name": ..., "country": ...}, ...] — для сид-скрипта тарифа/ServerSquad."""
 
     @abstractmethod
-    async def get_subscription_page_config(self, uuid: str) -> SubscriptionPageConfig | None:
-        """One-tap connect (§8) — список VPN-клиентов и их deep-link-схем."""
+    async def get_subscription_page_config(self) -> SubscriptionPageConfig | None:
+        """One-tap connect (§8) — конфиг Subpage Builder панели: список VPN-клиентов
+        по платформам с реальными deep-link-схемами (не наши догадки в Mini App).
+        Глобальный для всей панели, НЕ привязан к конкретному пользователю/shortUuid —
+        поэтому без параметров."""

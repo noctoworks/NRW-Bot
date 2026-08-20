@@ -6,7 +6,7 @@ app/services/analytics_service.py."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from aiogram.exceptions import TelegramForbiddenError
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -42,6 +42,7 @@ from app.cabinet.admin_schemas import (
     ReferralFunnelResponse,
     RevenuePointOut,
     SetUserPromoGroupRequest,
+    SubscriptionDaysAdjustRequest,
     SyncResultResponse,
 )
 from app.cabinet.deps import get_db
@@ -50,6 +51,7 @@ from app.database.models import Campaign, PromoGroup, ReferralEarning, Subscript
 from app.external.remnawave import get_remnawave_client
 from app.services import analytics_service, campaign_service
 from app.services.notification_service import notify_balance_changed
+from app.services.subscription_provisioning import provision_or_extend_subscription
 
 router = APIRouter(prefix='/cabinet/admin')
 
@@ -134,8 +136,10 @@ async def list_users(
             id=u.id,
             telegram_id=u.telegram_id,
             username=u.username,
+            full_name=u.full_name,
             is_blocked=u.is_blocked,
             has_active_subscription=bool(u.subscription and u.subscription.status == 'active'),
+            is_trial=bool(u.subscription and u.subscription.status == 'active' and u.subscription.is_trial),
             last_activity_at=u.last_activity_at,
             created_at=u.created_at,
         )
@@ -183,6 +187,7 @@ async def user_detail(
         'id': target.id,
         'telegram_id': target.telegram_id,
         'username': target.username,
+        'full_name': target.full_name,
         'language': target.language,
         'is_blocked': target.is_blocked,
         'blocked_bot': target.blocked_bot,
@@ -195,6 +200,7 @@ async def user_detail(
             traffic_limit_gb=sub.traffic_limit_gb,
             traffic_used_gb=sub.traffic_used_gb,
             device_limit=sub.device_limit,
+            is_trial=sub.is_trial,
         )
         if sub
         else None,
@@ -248,6 +254,59 @@ async def adjust_balance(
         new_balance_kopeks=target.balance_kopeks,
     )
 
+    return await user_detail(user_id, db=db, _admin=_admin)
+
+
+@router.post('/users/{user_id}/subscription-days', response_model=AdminUserDetailResponse)
+async def adjust_subscription_days(
+    user_id: int,
+    payload: SubscriptionDaysAdjustRequest,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+) -> dict:
+    """Продлить (days > 0) или сократить (days < 0) действующую подписку —
+    веб-аналог handlers/admin.py::cb_user_grant_sub, но произвольным числом
+    дней вместо фиксированных периодов тарифа, и умеет сокращать (то, чего
+    в боте нет вообще).
+
+    is_trial подписки НЕ трогаем — ручная правка срока админом (в обе стороны)
+    не делает пользователя ни "оплатившим", ни "триальщиком" сама по себе,
+    см. models.py::Subscription.is_trial и services/subscription_provisioning.py.
+    """
+    target = await _get_user_or_404(db, user_id)
+    if payload.days == 0:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Число дней не может быть нулевым')
+
+    sub = (await db.execute(select(Subscription).where(Subscription.user_id == target.id))).scalar_one_or_none()
+    client = get_remnawave_client()
+    now = datetime.now(timezone.utc)
+
+    if sub is None:
+        if payload.days < 0:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, 'У пользователя нет подписки — сокращать нечего')
+        from app.handlers.subscription import get_active_tariff  # см. диалог о ленивом импорте
+
+        tariff = await get_active_tariff(db)
+        if tariff is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Нет активного тарифа для выдачи подписки')
+        await provision_or_extend_subscription(db, user=target, tariff=tariff, period_days=payload.days, is_trial=False)
+    else:
+        base = sub.end_date if sub.end_date.tzinfo else sub.end_date.replace(tzinfo=timezone.utc)
+        new_end = base + timedelta(days=payload.days)
+
+        if target.remnawave_uuid:
+            await client.extend_user_expiration(remnawave_uuid=target.remnawave_uuid, expire_at=new_end)
+            if new_end > now:
+                await client.enable_user(remnawave_uuid=target.remnawave_uuid)
+            else:
+                await client.disable_user(remnawave_uuid=target.remnawave_uuid)
+
+        sub.end_date = new_end
+        sub.status = 'active' if new_end > now else 'expired'
+        sub.reminder_3d_sent = False
+        sub.reminder_1d_sent = False
+
+    await db.commit()
     return await user_detail(user_id, db=db, _admin=_admin)
 
 

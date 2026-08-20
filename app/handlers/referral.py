@@ -60,6 +60,9 @@ async def cb_referral_menu(callback: CallbackQuery, db: AsyncSession, db_user: U
     if db_user is None:
         await callback.answer()
         return
+    if db_user.is_blocked:
+        await callback.answer('Ваш аккаунт заблокирован.', show_alert=True)
+        return
 
     lang = db_user.language
 

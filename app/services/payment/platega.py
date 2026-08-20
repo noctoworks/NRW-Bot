@@ -100,7 +100,13 @@ class PlategaProvider(PaymentProvider):
         raise NotImplementedError('Platega webhook не подключён — используется поллинг')
 
     async def check_payment_status(self, external_id: str) -> str:
-        response = await self._request('GET', f'/transaction/{external_id}')
+        # Тот же выбор версии, что и в create_payment (endpoint) — раньше здесь был
+        # всегда захардкожен v1-путь, независимо от PLATEGA_API_VERSION. При
+        # PLATEGA_API_VERSION=v2 платёж создавался по v2-контракту, а опрашивался
+        # по v1-эндпоинту — на реальном мерчанте это могло не подтверждать платежи
+        # вообще (см. ревью).
+        endpoint = f'/v2/transaction/{external_id}' if self.api_version == 'v2' else f'/transaction/{external_id}'
+        response = await self._request('GET', endpoint)
         status = str(response.get('status') or 'PENDING').upper()
 
         if status in _SUCCESS_STATUSES:
