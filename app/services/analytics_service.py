@@ -34,9 +34,20 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import ReferralEarning, Subscription, Transaction, User
+from app.database.models import Payment, ReferralEarning, Subscription, Transaction, User
 
 REVENUE_TYPES = ('subscription_payment', 'gift')
+
+# Оплата собственным балансом (handlers/subscription.py, method='balance') не
+# заводит в систему новых денег — это уже начисленные ранее рефералки/бонусы/
+# промокоды, которые пользователь просто тратит (см. referral_service.py::
+# credit_referral_earning — та же логика уже применена там же). Без этого
+# исключения выручка/MRR/ARR/LTV/когорты завышаются на сумму любых покупок,
+# оплаченных бонусным балансом — тот же класс бага, что раньше был с 'topup'
+# (см. докстринг модуля), просто вылезший через новый способ оплаты.
+_NOT_BALANCE_FUNDED = ~(
+    select(Payment.id).where(Payment.transaction_id == Transaction.id, Payment.provider == 'balance').exists()
+)
 
 
 def _as_utc(dt: datetime) -> datetime:
@@ -45,7 +56,7 @@ def _as_utc(dt: datetime) -> datetime:
 
 async def _revenue_sum(db: AsyncSession, *, since: datetime | None = None) -> int:
     stmt = select(func.coalesce(func.sum(Transaction.amount_kopeks), 0)).where(
-        Transaction.type.in_(REVENUE_TYPES), Transaction.status == 'completed'
+        Transaction.type.in_(REVENUE_TYPES), Transaction.status == 'completed', _NOT_BALANCE_FUNDED
     )
     if since is not None:
         stmt = stmt.where(Transaction.created_at >= since)
@@ -73,7 +84,7 @@ async def get_overview(db: AsyncSession) -> dict:
     paying_users = (
         await db.execute(
             select(func.count(func.distinct(Transaction.user_id))).where(
-                Transaction.type.in_(REVENUE_TYPES), Transaction.status == 'completed'
+                Transaction.type.in_(REVENUE_TYPES), Transaction.status == 'completed', _NOT_BALANCE_FUNDED
             )
         )
     ).scalar_one()
@@ -85,6 +96,7 @@ async def get_overview(db: AsyncSession) -> dict:
                 Transaction.type.in_(REVENUE_TYPES),
                 Transaction.status == 'completed',
                 Transaction.created_at >= now - timedelta(days=30),
+                _NOT_BALANCE_FUNDED,
             )
         )
     ).scalar_one()
@@ -126,7 +138,10 @@ async def get_revenue_timeseries(db: AsyncSession, *, days: int = 30) -> list[di
     since = datetime.now(timezone.utc) - timedelta(days=days)
     result = await db.execute(
         select(Transaction.created_at, Transaction.amount_kopeks).where(
-            Transaction.type.in_(REVENUE_TYPES), Transaction.status == 'completed', Transaction.created_at >= since
+            Transaction.type.in_(REVENUE_TYPES),
+            Transaction.status == 'completed',
+            Transaction.created_at >= since,
+            _NOT_BALANCE_FUNDED,
         )
     )
     buckets: dict[date, dict] = defaultdict(lambda: {'revenue_kopeks': 0, 'count': 0})
@@ -147,7 +162,7 @@ async def get_revenue_timeseries(db: AsyncSession, *, days: int = 30) -> list[di
 async def get_ltv(db: AsyncSession) -> dict:
     result = await db.execute(
         select(Transaction.user_id, func.sum(Transaction.amount_kopeks))
-        .where(Transaction.type.in_(REVENUE_TYPES), Transaction.status == 'completed')
+        .where(Transaction.type.in_(REVENUE_TYPES), Transaction.status == 'completed', _NOT_BALANCE_FUNDED)
         .group_by(Transaction.user_id)
     )
     per_user: dict[int, int] = {user_id: total for user_id, total in result.all()}
@@ -173,6 +188,7 @@ async def get_ltv(db: AsyncSession) -> dict:
                     'user_id': user.id,
                     'telegram_id': user.telegram_id,
                     'username': user.username,
+                    'full_name': user.full_name,
                     'total_kopeks': total_kopeks,
                 }
             )
@@ -205,7 +221,7 @@ async def get_cohorts(db: AsyncSession, *, max_months: int = 6) -> dict:
 
     tx_result = await db.execute(
         select(Transaction.user_id, Transaction.created_at, Transaction.amount_kopeks).where(
-            Transaction.type.in_(REVENUE_TYPES), Transaction.status == 'completed'
+            Transaction.type.in_(REVENUE_TYPES), Transaction.status == 'completed', _NOT_BALANCE_FUNDED
         )
     )
     revenue_by_cohort_offset: dict[tuple[int, int], dict[int, int]] = defaultdict(lambda: defaultdict(int))
@@ -246,6 +262,7 @@ async def get_referral_funnel(db: AsyncSession) -> dict:
             User.referred_by_id.is_not(None),
             Transaction.type.in_(REVENUE_TYPES),
             Transaction.status == 'completed',
+            _NOT_BALANCE_FUNDED,
         )
     )
     referred_paying_count = referred_paying_result.scalar_one()
@@ -275,6 +292,7 @@ async def get_referral_funnel(db: AsyncSession) -> dict:
                     'user_id': user.id,
                     'telegram_id': user.telegram_id,
                     'username': user.username,
+                    'full_name': user.full_name,
                     'earnings_kopeks': earnings_kopeks,
                     'referred_count': referred_count,
                 }

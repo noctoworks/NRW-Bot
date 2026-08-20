@@ -90,8 +90,26 @@ async def finalize_pending_payment(db: AsyncSession, payment: Payment, bot: Bot)
             logger.exception('notify_gift_code_ready упал (не блокирует создание подарочного кода)')
 
     try:
-        await credit_referral_earning(db, payment)
+        await credit_referral_earning(db, payment, bot=bot)
     except Exception:
         logger.exception('credit_referral_earning упал (не блокирует подтверждение платежа)')
 
+    await db.commit()
+
+
+async def mark_payment_failed(db: AsyncSession, payment: Payment) -> None:
+    """Вызывается и из payment_poll_loop, и из вебхука (app/cabinet/webhooks.py)
+    — оба пути могут прийти на один и тот же payment почти одновременно (см.
+    finalize_pending_payment выше про тот же класс гонки), поэтому та же
+    блокировка строки + повторная проверка status=='pending' после неё."""
+    locked = await db.execute(select(Payment).where(Payment.id == payment.id).with_for_update())
+    payment = locked.scalar_one_or_none()
+    if payment is None or payment.status != 'pending':
+        return
+
+    payment.status = 'failed'
+    if payment.transaction_id is not None:
+        transaction = await db.get(Transaction, payment.transaction_id)
+        if transaction is not None:
+            transaction.status = 'failed'
     await db.commit()

@@ -90,7 +90,7 @@ docker compose exec bot python scripts/seed.py   # один раз — созд�
 ### Что дальше
 
 - **Реальная Remnawave-панель**: `REMNAWAVE_MODE=real` + `REMNAWAVE_BASE_URL`/`REMNAWAVE_API_KEY` в `.env`, `docker compose up -d --build` заново.
-- **Реальные платежи (Platega, СБП/карты)**: `PAYMENTS_MODE=real` + `PLATEGA_MERCHANT_ID`/`PLATEGA_SECRET_KEY`.
+- **Реальные платежи (Platega, СБП/карты)**: `PAYMENTS_MODE=real` + `PLATEGA_MERCHANT_ID`/`PLATEGA_SECRET_KEY`. Подтверждение — вебхуком (мгновенно), требует `CABINET_ENABLED=true`: в личном кабинете Platega укажите адрес `https://admin.nocto.online/platega-webhook` (прод, см. app/cabinet/webhooks.py — путь уже проброшен Caddy на порт 8080, см. диалог 2026-08-20; ничего в Caddyfile менять не нужно, как только NRW-Bot займёт этот порт вместо старого бота). Без вебхука (или пока Platega не сохранит адрес) платежи всё равно подтвердятся — раз в 10 минут отработает страховочный поллинг (`payment_poll_loop`), просто медленнее.
 - **Mini App + веб-админка + прод-деплой с HTTPS**: требует ещё два репозитория рядом (`NRW-MiniApp` — фронтенд, и `deploy` — docker-compose с Caddy для домена/HTTPS) — этот `docker-compose.yml` в корне репозитория рассчитан только на автономный тест бота без Mini App. Полная схема разворачивания на VPS — отдельная инструкция (спросите, если нужна).
 
 ## Быстрый старт без Docker (Windows, для разработки)

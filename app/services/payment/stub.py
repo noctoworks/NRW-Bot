@@ -16,7 +16,9 @@ class StubPaymentProvider(PaymentProvider):
     def __init__(self, provider_name: str = 'stub') -> None:
         self.provider_name = provider_name
 
-    async def create_payment(self, *, user_id: int, amount_kopeks: int, description: str) -> CreatedPayment:
+    async def create_payment(
+        self, *, user_id: int, amount_kopeks: int, description: str, bot=None, telegram_id=None
+    ) -> CreatedPayment:
         return CreatedPayment(
             external_id=f'stub-{uuid.uuid4().hex[:12]}',
             payment_url=None,  # вызывающий код должен сразу считать платёж успешным в stub-режиме

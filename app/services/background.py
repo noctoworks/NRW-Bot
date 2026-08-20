@@ -3,7 +3,9 @@
 Три бесконечных цикла, запускаемые из main.py:
     expiry_checker_loop  — истечение подписок + напоминания за 3д/1д
     traffic_sync_loop    — синхронизация traffic_used_gb с Remnawave
-    payment_poll_loop    — опрос статуса pending-платежей (только PAYMENTS_MODE=real)
+    payment_poll_loop    — опрос статуса pending-платежей (только PAYMENTS_MODE=real);
+                            страховка сверх вебхука (app/cabinet/webhooks.py), не
+                            единственный путь подтверждения
 
 Каждая "одна итерация" вынесена в отдельную testable-функцию (run_expiry_check_once,
 run_traffic_sync_once), чтобы её можно было проверить напрямую в тесте, не гоняя
@@ -20,7 +22,7 @@ from aiogram import Bot
 from sqlalchemy import select
 
 from app.database.database import AsyncSessionLocal
-from app.database.models import Payment, Subscription, Transaction
+from app.database.models import Payment, Subscription
 from app.external.remnawave import get_remnawave_client
 from app.services.notification_service import notify_subscription_expired, notify_subscription_expiring
 
@@ -120,10 +122,13 @@ async def traffic_sync_loop(interval_seconds: int = 900) -> None:
 
 async def run_payment_poll_once(bot: Bot) -> None:
     """Одна итерация опроса pending-платежей (PAYMENTS_MODE=real, см. §12 и
-    app/services/payment_finalization.py). Нет публичного URL для вебхука Platega
-    (см. диалог) — подтверждение платежа идёт только через этот поллинг."""
+    app/services/payment_finalization.py). С 2026-08-20 не единственный путь
+    подтверждения — есть ещё вебхук (app/cabinet/webhooks.py, мгновенный,
+    основной), этот поллинг — страховка на случай, если конкретный вебхук
+    не долетел (сеть, наш сервер лежал в момент колбэка и т.п.), либо
+    CABINET_ENABLED=false и вебхука вовсе нет."""
     from app.services.payment import get_payment_provider
-    from app.services.payment_finalization import finalize_pending_payment
+    from app.services.payment_finalization import finalize_pending_payment, mark_payment_failed
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(Payment).where(Payment.status == 'pending'))
@@ -141,12 +146,7 @@ async def run_payment_poll_once(bot: Bot) -> None:
                 if status == 'success':
                     await finalize_pending_payment(db, payment, bot)
                 elif status == 'failed':
-                    payment.status = 'failed'
-                    if payment.transaction_id is not None:
-                        transaction = await db.get(Transaction, payment.transaction_id)
-                        if transaction is not None:
-                            transaction.status = 'failed'
-                    await db.commit()
+                    await mark_payment_failed(db, payment)
             except Exception:
                 logger.exception('payment_poll_loop: сбой при обработке payment_id=%s', payment.id)
                 # Без явного rollback изменения, которые finalize_pending_payment

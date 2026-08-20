@@ -47,7 +47,7 @@ from app.cabinet.admin_schemas import (
 )
 from app.cabinet.deps import get_db
 from app.config import settings
-from app.database.models import Campaign, PromoGroup, ReferralEarning, Subscription, Transaction, User
+from app.database.models import Campaign, PromoGroup, ReferralEarning, Subscription, Tariff, Transaction, User
 from app.external.remnawave import get_remnawave_client
 from app.services import analytics_service, campaign_service
 from app.services.notification_service import notify_balance_changed
@@ -234,14 +234,22 @@ async def adjust_balance(
     if kopeks == 0:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Сумма не может быть нулевой')
 
-    target.balance_kopeks = max(0, target.balance_kopeks + kopeks)
+    new_balance = max(0, target.balance_kopeks + kopeks)
+    # Реально применённая сумма ПОСЛЕ клэмпа — не запрошенная kopeks. Иначе
+    # списание больше, чем есть на балансе, пишет в Transaction и в уведомление
+    # юзеру завышенную сумму, хотя баланс упал только до 0 (см. ревью).
+    applied_kopeks = new_balance - target.balance_kopeks
+    if applied_kopeks == 0:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Баланс уже равен 0 — списывать нечего')
+
+    target.balance_kopeks = new_balance
     db.add(
         Transaction(
             user_id=target.id,
-            type='topup' if kopeks > 0 else 'refund',
-            amount_kopeks=abs(kopeks),
+            type='topup' if applied_kopeks > 0 else 'refund',
+            amount_kopeks=abs(applied_kopeks),
             status='completed',
-            description='Начислено администратором' if kopeks > 0 else 'Списано администратором',
+            description='Начислено администратором' if applied_kopeks > 0 else 'Списано администратором',
         )
     )
     await db.flush()
@@ -250,7 +258,7 @@ async def adjust_balance(
     await notify_balance_changed(
         request.app.state.bot,
         telegram_id=target.telegram_id,
-        amount_kopeks=kopeks,
+        amount_kopeks=applied_kopeks,
         new_balance_kopeks=target.balance_kopeks,
     )
 
@@ -507,7 +515,13 @@ async def sync_to_panel(
 
     client = get_remnawave_client()
     end_date = sub.end_date if sub.end_date.tzinfo else sub.end_date.replace(tzinfo=timezone.utc)
-    await client.extend_user_expiration(remnawave_uuid=target.remnawave_uuid, expire_at=end_date)
+    tariff = await db.get(Tariff, sub.tariff_id)
+    await client.extend_user_expiration(
+        remnawave_uuid=target.remnawave_uuid,
+        expire_at=end_date,
+        traffic_limit_gb=sub.traffic_limit_gb,
+        squad_uuids=tariff.squad_uuids if tariff else None,
+    )
     if sub.status == 'active' and end_date > datetime.now(timezone.utc):
         await client.enable_user(remnawave_uuid=target.remnawave_uuid)
     else:

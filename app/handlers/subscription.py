@@ -25,6 +25,7 @@ callback-кнопку, показывающую ссылку текстом (с�
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot, Dispatcher, Router
@@ -49,6 +50,7 @@ from app.external.remnawave import get_remnawave_client, remnawave_user_descript
 from app.keyboards.main_menu import CB_SUBSCRIPTION_MY, CB_SUBSCRIPTION_RENEW, back_to_menu_button
 from app.services.notification_service import notify_payment_success
 from app.services.payment import get_payment_provider
+from app.services.payment.base import CreatedPayment
 from app.services.pricing_service import get_period_price_kopeks
 from app.services.referral_service import credit_referral_earning
 from app.states import PurchaseStates
@@ -74,7 +76,18 @@ PAYMENT_METHODS_RICH: dict[str, str] = {
     'platega': f'{SBP} Карты и СБП',
     'cryptobot': f'{CRYPTO} Криптовалюта',
     'stars': f'{STARS} Telegram Stars',
+    'balance': '💰 Баланс',
 }
+
+
+class InsufficientBalanceError(Exception):
+    """method='balance', но db_user.balance_kopeks < цены — отдельный тип,
+    чтобы cb_confirm_purchase мог показать дружелюбное "не хватает N ₽"
+    вместо общего "не удалось оформить подписку"."""
+
+    def __init__(self, missing_kopeks: int) -> None:
+        self.missing_kopeks = missing_kopeks
+        super().__init__(f'insufficient balance, missing {missing_kopeks} kopeks')
 
 # Период хранится в БД как количество дней (30/90/180/360), но отображается
 # пользователю в месяцах — см. референс ("1 месяц"/"3 месяца"/...). 24-месячного
@@ -149,9 +162,32 @@ async def purchase_or_renew_subscription(
         raise ValueError(f'Тариф {tariff.name} не имеет цены для периода {period_days} дней')
     amount_kopeks = await get_period_price_kopeks(db, tariff, period_days, db_user)
 
-    provider = get_payment_provider(method)
     description = f'Подписка «{tariff.name}» на {period_days} дн.'
-    created = await provider.create_payment(user_id=db_user.id, amount_kopeks=amount_kopeks, description=description)
+
+    if method == 'balance':
+        # Списание с внутреннего баланса (реферальные начисления, бонусы
+        # промокодов/кампаний, ручные начисления админом) — единственный способ
+        # оплаты без похода к внешнему провайдеру, срабатывает мгновенно. Только
+        # полное покрытие суммы (без частичной оплаты балансом+провайдером) —
+        # см. диалог. Проверка на достаточность баланса — здесь, а не в
+        # kb_payment_methods/cb_choose_method: тем экранам нельзя доверять
+        # (баланс мог измениться между выбором способа и подтверждением).
+        # with_for_update() — та же защита от двойного списания при гонке
+        # (двойной тап/параллельный запрос из бота и Mini App), что и у
+        # gift_service.py/promocode_service.py на своих чувствительных строках.
+        locked = await db.execute(select(User).where(User.id == db_user.id).with_for_update())
+        db_user = locked.scalar_one()
+        if db_user.balance_kopeks < amount_kopeks:
+            raise InsufficientBalanceError(amount_kopeks - db_user.balance_kopeks)
+        db_user.balance_kopeks -= amount_kopeks
+        # external_id обязан быть уникален в паре с provider (UniqueConstraint
+        # на Payment) — тут нет настоящего внешнего id, генерируем свой.
+        created = CreatedPayment(external_id=f'balance-{uuid.uuid4().hex}', payment_url=None, status='success')
+    else:
+        provider = get_payment_provider(method)
+        created = await provider.create_payment(
+            user_id=db_user.id, amount_kopeks=amount_kopeks, description=description, bot=bot, telegram_id=db_user.telegram_id
+        )
 
     payment_success = created.status == 'success'
 
@@ -228,7 +264,16 @@ async def purchase_or_renew_subscription(
         new_end = base + timedelta(days=period_days)
 
         assert db_user.remnawave_uuid is not None, 'Subscription существует, но remnawave_uuid отсутствует'
-        rw_user = await client.extend_user_expiration(remnawave_uuid=db_user.remnawave_uuid, expire_at=new_end)
+        # traffic_limit_gb/squad_uuids — иначе при смене тарифа лимиты/сквад на
+        # самой панели остаются от прежнего, хотя subscription.tariff_id ниже уже
+        # меняется на новый (тот же класс бага, что и в subscription_provisioning.py,
+        # см. ревью).
+        rw_user = await client.extend_user_expiration(
+            remnawave_uuid=db_user.remnawave_uuid,
+            expire_at=new_end,
+            traffic_limit_gb=tariff.traffic_limit_gb,
+            squad_uuids=tariff.squad_uuids,
+        )
         await client.enable_user(remnawave_uuid=db_user.remnawave_uuid)
 
         subscription.end_date = new_end
@@ -251,7 +296,7 @@ async def purchase_or_renew_subscription(
     await db.flush()
 
     try:
-        await credit_referral_earning(db, payment)
+        await credit_referral_earning(db, payment, bot=bot)
     except Exception:
         logger.exception('credit_referral_earning упал (не блокирует оплату подписки)')
 
@@ -405,8 +450,16 @@ def kb_periods(tariff: Tariff) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def kb_payment_methods(amount_kopeks: int) -> InlineKeyboardMarkup:
-    rows = [
+def kb_payment_methods(amount_kopeks: int, balance_kopeks: int) -> InlineKeyboardMarkup:
+    rows = []
+    # "Баланс" — только если хватает на полную сумму (без частичной оплаты
+    # балансом+провайдером, см. диалог) и без " ↗" — единственный способ, который
+    # не уводит на внешнюю страницу оплаты, срабатывает сразу по нажатию "Подтвердить".
+    if balance_kopeks >= amount_kopeks > 0:
+        rows.append(
+            [InlineKeyboardButton(text=f'💰 Баланс ({balance_kopeks / 100:.0f} ₽)', callback_data='sub:method:balance')]
+        )
+    rows += [
         [InlineKeyboardButton(text=f'{label} · {_format_price(amount_kopeks, name)} ↗', callback_data=f'sub:method:{name}')]
         for name, label in PAYMENT_METHODS.items()
     ]
@@ -643,7 +696,7 @@ async def cb_choose_period(callback: CallbackQuery, db: AsyncSession, db_user: U
     label = PERIOD_LABELS.get(days, f'{days} дней')
     await callback.message.edit_text(
         f'📦 <b>{tariff.name} · {label}</b>\n\nВыберите удобный способ оплаты:',
-        reply_markup=kb_payment_methods(amount_kopeks),
+        reply_markup=kb_payment_methods(amount_kopeks, db_user.balance_kopeks),
     )
     await callback.answer()
 
@@ -695,6 +748,13 @@ async def cb_confirm_purchase(
         subscription = await purchase_or_renew_subscription(
             db, db_user, tariff, period_days=data['period_days'], method=data['method'], bot=bot
         )
+    except InsufficientBalanceError as error:
+        await db.rollback()
+        await callback.answer(
+            f'Недостаточно средств на балансе — не хватает {error.missing_kopeks / 100:.2f} ₽', show_alert=True
+        )
+        await state.clear()
+        return
     except Exception:
         logger.exception('Ошибка оформления подписки')
         # Критично: purchase_or_renew_subscription уже успел flush'нуть в сессию

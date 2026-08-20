@@ -125,9 +125,18 @@ class MockRemnawaveClient(RemnawaveClient):
         _save_state(self._state)
         return user
 
-    async def extend_user_expiration(self, *, remnawave_uuid: str, expire_at: datetime) -> RemnawaveUser:
+    async def extend_user_expiration(
+        self,
+        *,
+        remnawave_uuid: str,
+        expire_at: datetime,
+        traffic_limit_gb: int | None = None,
+        squad_uuids: list[str] | None = None,  # не моделируется в моке — RemnawaveUser сквады не хранит
+    ) -> RemnawaveUser:
         user = self._require_user(remnawave_uuid)
         user.expire_at = expire_at
+        if traffic_limit_gb is not None:
+            user.traffic_limit_gb = traffic_limit_gb
         _save_state(self._state)
         return user
 

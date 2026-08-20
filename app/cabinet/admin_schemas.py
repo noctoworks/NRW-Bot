@@ -33,6 +33,7 @@ class TopPayerOut(BaseModel):
     user_id: int
     telegram_id: int
     username: str | None
+    full_name: str | None
     total_kopeks: int
 
 
@@ -59,6 +60,7 @@ class TopReferrerOut(BaseModel):
     user_id: int
     telegram_id: int
     username: str | None
+    full_name: str | None
     earnings_kopeks: int
     referred_count: int
 

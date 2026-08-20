@@ -4,12 +4,23 @@
 Переносим: users, subscriptions (по одной самой актуальной на юзера — у нас
 Subscription.user_id уникален, мульти-тарифность старого бота не поддерживаем),
 transactions (история для LTV/аналитики), referral_earnings, promo_groups.
+Даты (User/Subscription/Transaction/ReferralEarning.created_at, Subscription.
+start_date) переносятся РЕАЛЬНЫЕ из старой базы, а не момент прогона скрипта —
+см. диалог, "сохранить всё без исключений" касается в первую очередь этого:
+никаких "все юзеры зарегистрировались сегодня" после переезда. Тип транзакции
+без аналога в новой пятёрке типов (withdrawal/failed_refund/poll_reward — см.
+_TX_TYPE_MAP) переносится ОРИГИНАЛЬНОЙ строкой, а не отбрасывается и не
+переклассифицируется в topup — Transaction.type не enum на уровне БД.
+
 Всё остальное — тикеты, купоны, wheel of fortune, Apple IAP, провайдер-специфичные
-таблицы платежей (yookassa/heleket/mulenpay/...), автоплатежи и т.д. — в
-bedolaga-lite не существует как концепция и не переносится. Явно НЕ переносим
-Payment (провайдерские pending/webhook-записи) — для истории платежей достаточно
-Transaction, а Payment.raw_payload/external_id старых провайдеров всё равно не
-совместимы с новыми (Platega-only, см. диалог).
+таблицы платежей (yookassa/heleket/mulenpay/...), автоплатежи, опросы, контесты,
+лендинги и т.д. — в bedolaga-lite не существует как концепция (ни таблицы, ни
+экрана, ни хендлера) и этим скриптом НЕ переносится. Требование "сохранить всё
+без исключений" (см. диалог от 2026-08-20) для этих разделов ЕЩЁ НЕ РЕШЕНО —
+либо расширять схему bedolaga-lite под них, либо держать старую базу как
+read-only архив. Явно НЕ переносим Payment (провайдерские pending/webhook-записи)
+— для истории платежей достаточно Transaction, а Payment.raw_payload/external_id
+старых провайдеров всё равно не совместимы с новыми (Platega-only, см. диалог).
 
 Remnawave НЕ трогаем — ничего не создаём и не меняем в панели. Единственная
 задача — восстановить у нового User.remnawave_uuid ссылку на УЖЕ существующего
@@ -70,7 +81,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import asyncpg
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.database.database import AsyncSessionLocal
 from app.database.models import PromoGroup, ReferralEarning, Subscription, Tariff, Transaction, User
@@ -82,6 +93,26 @@ logger = logging.getLogger('migrate')
 # НЕСКОЛЬКИХ старых Subscription переносить (у нас на юзера ровно одна) —
 # см. User.subscription property в старой модели (app/database/models.py:2126).
 _LIVE_STATUSES = ('active', 'trial', 'limited')
+
+# Старые TransactionType (app/database/models.py:131 старого бота) -> наш
+# Transaction.type. Переименовываем только то, что 1:1 совпадает по смыслу с
+# нашими типами (иначе 'deposit'/'gift_payment' не попали бы в
+# analytics_service.REVENUE_TYPES/referral_service, которые матчат по
+# конкретным строкам 'topup'/'gift'). Всё остальное ('withdrawal',
+# 'failed_refund', 'poll_reward' — см. _tx_type ниже) сохраняем ОРИГИНАЛЬНОЙ
+# старой строкой типа: полностью историческая запись важнее вписывания в
+# нашу пятёрку типов (см. диалог — сохранить всё без исключений). На
+# аналитику/выручку это не влияет — Transaction.type не enum на уровне БД
+# (обычная String(32)), а REVENUE_TYPES матчит по конкретным известным
+# строкам, так что незнакомый тип просто не попадёт в выручку/рефералку —
+# что и корректно, это не покупка.
+_TX_TYPE_MAP = {
+    'deposit': 'topup',
+    'subscription_payment': 'subscription_payment',
+    'referral_reward': 'referral_reward',
+    'refund': 'refund',
+    'gift_payment': 'gift',
+}
 
 
 def _aware(dt: datetime | None) -> datetime | None:
@@ -183,9 +214,23 @@ async def _run(old_conn: asyncpg.Connection, *, dry_run: bool) -> None:
         )
         total_old_users = len(old_users) + skipped_email_only + skipped_deleted
 
+        # === Контрольные суммы старой базы — сверяются в конце с новой (см.
+        # диалог "нормальная и целая база данных"): без этого миграция может
+        # молча потерять/задвоить строки, и заметить это можно только руками
+        # позже, когда концов уже не найти. ===
+        _old_user_ids = [row['id'] for row in old_users]
+        old_balance_sum = sum(row['balance_kopeks'] or 0 for row in old_users)
+        old_tx_total = await old_conn.fetchval(
+            'SELECT count(*) FROM transactions WHERE user_id = ANY($1::int[])', _old_user_ids
+        )
+        old_earnings_total = await old_conn.fetchval(
+            'SELECT count(*) FROM referral_earnings WHERE user_id = ANY($1::int[])', _old_user_ids
+        )
+
         old_id_to_new_id: dict[int, int] = {}
         pending_referred_by: dict[int, int] = {}  # new_user_id -> old_referred_by_id (второй проход)
         created, updated, email_backfilled = 0, 0, 0
+        created_new_ids: list[int] = []  # только новые User.id — для сверки суммы баланса ниже
 
         for row in old_users:
             telegram_id = row['telegram_id']
@@ -220,6 +265,20 @@ async def _run(old_conn: asyncpg.Connection, *, dry_run: bool) -> None:
                             referral_code = candidate
                             break
 
+                # has_had_paid_subscription НЕ равно "триал использован" (см. диалог):
+                # старый бот считает триал использованным, если юзер либо платил,
+                # либо у него ЕСТЬ ЛЮБАЯ подписка кроме неоплаченного черновика
+                # триала (см. User.is_trial_already_used/Subscription.is_pending_trial
+                # в старой модели, app/database/models.py:2126/2384) — иначе юзер,
+                # попробовавший триал и не заплативший, получил бы вторую бесплатную
+                # попытку в новом боте.
+                has_any_real_sub = await old_conn.fetchval(
+                    "SELECT EXISTS(SELECT 1 FROM subscriptions WHERE user_id = $1 "
+                    "AND NOT (status = 'pending' AND is_trial = true))",
+                    row['id'],
+                )
+                trial_used = bool(row['has_had_paid_subscription']) or bool(has_any_real_sub)
+
                 new_user = User(
                     telegram_id=telegram_id,
                     username=row['username'],
@@ -230,12 +289,14 @@ async def _run(old_conn: asyncpg.Connection, *, dry_run: bool) -> None:
                     remnawave_uuid=remnawave_uuid,
                     promo_group_id=promo_group_id_map.get(row['promo_group_id']),
                     referral_commission_percent=row['referral_commission_percent'],
-                    trial_used=bool(row['has_had_paid_subscription']),
+                    trial_used=trial_used,
                     is_blocked=is_blocked,
+                    created_at=_aware(row['created_at']),
                 )
                 db.add(new_user)
                 await db.flush()
                 created += 1
+                created_new_ids.append(new_user.id)
                 old_id_to_new_id[row['id']] = new_user.id
                 if row['referred_by_id']:
                     pending_referred_by[new_user.id] = row['referred_by_id']
@@ -275,7 +336,7 @@ async def _run(old_conn: asyncpg.Connection, *, dry_run: bool) -> None:
 
         # === Подписки (одна самая актуальная на юзера) + транзакции + рефералка —
         # по одному старому юзеру за раз, с покоммитным флашем (см. докстринг). ===
-        subs_created, tx_created, earnings_created = 0, 0, 0
+        subs_created, tx_created, tx_unmapped, earnings_created = 0, 0, 0, 0
         for row in old_users:
             new_user_id = old_id_to_new_id.get(row['id'])
             if new_user_id is None or dry_run:
@@ -287,7 +348,7 @@ async def _run(old_conn: asyncpg.Connection, *, dry_run: bool) -> None:
             if already_has_sub is None:
                 sub_row = await old_conn.fetchrow(
                     "SELECT status, is_trial, tariff_id, end_date, traffic_limit_gb, traffic_used_gb, device_limit, "
-                    "subscription_url, remnawave_short_uuid, autopay_enabled "
+                    "subscription_url, remnawave_short_uuid, autopay_enabled, start_date, created_at "
                     "FROM subscriptions WHERE user_id = $1 "
                     "ORDER BY (status IN ('active','trial','limited')) DESC, created_at DESC LIMIT 1",
                     row['id'],
@@ -302,6 +363,7 @@ async def _run(old_conn: asyncpg.Connection, *, dry_run: bool) -> None:
                             user_id=new_user_id,
                             tariff_id=old_tariff_id_to_new[sub_row['tariff_id']],
                             status=new_status,
+                            start_date=_aware(sub_row['start_date']) or _aware(sub_row['created_at']),
                             end_date=_aware(sub_row['end_date']) or datetime.now(timezone.utc),
                             traffic_limit_gb=sub_row['traffic_limit_gb'] or 0,
                             traffic_used_gb=sub_row['traffic_used_gb'] or 0,
@@ -309,6 +371,7 @@ async def _run(old_conn: asyncpg.Connection, *, dry_run: bool) -> None:
                             subscription_url=sub_row['subscription_url'],
                             short_uuid=sub_row['remnawave_short_uuid'],
                             autopay_enabled=bool(sub_row['autopay_enabled']),
+                            created_at=_aware(sub_row['created_at']),
                         )
                     )
                     subs_created += 1
@@ -319,19 +382,24 @@ async def _run(old_conn: asyncpg.Connection, *, dry_run: bool) -> None:
                 row['id'],
             )
             for tx in tx_rows:
+                new_type = _TX_TYPE_MAP.get(tx['type'])
+                if new_type is None:
+                    new_type = tx['type']  # нет аналога — сохраняем как есть, см. _TX_TYPE_MAP
+                    tx_unmapped += 1
                 db.add(
                     Transaction(
                         user_id=new_user_id,
-                        type=tx['type'] if tx['type'] in ('topup', 'subscription_payment', 'referral_reward', 'refund', 'gift') else 'topup',
+                        type=new_type,
                         amount_kopeks=tx['amount_kopeks'],
                         status='completed' if tx['is_completed'] else 'pending',
                         description=tx['description'],
+                        created_at=_aware(tx['created_at']),
                     )
                 )
                 tx_created += 1
 
             earning_rows = await old_conn.fetch(
-                'SELECT referral_id, amount_kopeks, reason FROM referral_earnings WHERE user_id = $1',
+                'SELECT referral_id, amount_kopeks, reason, created_at FROM referral_earnings WHERE user_id = $1',
                 row['id'],
             )
             for earning in earning_rows:
@@ -344,6 +412,7 @@ async def _run(old_conn: asyncpg.Connection, *, dry_run: bool) -> None:
                         source_user_id=source_new_id,
                         amount_kopeks=earning['amount_kopeks'],
                         source='purchase' if 'purchase' in (earning['reason'] or '') else 'topup',
+                        created_at=_aware(earning['created_at']),
                     )
                 )
                 earnings_created += 1
@@ -351,11 +420,40 @@ async def _run(old_conn: asyncpg.Connection, *, dry_run: bool) -> None:
             await db.commit()
 
         logger.info(
-            'Подписки создано: %s, транзакций перенесено: %s, начислений рефералки: %s',
+            'Подписки создано: %s, транзакций перенесено: %s (из них %s с типом без аналога — сохранён как есть), '
+            'начислений рефералки: %s',
             subs_created,
             tx_created,
+            tx_unmapped,
             earnings_created,
         )
+
+        if dry_run:
+            return
+
+        # === Сверка со старой базой. Несовпадение — сигнал остановиться и
+        # разобраться, а не пожимать плечами: транзакции/рефералка не
+        # дедуплицируются (см. докстринг), так что расхождение почти всегда
+        # значит, что скрипт уже запускали раньше и часть строк задвоилась. ===
+        new_balance_sum = (
+            await db.execute(select(func.coalesce(func.sum(User.balance_kopeks), 0)).where(User.id.in_(created_new_ids)))
+        ).scalar_one() if created_new_ids else 0
+
+        ok = old_tx_total == tx_created and old_earnings_total == earnings_created and old_balance_sum == new_balance_sum
+        logger.info(
+            '%s Сверка со старой базой: транзакций %s/%s, начислений рефералки %s/%s, '
+            'сумма баланса новых юзеров %s/%s коп.',
+            'OK.' if ok else 'РАСХОЖДЕНИЕ!',
+            tx_created, old_tx_total,
+            earnings_created, old_earnings_total,
+            new_balance_sum, old_balance_sum,
+        )
+        if not ok:
+            logger.warning(
+                'Расхождение почти всегда значит повторный запуск поверх уже частично '
+                'перенесённых данных (транзакции/рефералка не дедуплицируются) — проверьте '
+                'перед тем, как считать базу перенесённой полностью.'
+            )
 
 
 if __name__ == '__main__':

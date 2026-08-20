@@ -1,10 +1,14 @@
-"""Интерфейс платёжного провайдера. Каждая реализация (stub/yookassa/cryptobot/stars)
+"""Интерфейс платёжного провайдера. Каждая реализация (stub/platega/cryptobot/stars)
 следует одному контракту, чтобы вызывающий код (purchase.py и т.п.) не знал деталей."""
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from aiogram import Bot
 
 
 @dataclass
@@ -18,7 +22,18 @@ class PaymentProvider(ABC):
     provider_name: str
 
     @abstractmethod
-    async def create_payment(self, *, user_id: int, amount_kopeks: int, description: str) -> CreatedPayment: ...
+    async def create_payment(
+        self,
+        *,
+        user_id: int,
+        amount_kopeks: int,
+        description: str,
+        bot: 'Bot | None' = None,
+        telegram_id: int | None = None,
+    ) -> CreatedPayment:
+        """bot/telegram_id — только для StarsProvider (шлёт инвойс сам через
+        Bot.send_invoice, у Stars нет ни payment_url, ни отдельного API для
+        создания счёта). Остальные провайдеры эти два параметра игнорируют."""
 
     @abstractmethod
     async def verify_webhook(self, payload: dict, headers: dict) -> bool:

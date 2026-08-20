@@ -675,14 +675,23 @@ async def on_admin_balance_input(message: Message, db: AsyncSession, db_user: Us
         await message.answer('Некорректная сумма. Введите ненулевое число, например 100 или -50.')
         return
 
-    target.balance_kopeks = max(0, target.balance_kopeks + kopeks)
+    new_balance = max(0, target.balance_kopeks + kopeks)
+    # Реально применённая сумма ПОСЛЕ клэмпа — не запрошенная kopeks, см. тот же
+    # фикс в cabinet/admin_routes.py::adjust_balance (ревью).
+    applied_kopeks = new_balance - target.balance_kopeks
+    if applied_kopeks == 0:
+        await message.answer('Баланс уже равен 0 — списывать нечего.')
+        await state.clear()
+        return
+
+    target.balance_kopeks = new_balance
     db.add(
         Transaction(
             user_id=target.id,
-            type='topup' if kopeks > 0 else 'refund',
-            amount_kopeks=abs(kopeks),
+            type='topup' if applied_kopeks > 0 else 'refund',
+            amount_kopeks=abs(applied_kopeks),
             status='completed',
-            description='Начислено администратором' if kopeks > 0 else 'Списано администратором',
+            description='Начислено администратором' if applied_kopeks > 0 else 'Списано администратором',
         )
     )
     await db.flush()
@@ -690,7 +699,7 @@ async def on_admin_balance_input(message: Message, db: AsyncSession, db_user: Us
     await notify_balance_changed(
         message.bot,
         telegram_id=target.telegram_id,
-        amount_kopeks=kopeks,
+        amount_kopeks=applied_kopeks,
         new_balance_kopeks=target.balance_kopeks,
     )
     await message.answer(

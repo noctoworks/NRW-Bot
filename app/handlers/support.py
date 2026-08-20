@@ -13,9 +13,11 @@ admin_message_id (для роутинга ответа) сохраняется �
 
 from __future__ import annotations
 
+import html
 import logging
 
 from aiogram import Dispatcher, F, Router
+from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from sqlalchemy import select
@@ -70,7 +72,13 @@ async def on_support_message(message: Message, state: FSMContext, db: AsyncSessi
     await db.flush()
 
     admin_ids = sorted(settings.admin_ids())
-    header = f'📩 Сообщение от @{db_user.username or "—"} (id {db_user.telegram_id}):\n\n{text}'
+    # Бот отправляет с parse_mode=HTML по умолчанию (см. app/bot.py) — текст
+    # юзера и username подставляются как есть, любой '<'/'&' в сообщении ломал
+    # парсинг у ВСЕХ админов разом (TelegramBadRequest), тикет терялся молча —
+    # см. ревью. html.escape() делает подстановку безопасной независимо от
+    # parse_mode.
+    username = html.escape(db_user.username) if db_user.username else '—'
+    header = f'📩 Сообщение от @{username} (id {db_user.telegram_id}):\n\n{html.escape(text)}'
 
     first_admin_message_id: int | None = None
     for admin_id in admin_ids:
@@ -88,13 +96,26 @@ async def on_support_message(message: Message, state: FSMContext, db: AsyncSessi
 
     await state.clear()
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[back_to_menu_button()]])
+    if first_admin_message_id is None:
+        # Ни один админ не получил сообщение — не врём "отправлено", иначе тикет
+        # теряется молча, а юзер думает, что его услышали (см. ревью).
+        await message.answer(
+            '⚠️ Не удалось передать сообщение администратору. Попробуйте ещё раз чуть позже.',
+            reply_markup=keyboard,
+        )
+        return
     await message.answer('✅ Сообщение отправлено администратору. Мы ответим здесь же.', reply_markup=keyboard)
 
 
 @router.message(F.reply_to_message, F.text)
 async def on_admin_reply(message: Message, db: AsyncSession) -> None:
+    # F.reply_to_message matches ЛЮБОЕ реплай-сообщение админа, не только ответ
+    # на тикет поддержки — например реплай на промпт FSM из admin.py (там нет
+    # такого фильтра). Раньше это тихо "съедало" апдейт (return без SkipHandler),
+    # и он не долетал до нужного хендлера в другом роутере, застревая — см.
+    # ревью. SkipHandler явно говорит диспетчеру "это не моё, пробуй дальше".
     if message.from_user is None or message.from_user.id not in settings.admin_ids():
-        return
+        raise SkipHandler
 
     reply_to_id = message.reply_to_message.message_id
     result = await db.execute(
@@ -104,7 +125,7 @@ async def on_admin_reply(message: Message, db: AsyncSession) -> None:
     )
     support_msg = result.scalars().first()
     if support_msg is None:
-        return
+        raise SkipHandler
 
     user = await db.get(User, support_msg.user_id)
     if user is None:

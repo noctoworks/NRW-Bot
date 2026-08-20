@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 
-from aiogram import Dispatcher, F, Router
+from aiogram import Bot, Dispatcher, F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import select
@@ -19,6 +19,7 @@ from app.keyboards.main_menu import CB_GIFT_MENU, back_to_menu_button
 from app.services.gift_service import create_gift_code
 from app.services.payment import get_payment_provider
 from app.services.pricing_service import apply_discount, get_discount_percent, get_period_price_kopeks
+from app.services.referral_service import credit_referral_earning
 from app.states import GiftStates
 
 logger = logging.getLogger(__name__)
@@ -105,7 +106,7 @@ async def _get_active_tariff(db: AsyncSession) -> Tariff | None:
 
 
 async def purchase_gift_subscription(
-    db: AsyncSession, db_user: User, tariff: Tariff, period_days: int, method: str
+    db: AsyncSession, db_user: User, tariff: Tariff, period_days: int, method: str, bot: Bot | None = None
 ) -> GiftCode | None:
     """Оплата + создание GiftCode — тот же паттерн, что и
     handlers/subscription.py::purchase_or_renew_subscription (в т.ч. то же
@@ -127,7 +128,9 @@ async def purchase_gift_subscription(
     description = f'Подарок подписки на {period_days} дн. ({tariff.name})'
 
     provider = get_payment_provider(method)
-    created = await provider.create_payment(user_id=db_user.id, amount_kopeks=amount_kopeks, description=description)
+    created = await provider.create_payment(
+        user_id=db_user.id, amount_kopeks=amount_kopeks, description=description, bot=bot, telegram_id=db_user.telegram_id
+    )
 
     if created.status != 'success':
         # Реальный провайдер — платёж создан, но не подтверждён сразу. Сохраняем
@@ -164,18 +167,29 @@ async def purchase_gift_subscription(
     db.add(transaction)
     await db.flush()
 
-    db.add(
-        Payment(
-            user_id=db_user.id,
-            transaction_id=transaction.id,
-            provider=method,
-            external_id=created.external_id,
-            amount_kopeks=amount_kopeks,
-            status='success',
-        )
+    payment = Payment(
+        user_id=db_user.id,
+        transaction_id=transaction.id,
+        provider=method,
+        external_id=created.external_id,
+        amount_kopeks=amount_kopeks,
+        status='success',
     )
+    db.add(payment)
+    await db.flush()
 
-    return await create_gift_code(db, tariff=tariff, period_days=period_days, gifter=db_user)
+    gift_code = await create_gift_code(db, tariff=tariff, period_days=period_days, gifter=db_user)
+
+    # Начисление рефереру покупателя — иначе комиссия капает только тем, чей
+    # платёж прошёл через payment_finalization.py (реальный провайдер, pending),
+    # а мгновенный успех (в т.ч. любой платёж в PAYMENTS_MODE=stub) остаётся без
+    # комиссии — см. ревью, тот же паттерн, что в handlers/subscription.py.
+    try:
+        await credit_referral_earning(db, payment, bot=bot)
+    except Exception:
+        logger.exception('credit_referral_earning упал (не блокирует покупку подарка)')
+
+    return gift_code
 
 
 @router.callback_query(F.data == CB_GIFT_MENU)
@@ -225,7 +239,9 @@ async def cb_choose_period(callback: CallbackQuery, db: AsyncSession, db_user: U
 
 
 @router.callback_query(GiftStates.choosing_payment_method, F.data.startswith('gift:pay:'))
-async def cb_choose_payment(callback: CallbackQuery, db: AsyncSession, db_user: User | None, state: FSMContext) -> None:
+async def cb_choose_payment(
+    callback: CallbackQuery, db: AsyncSession, db_user: User | None, state: FSMContext, bot: Bot
+) -> None:
     if db_user is None:
         await callback.answer()
         return
@@ -244,7 +260,7 @@ async def cb_choose_payment(callback: CallbackQuery, db: AsyncSession, db_user: 
         return
 
     try:
-        gift_code = await purchase_gift_subscription(db, db_user, tariff, period_days, method)
+        gift_code = await purchase_gift_subscription(db, db_user, tariff, period_days, method, bot=bot)
     except Exception:
         logger.exception('Ошибка оформления подарка')
         # См. handlers/subscription.py::cb_confirm_purchase — purchase_gift_subscription

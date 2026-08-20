@@ -92,7 +92,19 @@ class RemnawaveClient(ABC):
     ) -> RemnawaveUser: ...
 
     @abstractmethod
-    async def extend_user_expiration(self, *, remnawave_uuid: str, expire_at: datetime) -> RemnawaveUser: ...
+    async def extend_user_expiration(
+        self,
+        *,
+        remnawave_uuid: str,
+        expire_at: datetime,
+        traffic_limit_gb: int | None = None,
+        squad_uuids: list[str] | None = None,
+    ) -> RemnawaveUser:
+        """traffic_limit_gb/squad_uuids — опциональные, только если продление идёт
+        со сменой тарифа (см. subscription_provisioning.py/handlers/subscription.py):
+        без них PATCH меняет только expireAt, старые лимиты/сквад на панели остаются
+        от прежнего тарифа."""
+        ...
 
     @abstractmethod
     async def enable_user(self, *, remnawave_uuid: str) -> None: ...

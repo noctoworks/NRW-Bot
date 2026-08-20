@@ -46,6 +46,7 @@ from app.handlers.gift import PAYMENT_METHODS as GIFT_PAYMENT_METHODS, purchase_
 from app.handlers.subscription import (
     PAYMENT_METHODS,
     PERIOD_LABELS,
+    InsufficientBalanceError,
     get_active_tariff,
     get_user_subscription,
     purchase_or_renew_subscription,
@@ -147,7 +148,14 @@ async def tariff(db: AsyncSession = Depends(get_db), user: User = Depends(get_cu
         )
         for days_str, price_kopeks in sorted(active_tariff.period_prices_kopeks.items(), key=lambda kv: int(kv[0]))
     ]
-    payment_methods = [PaymentMethodOut(id=method_id, label=label) for method_id, label in PAYMENT_METHODS.items()]
+    payment_methods = []
+    if user.balance_kopeks > 0:
+        # Показываем всегда, если баланс вообще не нулевой (а не только если
+        # хватает на самый дешёвый период — periods тут несколько, а способ
+        # оплаты один список на все сразу) — конкретную нехватку на выбранный
+        # период отловит InsufficientBalanceError при попытке покупки.
+        payment_methods.append(PaymentMethodOut(id='balance', label=f'💰 Баланс ({user.balance_kopeks / 100:.0f} ₽)'))
+    payment_methods += [PaymentMethodOut(id=method_id, label=label) for method_id, label in PAYMENT_METHODS.items()]
 
     return TariffResponse(name=active_tariff.name, periods=periods, payment_methods=payment_methods)
 
@@ -159,7 +167,7 @@ async def purchase(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> PurchaseResponse:
-    if payload.method not in PAYMENT_METHODS:
+    if payload.method != 'balance' and payload.method not in PAYMENT_METHODS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Неизвестный способ оплаты')
 
     active_tariff = await get_active_tariff(db)
@@ -175,6 +183,10 @@ async def purchase(
             method=payload.method,
             bot=request.app.state.bot,
         )
+    except InsufficientBalanceError as error:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, f'Недостаточно средств на балансе — не хватает {error.missing_kopeks / 100:.2f} ₽'
+        ) from error
     except Exception as error:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, 'Не удалось оформить подписку, попробуйте позже') from error
 
@@ -385,6 +397,7 @@ async def promocode_activate(
 @router.post('/gift/purchase', response_model=GiftPurchaseResponse)
 async def gift_purchase(
     payload: GiftPurchaseRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> GiftPurchaseResponse:
@@ -400,7 +413,9 @@ async def gift_purchase(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Недоступный период подписки')
 
     try:
-        gift_code = await purchase_gift_subscription(db, user, active_tariff, payload.period_days, payload.method)
+        gift_code = await purchase_gift_subscription(
+            db, user, active_tariff, payload.period_days, payload.method, bot=request.app.state.bot
+        )
     except Exception as error:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, 'Не удалось оформить подарок, попробуйте позже') from error
 

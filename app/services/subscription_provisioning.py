@@ -75,7 +75,18 @@ async def provision_or_extend_subscription(
         new_end = base + timedelta(days=period_days)
 
         if user.remnawave_uuid:
-            await client.extend_user_expiration(remnawave_uuid=user.remnawave_uuid, expire_at=new_end)
+            # traffic_limit_gb/squad_uuids прокидываем всегда — даже если тариф не
+            # менялся, значения совпадают со старыми и лишний раз не вредят, зато не
+            # нужно отдельно определять "менялся тариф или нет". Раньше это не
+            # передавалось вовсе — при продлении СО СМЕНОЙ тарифа юзер оставался на
+            # панели с лимитами/сквадом прежнего тарифа, хотя в БД уже был новый
+            # tariff_id (см. ревью).
+            await client.extend_user_expiration(
+                remnawave_uuid=user.remnawave_uuid,
+                expire_at=new_end,
+                traffic_limit_gb=traffic_limit_gb,
+                squad_uuids=squad_uuids,
+            )
             # Если подписка была истёкшей, Remnawave-пользователь мог быть отключён
             # фоновой задачей expiry_checker (см. app/services/background.py) — без
             # явного enable_user продление здесь оживило бы запись в БД, но не сам
@@ -86,6 +97,8 @@ async def provision_or_extend_subscription(
         subscription.end_date = new_end
         subscription.status = 'active'
         subscription.tariff_id = tariff.id
+        subscription.traffic_limit_gb = traffic_limit_gb
+        subscription.device_limit = device_limit
         if is_trial is not None:
             subscription.is_trial = is_trial
         # Сброс флагов напоминаний — иначе после продления expiry_checker (§12а)

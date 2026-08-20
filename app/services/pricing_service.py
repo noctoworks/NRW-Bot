@@ -23,9 +23,15 @@ async def get_discount_percent(db: AsyncSession, user: User) -> int:
 
 
 def apply_discount(price_kopeks: int, discount_percent: int) -> int:
+    """Округляем ДО ЦЕЛОГО РУБЛЯ, всегда вниз — в пользу пользователя (см.
+    диалог: на боевой базе уже есть копейки от старой формулы, дробные суммы
+    к оплате/на балансе не должны появляться впредь; округление в пользу
+    юзера снимает вопрос "почему с меня взяли лишнее")."""
     if discount_percent <= 0:
         return price_kopeks
-    return round(price_kopeks * (100 - discount_percent) / 100)
+    # price_kopeks * (100 - discount_percent) / 10000 == price_kopeks * (100 - discount_percent) / 100 / 100,
+    # т.е. цена в рублях как точная дробь; //10000 floor'ит её до целого рубля.
+    return (price_kopeks * (100 - discount_percent) // 10000) * 100
 
 
 async def get_period_price_kopeks(db: AsyncSession, tariff: Tariff, period_days: int, user: User) -> int:

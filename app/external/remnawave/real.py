@@ -180,10 +180,20 @@ class RealRemnawaveClient(RemnawaveClient):
             data = await self._request('PATCH', '/users', json_data=patch_body)
         return self._parse_user(data)
 
-    async def extend_user_expiration(self, *, remnawave_uuid: str, expire_at: datetime) -> RemnawaveUser:
-        data = await self._request(
-            'PATCH', '/users', json_data={'id': int(remnawave_uuid), 'expireAt': expire_at.isoformat()}
-        )
+    async def extend_user_expiration(
+        self,
+        *,
+        remnawave_uuid: str,
+        expire_at: datetime,
+        traffic_limit_gb: int | None = None,
+        squad_uuids: list[str] | None = None,
+    ) -> RemnawaveUser:
+        patch_body: dict[str, Any] = {'id': int(remnawave_uuid), 'expireAt': expire_at.isoformat()}
+        if traffic_limit_gb is not None:
+            patch_body['trafficLimitBytes'] = traffic_limit_gb * 1024**3
+        if squad_uuids is not None:
+            patch_body['activeInternalSquads'] = squad_uuids
+        data = await self._request('PATCH', '/users', json_data=patch_body)
         return self._parse_user(data)
 
     async def enable_user(self, *, remnawave_uuid: str) -> None:

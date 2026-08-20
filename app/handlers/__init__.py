@@ -34,6 +34,10 @@ def register_all_handlers(dp: Dispatcher) -> None:
 
     gift.register_handlers(dp)
 
+    from app.handlers import stars_payment
+
+    stars_payment.register_handlers(dp)
+
     from app.handlers import support
 
     support.register_handlers(dp)

@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database.models import Payment, ReferralEarning, Transaction, User
+from app.services.notification_service import notify_referral_bonus
 from app.services.subscription_provisioning import provision_or_extend_subscription
 
 logger = logging.getLogger(__name__)
@@ -35,19 +36,28 @@ def generate_referral_code(length: int = 8) -> str:
     return ''.join(secrets.choice(alphabet) for _ in range(length))
 
 
-async def credit_referral_earning(db: AsyncSession, payment: Payment) -> None:
+async def credit_referral_earning(db: AsyncSession, payment: Payment, bot: Bot | None = None) -> None:
     """Вызывается ПОСЛЕ фиксации успешного платежа (topup или subscription_payment).
 
     Логика: найти payment.user; если у него есть referred_by_id — начислить
     от payment.amount_kopeks на баланс реферера процент, равный
     referrer.referral_commission_percent (если задан персонально админом,
     см. /cabinet/admin/users/{id}/referral-commission) или settings.REFERRAL_PERCENT
-    по умолчанию, создать ReferralEarning(source=purchase|topup), не бросать
+    по умолчанию, создать ReferralEarning(source=purchase|topup) + Transaction
+    (type='referral_reward' — иначе начисление не попадает в историю транзакций
+    реферала, см. ревью) и уведомить реферера (если передан bot), не бросать
     исключение наружу (реферальная программа не должна ломать основной
     платёжный флоу — только логировать ошибку, если что-то пошло не так).
     """
     try:
         if payment.status != 'success':
+            return
+        if payment.provider == 'balance':
+            # Оплата собственным балансом (см. handlers/subscription.py) не заводит
+            # в систему новых денег — это уже начисленные ранее рефералки/бонусы,
+            # которые пользователь просто тратит. Начислять с неё ещё одну
+            # комиссию рефереру значило бы платить комиссию с денег, которые
+            # бизнес никогда реально не получал.
             return
 
         result = await db.execute(select(User).where(User.id == payment.user_id))
@@ -63,7 +73,13 @@ async def credit_referral_earning(db: AsyncSession, payment: Payment) -> None:
         percent = referrer.referral_commission_percent
         if percent is None:
             percent = settings.REFERRAL_PERCENT
-        amount_kopeks = (payment.amount_kopeks * percent) // 100
+        # Округляем ДО ЦЕЛОГО РУБЛЯ, всегда вверх — в пользу реферера (см.
+        # apply_discount в pricing_service.py: то же правило, симметрично —
+        # там пользователь платит меньше, тут реферер получает больше,
+        # дробных копеек на балансе появляться больше не должно).
+        # payment.amount_kopeks * percent / 10000 == точная сумма в рублях;
+        # -(-a // b) — целочисленный ceil(a / b) без float.
+        amount_kopeks = -(-(payment.amount_kopeks * percent) // 10000) * 100
         if amount_kopeks <= 0:
             return
 
@@ -84,7 +100,22 @@ async def credit_referral_earning(db: AsyncSession, payment: Payment) -> None:
                 source=source,
             )
         )
+        db.add(
+            Transaction(
+                user_id=referrer.id,
+                type='referral_reward',
+                amount_kopeks=amount_kopeks,
+                status='completed',
+                description=f'Реферальная комиссия с покупки user_id={buyer.id}',
+            )
+        )
         await db.flush()
+
+        if bot is not None:
+            try:
+                await notify_referral_bonus(bot, telegram_id=referrer.telegram_id, amount_kopeks=amount_kopeks)
+            except Exception:
+                logger.exception('notify_referral_bonus упал (не блокирует начисление)')
     except Exception:
         logger.exception('credit_referral_earning failed for payment_id=%s', getattr(payment, 'id', None))
 
@@ -99,6 +130,15 @@ async def check_referral_milestones(db: AsyncSession, referrer: User, bot: Bot |
     начислятся все разом). Не бросает исключение наружу — бонус за регистрацию
     не должен ломать саму регистрацию нового пользователя."""
     try:
+        # with_for_update() — двое приглашённых, зарегистрировавшихся почти
+        # одновременно по одной ссылке, иначе оба читают один и тот же
+        # referral_milestone_reached до чьего-либо commit'а и оба независимо
+        # начисляют один и тот же порог (задвоение бонуса + лишние вызовы
+        # Remnawave) — см. ревью, тот же класс гонки, что уже закрыт в
+        # credit_referral_earning/handlers/subscription.py оплатой балансом.
+        locked = await db.execute(select(User).where(User.id == referrer.id).with_for_update())
+        referrer = locked.scalar_one()
+
         if referrer.is_blocked:
             return
 
