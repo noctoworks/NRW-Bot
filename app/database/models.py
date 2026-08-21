@@ -71,6 +71,12 @@ class User(TimestampMixin, Base):
     # бота) — используется в разделе "Заблокировавшие бота" и при рассылках, чтобы не
     # тратить лишний запрос на заведомо недоступного получателя.
     blocked_bot: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Приветственный nudge (см. app/services/background.py::welcome_nudge_loop,
+    # диалог 2026-08-21 "рассылки по событиям/напоминалки") — одно отложенное
+    # сообщение через WELCOME_NUDGE_DELAY_HOURS после регистрации тем, кто ещё
+    # не купил подписку. Дедупликация тем же паттерном, что reminder_3d_sent
+    # у Subscription — иначе цикл слал бы его повторно на каждой итерации.
+    welcome_nudge_sent: Mapped[bool] = mapped_column(Boolean, default=False)
 
     subscription: Mapped['Subscription | None'] = relationship(
         back_populates='user', uselist=False, cascade='all, delete-orphan'
@@ -175,10 +181,21 @@ class Subscription(TimestampMixin, Base):
     subscription_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     short_uuid: Mapped[str | None] = mapped_column(String(64), nullable=True)
     autopay_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Platega subscriptionId (их transactionId из ответа create_subscription) —
+    # нужен, чтобы отменить подписку (POST /subscription/{id}/cancel) и сверять
+    # входящие callback'и (SubscriptionId в теле) с конкретной записью. NULL,
+    # пока автоплатёж не включён либо после отмены/PastDue.
+    platega_subscription_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     # Дедупликация плановых напоминаний об истечении (§12а архитектурного документа)
     reminder_3d_sent: Mapped[bool] = mapped_column(Boolean, default=False)
     reminder_1d_sent: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Win-back после истечения (см. app/services/background.py::winback_loop,
+    # диалог 2026-08-21) — одно сообщение через WINBACK_DELAY_DAYS после
+    # end_date тем, кто не продлил. Сбрасывается в False при каждом продлении
+    # (provision_or_extend_subscription) — так же, как reminder_3d/1d_sent —
+    # иначе после следующего истечения win-back уже не пришлёт себя снова.
+    winback_sent: Mapped[bool] = mapped_column(Boolean, default=False)
 
     user: Mapped['User'] = relationship(back_populates='subscription')
     tariff: Mapped['Tariff'] = relationship()
@@ -208,6 +225,11 @@ class Payment(TimestampMixin, Base):
     amount_kopeks: Mapped[int] = mapped_column(BigInteger)
     status: Mapped[str] = mapped_column(String(16), default='pending')  # pending|success|failed
     raw_payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Незавершённая покупка (см. app/services/background.py::payment_poll_loop,
+    # диалог 2026-08-21) — одно напоминание, если платёж всё ещё pending спустя
+    # ABANDONED_PAYMENT_DELAY_MINUTES. Не трогаем сам платёж/его status —
+    # только дедупликация напоминания, поллинг статуса продолжается как раньше.
+    abandoned_reminder_sent: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class PromoCode(TimestampMixin, Base):

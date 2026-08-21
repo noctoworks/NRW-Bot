@@ -42,12 +42,20 @@ async def main() -> None:
     bot, dp = await setup_bot()
 
     # === BACKGROUND TASKS (только agent:admin-support-notifications трогает этот блок) ===
-    from app.services.background import expiry_checker_loop, payment_poll_loop, traffic_sync_loop
+    from app.services.background import (
+        expiry_checker_loop,
+        payment_poll_loop,
+        traffic_sync_loop,
+        welcome_nudge_loop,
+        winback_loop,
+    )
 
     background_tasks: list[asyncio.Task] = [
         asyncio.create_task(expiry_checker_loop(bot)),
         asyncio.create_task(traffic_sync_loop()),
         asyncio.create_task(payment_poll_loop(bot)),
+        asyncio.create_task(winback_loop(bot)),
+        asyncio.create_task(welcome_nudge_loop(bot)),
     ]
     # === END BACKGROUND TASKS ===
 

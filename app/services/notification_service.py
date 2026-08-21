@@ -14,16 +14,32 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramRetryAfter
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 logger = logging.getLogger(__name__)
 
 
-async def _safe_send(bot: Bot, *, telegram_id: int, text: str) -> None:
+async def _safe_send(
+    bot: Bot, *, telegram_id: int, text: str, reply_markup: InlineKeyboardMarkup | None = None
+) -> None:
     try:
-        await bot.send_message(chat_id=telegram_id, text=text)
+        await bot.send_message(chat_id=telegram_id, text=text, reply_markup=reply_markup)
+    except TelegramRetryAfter as error:
+        # Один ретрай после паузы — не бесконечный, чтобы застрявший получатель
+        # не блокировал фоновую задачу навсегда. Найдено вживую (см. диалог
+        # 2026-08-21): массовый прогон winback/welcome_nudge по мигрированным
+        # тестовым юзерам без единой паузы упёрся в Flood control ровно так.
+        logger.warning('Flood control, жду %s сек и повторяю telegram_id=%s', error.retry_after, telegram_id)
+        await asyncio.sleep(error.retry_after + 1)
+        try:
+            await bot.send_message(chat_id=telegram_id, text=text, reply_markup=reply_markup)
+        except Exception:
+            logger.warning('Не удалось отправить уведомление telegram_id=%s (после ретрая)', telegram_id, exc_info=True)
     except Exception:
         logger.warning('Не удалось отправить уведомление telegram_id=%s', telegram_id, exc_info=True)
 
@@ -90,3 +106,67 @@ async def notify_balance_changed(bot: Bot, *, telegram_id: int, amount_kopeks: i
             f'Текущий баланс: {new_balance_kopeks / 100:.2f}₽'
         )
     await _safe_send(bot, telegram_id=telegram_id, text=text)
+
+
+async def notify_autopay_activated(bot: Bot, *, telegram_id: int) -> None:
+    text = '🔄 Автоплатёж подключён — подписка будет продлеваться автоматически каждый месяц.'
+    await _safe_send(bot, telegram_id=telegram_id, text=text)
+
+
+async def notify_autopay_charge_failed(bot: Bot, *, telegram_id: int) -> None:
+    text = (
+        '⚠️ Не удалось списать автоплатёж — проверьте, что на карте/счёте достаточно средств.\n\n'
+        'Подписка продолжает действовать до текущей даты окончания.'
+    )
+    await _safe_send(bot, telegram_id=telegram_id, text=text)
+
+
+async def notify_autopay_stopped(bot: Bot, *, telegram_id: int) -> None:
+    text = (
+        '🔕 Автоплатёж отключён (банк отклонил привязку или списания подряд не проходят).\n\n'
+        'Подписку можно продлить вручную в любой момент.'
+    )
+    await _safe_send(bot, telegram_id=telegram_id, text=text)
+
+
+# === Автоматические триггеры рассылок (см. app/services/background.py,
+# диалог 2026-08-21: "чтобы слались автоматом по событиям, напоминалки") —
+# в отличие от остальных функций выше (реакция на конкретное действие юзера),
+# эти три вызываются фоновыми циклами по условию времени/состояния, не по прямому
+# действию. Каждая — с кнопкой в один тап, а не просто текст, потому что цель
+# уведомления — вернуть юзера в конкретный экран, а не просто сообщить факт. ===
+
+
+async def notify_winback(bot: Bot, *, telegram_id: int) -> None:
+    from app.keyboards.main_menu import CB_SUBSCRIPTION_RENEW
+
+    text = (
+        '👋 Соскучились? Ваша подписка уже некоторое время неактивна — '
+        'самое время вернуться, пока для вас держим ваш профиль и настройки.'
+    )
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text='💎 Возобновить подписку', callback_data=CB_SUBSCRIPTION_RENEW)]]
+    )
+    await _safe_send(bot, telegram_id=telegram_id, text=text, reply_markup=keyboard)
+
+
+async def notify_abandoned_payment(bot: Bot, *, telegram_id: int) -> None:
+    from app.keyboards.main_menu import CB_SUBSCRIPTION_RENEW
+
+    text = (
+        '💳 Похоже, оплата не завершилась. Если передумали или что-то пошло не '
+        'так — можно оформить заново, это займёт минуту.'
+    )
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text='🔁 Попробовать снова', callback_data=CB_SUBSCRIPTION_RENEW)]]
+    )
+    await _safe_send(bot, telegram_id=telegram_id, text=text, reply_markup=keyboard)
+
+
+async def notify_welcome_nudge(bot: Bot, *, telegram_id: int) -> None:
+    text = (
+        '🔐 Не забыли про VPN? Пробный период уже начался — попробуйте подключиться '
+        'сейчас, а когда пробный период закончится, сможете оформить подписку в один тап.'
+    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text='🚀 Открыть меню', callback_data='sub:buy')]])
+    await _safe_send(bot, telegram_id=telegram_id, text=text, reply_markup=keyboard)

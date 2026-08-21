@@ -51,6 +51,7 @@ from app.keyboards.main_menu import CB_SUBSCRIPTION_MY, CB_SUBSCRIPTION_RENEW, b
 from app.services.notification_service import notify_payment_success
 from app.services.payment import get_payment_provider
 from app.services.payment.base import CreatedPayment
+from app.services.payment.platega import AUTOPAY_PERIOD_DAYS
 from app.services.pricing_service import get_period_price_kopeks
 from app.services.referral_service import credit_referral_earning
 from app.states import PurchaseStates
@@ -390,7 +391,9 @@ def kb_no_subscription() -> InlineKeyboardMarkup:
 COPY_TEXT_MAX_LENGTH = 256  # ограничение Telegram Bot API для CopyTextButton.text
 
 
-def kb_subscription_active(subscription_url: str | None, *, use_deep_link: bool = True) -> InlineKeyboardMarkup:
+def kb_subscription_active(
+    subscription_url: str | None, *, autopay_enabled: bool = False, use_deep_link: bool = True
+) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
 
     if settings.MINIAPP_URL:
@@ -415,6 +418,8 @@ def kb_subscription_active(subscription_url: str | None, *, use_deep_link: bool 
         rows.append([InlineKeyboardButton(text='📋 Скопировать ключ', callback_data='sub:connect')])
 
     rows.append([InlineKeyboardButton(text='💎 Продлить подписку', callback_data=CB_SUBSCRIPTION_RENEW)])
+    autopay_label = '🔕 Отключить автоплатёж' if autopay_enabled else '🔄 Включить автоплатёж'
+    rows.append([InlineKeyboardButton(text=autopay_label, callback_data='sub:autopay:toggle')])
     rows.append([InlineKeyboardButton(text='📱 Устройства', callback_data='sub:devices')])
     rows.append([back_to_menu_button()])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -514,7 +519,9 @@ def _is_invalid_button_url_error(exc: TelegramBadRequest) -> bool:
 _happ_deep_link_confirmed_unsupported = False
 
 
-async def _send_subscription_view(callback: CallbackQuery, html: str, subscription_url: str | None) -> None:
+async def _send_subscription_view(
+    callback: CallbackQuery, html: str, subscription_url: str | None, *, autopay_enabled: bool = False
+) -> None:
     """edit_text(rich_message=...) с клавиатурой kb_subscription_active; если Telegram
     отклонил happ:// в url-кнопке, автоматически пересобирает клавиатуру без
     deep-link'а и повторяет попытку. `html` — разметка Rich Message (см.
@@ -525,12 +532,16 @@ async def _send_subscription_view(callback: CallbackQuery, html: str, subscripti
 
     if _happ_deep_link_confirmed_unsupported:
         await callback.message.edit_text(
-            rich_message=rich_message, reply_markup=kb_subscription_active(subscription_url, use_deep_link=False)
+            rich_message=rich_message,
+            reply_markup=kb_subscription_active(subscription_url, autopay_enabled=autopay_enabled, use_deep_link=False),
         )
         return
 
     try:
-        await callback.message.edit_text(rich_message=rich_message, reply_markup=kb_subscription_active(subscription_url))
+        await callback.message.edit_text(
+            rich_message=rich_message,
+            reply_markup=kb_subscription_active(subscription_url, autopay_enabled=autopay_enabled),
+        )
     except TelegramBadRequest as exc:
         if not _is_invalid_button_url_error(exc):
             raise
@@ -541,7 +552,8 @@ async def _send_subscription_view(callback: CallbackQuery, html: str, subscripti
             exc,
         )
         await callback.message.edit_text(
-            rich_message=rich_message, reply_markup=kb_subscription_active(subscription_url, use_deep_link=False)
+            rich_message=rich_message,
+            reply_markup=kb_subscription_active(subscription_url, autopay_enabled=autopay_enabled, use_deep_link=False),
         )
 
 
@@ -560,8 +572,72 @@ async def cb_subscription_my(callback: CallbackQuery, db: AsyncSession, db_user:
         return
 
     text = format_subscription_summary(subscription, db_user.balance_kopeks)
-    await _send_subscription_view(callback, text, subscription.subscription_url)
+    await _send_subscription_view(callback, text, subscription.subscription_url, autopay_enabled=subscription.autopay_enabled)
     await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == 'sub:autopay:toggle')
+async def cb_autopay_toggle(callback: CallbackQuery, db: AsyncSession, db_user: User) -> None:
+    subscription = await get_user_subscription(db, db_user.id)
+    if subscription is None:
+        await callback.answer('Подписка не найдена', show_alert=True)
+        return
+    await db.refresh(subscription, attribute_names=['tariff'])
+
+    provider = get_payment_provider('platega')
+
+    if subscription.autopay_enabled:
+        if subscription.platega_subscription_id:
+            try:
+                await provider.cancel_subscription(subscription.platega_subscription_id)
+            except Exception:
+                logger.exception(
+                    'cancel_subscription упал для platega_subscription_id=%s', subscription.platega_subscription_id
+                )
+                await callback.answer('Не удалось отключить автоплатёж, попробуйте позже', show_alert=True)
+                return
+        subscription.autopay_enabled = False
+        subscription.platega_subscription_id = None
+        await db.commit()
+        await callback.answer('Автоплатёж отключён')
+    else:
+        try:
+            amount_kopeks = await get_period_price_kopeks(db, subscription.tariff, AUTOPAY_PERIOD_DAYS, db_user)
+        except KeyError:
+            # У тарифа нет цены за 30 дней (см. диалог 2026-08-21: автоплатёж
+            # всегда ежемесячный по цене 30-дневного периода, независимо от
+            # купленного срока — Platega фиксирует интервал списания один раз
+            # при создании подписки).
+            await callback.answer('Автоплатёж недоступен для этого тарифа', show_alert=True)
+            return
+
+        try:
+            created = await provider.create_subscription(
+                amount_kopeks=amount_kopeks, description=f'Автоплатёж — «{subscription.tariff.name}»'
+            )
+        except Exception:
+            logger.exception('create_subscription упал для user_id=%s', db_user.id)
+            await callback.answer('Не удалось подключить автоплатёж, попробуйте позже', show_alert=True)
+            return
+
+        subscription.platega_subscription_id = created.subscription_id
+        # True сразу, не дожидаясь вебхука SUBSCRIPTION_ACTIVATED — привязка
+        # счёта подтверждается юзером в банк-приложении (окно 30 минут), UI
+        # должен сразу показать «включено»/дать ссылку. Если подтверждение не
+        # пройдёт, статус-вебхук (см. app/cabinet/webhooks.py::_handle_subscription_webhook)
+        # сам вернёт autopay_enabled в False и уведомит юзера — не нужно ждать
+        # здесь синхронно.
+        subscription.autopay_enabled = True
+        await db.commit()
+
+        await callback.message.answer(
+            f'Перейдите по ссылке и подтвердите привязку счёта в банк-приложении '
+            f'(ссылка действует 30 минут):\n\n{created.confirm_url}'
+        )
+        await callback.answer('Автоплатёж создан, подтвердите привязку')
+
+    text = format_subscription_summary(subscription, db_user.balance_kopeks)
+    await _send_subscription_view(callback, text, subscription.subscription_url, autopay_enabled=subscription.autopay_enabled)
 
 
 @router.callback_query(lambda c: c.data == 'sub:connect')
@@ -800,7 +876,7 @@ async def cb_confirm_purchase(
         return
 
     text = f'<p>{SUCCESS} <b>Оплата прошла успешно!</b></p>' + format_subscription_summary(subscription, db_user.balance_kopeks)
-    await _send_subscription_view(callback, text, subscription.subscription_url)
+    await _send_subscription_view(callback, text, subscription.subscription_url, autopay_enabled=subscription.autopay_enabled)
     await callback.answer()
 
 

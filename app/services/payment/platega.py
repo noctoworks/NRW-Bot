@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hmac
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -24,6 +25,40 @@ logger = logging.getLogger(__name__)
 _SUCCESS_STATUSES = {'CONFIRMED'}
 _FAILED_STATUSES = {'FAILED', 'CANCELED', 'EXPIRED'}
 _DESCRIPTION_MAX_BYTES = 64
+
+# Автосписание СБП (см. https://docs.platega.io/ раздел "Подписки", диалог
+# 2026-08-21). paymentMethod=6 — фиксированный код именно для подписок, ОТ
+# ОБЫЧНЫХ платежей (settings.PLATEGA_PAYMENT_METHOD_CODE) не зависит.
+_SUBSCRIPTION_PAYMENT_METHOD = 6
+# Автоплатёж всегда ежемесячный по цене 30-дневного периода тарифа —
+# используется и в handlers/subscription.py (toggle), и в
+# app/cabinet/webhooks.py (продление при списании), см. диалог 2026-08-21:
+# интервал у Platega фиксируется один раз при создании подписки и не
+# совпадает с произвольными периодами тарифа (30/90/180/360 дней).
+AUTOPAY_PERIOD_DAYS = 30
+# Статусы жизненного цикла подписки (не путать с _SUCCESS_STATUSES/_FAILED_STATUSES
+# выше — те про статус ОДНОЙ транзакции, эти — про подписку целиком).
+_SUBSCRIPTION_ACTIVE_STATUSES = {'SUBSCRIPTION_ACTIVATED'}
+_SUBSCRIPTION_DEAD_STATUSES = {'SUBSCRIPTION_CANCELLED', 'SUBSCRIPTION_FAILED', 'SUBSCRIPTION_PAST_DUE'}
+
+
+@dataclass
+class CreatedSubscription:
+    subscription_id: str
+    confirm_url: str
+
+
+def _ci_get(payload: dict, key: str) -> Any:
+    """Platega шлёт callback'и по подпискам в PascalCase (Id/Status/SubscriptionId),
+    обычные платёжные — в lowercase (id/status) — портировано из оригинального
+    бота, там та же несогласованность отмечена как "arrives in camelCase while
+    spec examples are PascalCase". Регистронезависимый поиск, чтобы не зависеть
+    от того, какой вариант реально прилетит."""
+    key_lower = key.lower()
+    for k, v in payload.items():
+        if k.lower() == key_lower:
+            return v
+    return None
 
 
 def _classify_status(status_raw: str) -> str:
@@ -143,3 +178,71 @@ class PlategaProvider(PaymentProvider):
         transaction_id = str(payload.get('id') or payload.get('transactionId') or payload.get('transaction_id') or '').strip()
         status = _classify_status(str(payload.get('status') or ''))
         return transaction_id, status
+
+    def is_subscription_webhook(self, payload: dict) -> bool:
+        """И списание по подписке, и смена статуса подписки прилетают на тот же
+        /platega-webhook, что и обычные платежи (см. process_platega_subscription_callback
+        оригинального бота — тот же путь, отдельная ветка по paymentMethod/статусу).
+        Признаки: paymentMethod=6, есть SubscriptionId, либо статус с префиксом
+        SUBSCRIPTION_ — любого из трёх достаточно, реальный колбэк может не
+        прислать все сразу."""
+        payment_method = _ci_get(payload, 'paymentMethod')
+        if payment_method is not None and int(payment_method) == _SUBSCRIPTION_PAYMENT_METHOD:
+            return True
+        if _ci_get(payload, 'subscriptionId'):
+            return True
+        status = str(_ci_get(payload, 'status') or '')
+        return status.upper().startswith('SUBSCRIPTION_')
+
+    def parse_subscription_webhook(self, payload: dict) -> dict[str, Any]:
+        """Разбирает ОБА вида колбэка подписки (списание и смена статуса — см.
+        is_subscription_webhook) в одну структуру. kind='status', если Status
+        начинается с SUBSCRIPTION_ (см. _SUBSCRIPTION_ACTIVE/DEAD_STATUSES),
+        иначе kind='charge' (CONFIRMED/CANCELED — статус ОДНОЙ попытки списания,
+        не подписки целиком)."""
+        status_raw = str(_ci_get(payload, 'status') or '').upper()
+        subscription_id = str(_ci_get(payload, 'subscriptionId') or _ci_get(payload, 'id') or '').strip()
+        is_status_event = status_raw.startswith('SUBSCRIPTION_')
+        return {
+            'kind': 'status' if is_status_event else 'charge',
+            'subscription_id': subscription_id,
+            'status_raw': status_raw,
+            'charge_id': str(_ci_get(payload, 'id') or '').strip(),
+            'amount_kopeks': int((_ci_get(payload, 'amount') or 0)) * 100 if not is_status_event else None,
+            # Статус подписки как факт (для kind='status'): 'active'/'dead'/'unknown' —
+            # 'unknown' на будущее, если Platega заведёт статус, которого мы не знаем,
+            # чтобы не тихо трактовать его как активный.
+            'subscription_alive': (status_raw in _SUBSCRIPTION_ACTIVE_STATUSES) if is_status_event else None,
+        }
+
+    async def create_subscription(self, *, amount_kopeks: int, description: str) -> CreatedSubscription:
+        """Автосписание раз в месяц (interval=3 — см. диалог 2026-08-21: у Platega
+        интервал фиксируется один раз при создании подписки и не совпадает с
+        произвольными периодами тарифа 30/90/180/360 дней, поэтому автоплатёж
+        всегда по цене 30-дневного периода, ежемесячно, независимо от того, какой
+        период юзер покупал изначально). Возвращает confirm_url — пользователь
+        должен его открыть и подтвердить привязку счёта в банк-приложении (окно
+        30 минут), сама подписка станет активной только после этого (см. вебхук
+        SUBSCRIPTION_ACTIVATED, не сразу после этого запроса)."""
+        body = {
+            'paymentMethod': _SUBSCRIPTION_PAYMENT_METHOD,
+            'paymentDetails': {
+                'amount': round(amount_kopeks / 100, 2),
+                'currency': 'RUB',
+                'interval': '3',
+            },
+            'description': _sanitize_description(description),
+        }
+        response = await self._request('POST', '/transaction/process', json_data=body)
+
+        subscription_id = response.get('transactionId')
+        confirm_url = response.get('redirect')
+        if not subscription_id or not confirm_url:
+            raise RuntimeError(f'Platega не вернула transactionId/redirect для подписки: {response}')
+
+        return CreatedSubscription(subscription_id=str(subscription_id), confirm_url=str(confirm_url))
+
+    async def cancel_subscription(self, subscription_id: str) -> None:
+        """Идемпотентно (см. докстринг эндпоинта) — повторный вызов на уже
+        отменённую подписку не ошибка."""
+        await self._request('POST', f'/subscription/{subscription_id}/cancel')

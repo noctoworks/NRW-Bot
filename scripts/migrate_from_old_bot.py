@@ -219,7 +219,13 @@ async def _run(old_conn: asyncpg.Connection, *, dry_run: bool) -> None:
         # молча потерять/задвоить строки, и заметить это можно только руками
         # позже, когда концов уже не найти. ===
         _old_user_ids = [row['id'] for row in old_users]
-        old_balance_sum = sum(row['balance_kopeks'] or 0 for row in old_users)
+        # НЕ сумма по всем кандидатам — уже существующих юзеров (matched по
+        # telegram_id) миграция не трогает, их баланс в сумму включать нельзя,
+        # иначе сверка ниже ложно кричит "расхождение" на каждом повторном
+        # запуске (см. диалог, 2026-08-20 — поймано вживую на 370₽ у одного
+        # already-existing юзера). Накапливается ниже, только когда юзер
+        # реально создаётся.
+        old_balance_sum = 0
         old_tx_total = await old_conn.fetchval(
             'SELECT count(*) FROM transactions WHERE user_id = ANY($1::int[])', _old_user_ids
         )
@@ -297,6 +303,7 @@ async def _run(old_conn: asyncpg.Connection, *, dry_run: bool) -> None:
                 await db.flush()
                 created += 1
                 created_new_ids.append(new_user.id)
+                old_balance_sum += row['balance_kopeks'] or 0
                 old_id_to_new_id[row['id']] = new_user.id
                 if row['referred_by_id']:
                     pending_referred_by[new_user.id] = row['referred_by_id']
@@ -390,7 +397,15 @@ async def _run(old_conn: asyncpg.Connection, *, dry_run: bool) -> None:
                     Transaction(
                         user_id=new_user_id,
                         type=new_type,
-                        amount_kopeks=tx['amount_kopeks'],
+                        # Старый бот хранит subscription_payment/gift_payment
+                        # СО ЗНАКОМ МИНУС (это списание с внутреннего баланса
+                        # в его модели учёта, см. create_transaction в
+                        # app/database/crud/transaction.py оригинала) — у
+                        # нас amount_kopeks ВСЕГДА положительный, направление
+                        # определяется только type (см. models.py). Без abs()
+                        # доход в analytics_service.py считался бы отрицательным
+                        # (найдено вживую на реальном прогоне, 2026-08-20).
+                        amount_kopeks=abs(tx['amount_kopeks']),
                         status='completed' if tx['is_completed'] else 'pending',
                         description=tx['description'],
                         created_at=_aware(tx['created_at']),
@@ -405,6 +420,16 @@ async def _run(old_conn: asyncpg.Connection, *, dry_run: bool) -> None:
             for earning in earning_rows:
                 source_new_id = old_id_to_new_id.get(earning['referral_id'])
                 if source_new_id is None:
+                    # Структурный, а не случайный пробел (проверено на реальном
+                    # прогоне 2026-08-20, см. диалог): source — покупатель,
+                    # сгенерировавший начисление, БЕЗ telegram_id (email/веб-
+                    # аккаунт старого бота). ReferralEarning.source_user_id
+                    # NOT NULL и ссылается на users — у нас в принципе нет
+                    # способа завести такого юзера (User.telegram_id обязателен).
+                    # Начисление реферера теряется как строка истории, хотя сами
+                    # деньги уже зачислены ему на balance_kopeks (переносится
+                    # отдельно, независимо от этого цикла) — это ожидаемо
+                    # отражается в old_earnings_total ниже, не считается багом.
                     continue
                 db.add(
                     ReferralEarning(

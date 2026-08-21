@@ -106,6 +106,10 @@ async def provision_or_extend_subscription(
         # с предыдущего цикла подписки (то же самое делает subscription.py).
         subscription.reminder_3d_sent = False
         subscription.reminder_1d_sent = False
+        # winback_sent — тем же приёмом (см. диалог 2026-08-21): иначе после
+        # СЛЕДУЮЩЕГО истечения win-back-цикл увидит флаг уже True с прошлого
+        # раза и не пришлёт письмо повторно.
+        subscription.winback_sent = False
         await db.flush()
         return subscription
 

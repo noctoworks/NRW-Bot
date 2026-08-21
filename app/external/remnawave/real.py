@@ -82,6 +82,16 @@ class RealRemnawaveClient(RemnawaveClient):
             'Authorization': f'Bearer {self.api_key}',
             'Content-Type': 'application/json',
             'Accept': 'application/json',
+            # Без этих трёх панель молча рвёт ЛЮБОЙ запрос без ответа —
+            # ProxyCheckMiddleware требует доказательства, что запрос пришёл
+            # через HTTPS-реверс-прокси, даже для внутреннего docker-трафика
+            # (найдено вживую, 2026-08-20: даже list_internal_squads падал
+            # httpx.RemoteProtocolError на каждой попытке). Значения и сам
+            # факт требования — портировано из оригинального бота
+            # (app/external/remnawave_api.py::_prepare_auth_headers).
+            'X-Forwarded-Proto': 'https',
+            'X-Forwarded-For': '127.0.0.1',
+            'X-Real-IP': '127.0.0.1',
         }
 
     async def _request(
