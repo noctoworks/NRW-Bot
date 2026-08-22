@@ -15,6 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database.models import GiftCode, Payment, Tariff, Transaction, User
+from app.emoji import icon_button
+from app.handlers.subscription import PAYMENT_METHOD_ICONS, PAYMENT_METHOD_LABELS
 from app.keyboards.main_menu import CB_GIFT_MENU, back_to_menu_button
 from app.services.gift_service import create_gift_code
 from app.services.payment import get_payment_provider
@@ -26,10 +28,11 @@ logger = logging.getLogger(__name__)
 
 router = Router(name='gift')
 
+# Тот же набор способов оплаты, что и в handlers/subscription.py — иконки и
+# подписи берутся оттуда (единый источник), чтобы не рассинхронизировать два
+# списка при смене custom_emoji_id (см. app/emoji.py).
 PAYMENT_METHODS = [
-    ('platega', '🏦 Карты и СБП'),
-    ('ton', '💎 TON'),
-    ('stars', '⭐️ Telegram Stars'),
+    (name, f'{PAYMENT_METHOD_ICONS[name].fallback} {label}') for name, label in PAYMENT_METHOD_LABELS.items()
 ]
 
 
@@ -88,7 +91,10 @@ def _period_keyboard(tariff: Tariff, discount_percent: int = 0) -> InlineKeyboar
 
 
 def _payment_keyboard() -> InlineKeyboardMarkup:
-    rows = [[InlineKeyboardButton(text=title, callback_data=f'gift:pay:{method}')] for method, title in PAYMENT_METHODS]
+    rows = [
+        [icon_button(label, PAYMENT_METHOD_ICONS[name], callback_data=f'gift:pay:{name}')]
+        for name, label in PAYMENT_METHOD_LABELS.items()
+    ]
     rows.append([back_to_menu_button()])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

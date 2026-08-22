@@ -45,7 +45,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database.models import Payment, Subscription, Tariff, Transaction, User
-from app.emoji import CALENDAR, CHART, EXPIRED, GLOBE, HOURGLASS, MONEY, SBP, STARS, SUCCESS
+from app.emoji import CALENDAR, CHART, EXPIRED, GLOBE, HOURGLASS, MONEY, SBP, STARS, SUCCESS, TON, Emoji, icon_button
 from app.external.remnawave import get_remnawave_client, remnawave_user_description
 from app.keyboards.main_menu import CB_SUBSCRIPTION_MY, CB_SUBSCRIPTION_RENEW, back_to_menu_button
 from app.services.notification_service import notify_payment_success
@@ -64,21 +64,30 @@ router = Router(name='subscription')
 # провайдер) -> TON -> Telegram Stars. "↗" в подписи — визуальная
 # параллель с референсом (там это настоящая внешняя ссылка на оплату; у нас
 # пока stub, ссылки может не быть, но паритет вида сохраняем).
+#
+# Единый источник label/иконки для способа оплаты — из них ниже собираются и
+# PAYMENT_METHODS (plain-текст, MiniApp API/сообщения), и сами кнопки
+# kb_payment_methods (через icon_button(), см. app/emoji.py — там же почему
+# кастомный эмодзи на кнопке это ОТДЕЛЬНОЕ поле icon_custom_emoji_id, а не
+# символ внутри текста).
+PAYMENT_METHOD_LABELS: dict[str, str] = {
+    'platega': 'Карты и СБП',
+    'ton': 'TON',
+    'stars': 'Telegram Stars',
+}
+PAYMENT_METHOD_ICONS: dict[str, Emoji] = {
+    'platega': SBP,
+    'ton': TON,
+    'stars': STARS,
+}
 PAYMENT_METHODS: dict[str, str] = {
-    'platega': '🏦 Карты и СБП',
-    'ton': '💎 TON',
-    'stars': '⭐️ Telegram Stars',
+    name: f'{PAYMENT_METHOD_ICONS[name].fallback} {label}' for name, label in PAYMENT_METHOD_LABELS.items()
 }
-# Те же способы оплаты, но с custom_emoji_id (см. app/emoji.py) — используется
-# ТОЛЬКО в тексте сообщений (подтверждение выбора), НЕ в кнопках (kb_payment_methods
-# ниже использует PAYMENT_METHODS с plain-эмодзи — Bot API не поддерживает
-# custom emoji в тексте inline-кнопок).
+# Те же способы оплаты, с custom_emoji_id — используется в тексте сообщений
+# (подтверждение выбора); кнопки берут иконку отдельно через icon_button().
 PAYMENT_METHODS_RICH: dict[str, str] = {
-    'platega': f'{SBP} Карты и СБП',
-    'ton': '💎 TON',  # нет custom_emoji_id в app/emoji.py — plain-эмодзи и в rich-варианте
-    'stars': f'{STARS} Telegram Stars',
-    'balance': '💰 Баланс',
-}
+    name: f'{PAYMENT_METHOD_ICONS[name]} {label}' for name, label in PAYMENT_METHOD_LABELS.items()
+} | {'balance': '💰 Баланс'}
 
 
 class InsufficientBalanceError(Exception):
@@ -465,8 +474,14 @@ def kb_payment_methods(amount_kopeks: int, balance_kopeks: int) -> InlineKeyboar
             [InlineKeyboardButton(text=f'💰 Баланс ({balance_kopeks / 100:.0f} ₽)', callback_data='sub:method:balance')]
         )
     rows += [
-        [InlineKeyboardButton(text=f'{label} · {_format_price(amount_kopeks, name)} ↗', callback_data=f'sub:method:{name}')]
-        for name, label in PAYMENT_METHODS.items()
+        [
+            icon_button(
+                f'{label} · {_format_price(amount_kopeks, name)} ↗',
+                PAYMENT_METHOD_ICONS[name],
+                callback_data=f'sub:method:{name}',
+            )
+        ]
+        for name, label in PAYMENT_METHOD_LABELS.items()
     ]
     rows.append([InlineKeyboardButton(text='❌ Отмена', callback_data='sub:cancel')])
     return InlineKeyboardMarkup(inline_keyboard=rows)
