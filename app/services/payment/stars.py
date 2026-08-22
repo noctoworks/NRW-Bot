@@ -48,7 +48,7 @@ class StarsProvider(PaymentProvider):
     async def verify_webhook(self, payload: dict, headers: dict) -> bool:
         raise NotImplementedError('У Stars нет вебхука — подтверждение через successful_payment')
 
-    async def check_payment_status(self, external_id: str) -> str:
+    async def check_payment_status(self, external_id: str, *, amount_kopeks: int | None = None) -> str:
         # payment_poll_loop подберёт этот платёж, только если пользователь никогда
         # не оплатит инвойс (а successful_payment-хендлер и не прилетит) — сам
         # факт оплаты сюда не приходит вообще, Telegram не даёт API для опроса

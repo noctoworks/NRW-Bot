@@ -8,7 +8,7 @@ from app.services.payment.stub import StubPaymentProvider
 
 
 def get_payment_provider(name: str) -> PaymentProvider:
-    """`name` — 'platega'|'stars'|'cryptobot'. В stub-режиме все три ведут себя одинаково —
+    """`name` — 'platega'|'stars'|'ton'. В stub-режиме все ведут себя одинаково —
     мгновенный успех, чтобы бизнес-логику можно было тестировать без внешних ключей.
 
     Platega — основной провайдер (СБП/карты), см. диалог: логика/структура по образцу
@@ -21,13 +21,13 @@ def get_payment_provider(name: str) -> PaymentProvider:
         from app.services.payment.platega import PlategaProvider
 
         return PlategaProvider()
-    if name == 'cryptobot':
-        from app.services.payment.cryptobot import CryptoBotProvider
-
-        return CryptoBotProvider()
     if name == 'stars':
         from app.services.payment.stars import StarsProvider
 
         return StarsProvider()
+    if name == 'ton':
+        from app.services.payment.ton import TonProvider
+
+        return TonProvider()
 
     raise ValueError(f'Неизвестный платёжный провайдер: {name}')

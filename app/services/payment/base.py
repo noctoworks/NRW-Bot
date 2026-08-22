@@ -1,4 +1,4 @@
-"""Интерфейс платёжного провайдера. Каждая реализация (stub/platega/cryptobot/stars)
+"""Интерфейс платёжного провайдера. Каждая реализация (stub/platega/stars/ton)
 следует одному контракту, чтобы вызывающий код (purchase.py и т.п.) не знал деталей."""
 
 from __future__ import annotations
@@ -40,5 +40,12 @@ class PaymentProvider(ABC):
         """True, если вебхук подлинный и можно доверять payload."""
 
     @abstractmethod
-    async def check_payment_status(self, external_id: str) -> str:
-        """Опрос статуса — используется payment_poll фоновой задачей (§12)."""
+    async def check_payment_status(self, external_id: str, *, amount_kopeks: int | None = None) -> str:
+        """Опрос статуса — используется payment_poll фоновой задачей (§12).
+
+        amount_kopeks — опционально, нужен ТОЛЬКО TonProvider (см.
+        app/services/payment/ton.py, диалог 2026-08-21): в отличие от Platega/
+        Stars, где сумму подтверждает сам провайдер, у TON "провайдер" —
+        это сам блокчейн, транзакцию с нужным комментарием мог прислать кто угодно
+        на любую сумму, поэтому сумму обязаны сверить мы сами. Остальные провайдеры
+        параметр игнорируют."""

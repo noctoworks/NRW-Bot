@@ -220,7 +220,7 @@ class Payment(TimestampMixin, Base):
     user_id: Mapped[int] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'), index=True)
     transaction_id: Mapped[int | None] = mapped_column(ForeignKey('transactions.id'), nullable=True)
 
-    provider: Mapped[str] = mapped_column(String(32))  # stars|yookassa|cryptobot|stub
+    provider: Mapped[str] = mapped_column(String(32))  # stars|platega|ton|stub
     external_id: Mapped[str] = mapped_column(String(128))
     amount_kopeks: Mapped[int] = mapped_column(BigInteger)
     status: Mapped[str] = mapped_column(String(16), default='pending')  # pending|success|failed

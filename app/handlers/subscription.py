@@ -45,7 +45,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database.models import Payment, Subscription, Tariff, Transaction, User
-from app.emoji import CALENDAR, CHART, CRYPTO, EXPIRED, GLOBE, HOURGLASS, MONEY, SBP, STARS, SUCCESS
+from app.emoji import CALENDAR, CHART, EXPIRED, GLOBE, HOURGLASS, MONEY, SBP, STARS, SUCCESS
 from app.external.remnawave import get_remnawave_client, remnawave_user_description
 from app.keyboards.main_menu import CB_SUBSCRIPTION_MY, CB_SUBSCRIPTION_RENEW, back_to_menu_button
 from app.services.notification_service import notify_payment_success
@@ -61,12 +61,12 @@ logger = logging.getLogger(__name__)
 router = Router(name='subscription')
 
 # Порядок и состав — см. диалог/референс-скрин: Карты и СБП (Platega, основной
-# провайдер) -> Криптовалюта -> Telegram Stars. "↗" в подписи — визуальная
+# провайдер) -> TON -> Telegram Stars. "↗" в подписи — визуальная
 # параллель с референсом (там это настоящая внешняя ссылка на оплату; у нас
 # пока stub, ссылки может не быть, но паритет вида сохраняем).
 PAYMENT_METHODS: dict[str, str] = {
     'platega': '🏦 Карты и СБП',
-    'cryptobot': '🪙 Криптовалюта',
+    'ton': '💎 TON',
     'stars': '⭐️ Telegram Stars',
 }
 # Те же способы оплаты, но с custom_emoji_id (см. app/emoji.py) — используется
@@ -75,7 +75,7 @@ PAYMENT_METHODS: dict[str, str] = {
 # custom emoji в тексте inline-кнопок).
 PAYMENT_METHODS_RICH: dict[str, str] = {
     'platega': f'{SBP} Карты и СБП',
-    'cryptobot': f'{CRYPTO} Криптовалюта',
+    'ton': '💎 TON',  # нет custom_emoji_id в app/emoji.py — plain-эмодзи и в rich-варианте
     'stars': f'{STARS} Telegram Stars',
     'balance': '💰 Баланс',
 }
@@ -102,15 +102,15 @@ PERIOD_LABELS: dict[str, str] = {
 
 
 def _format_price(amount_kopeks: int, method: str) -> str:
-    """Цена в валюте способа оплаты — см. диалог: экран показывает ₽/$ /★ сразу
-    в кнопке. Конвертация в $ и ★ приблизительная (settings.USD_RATE_KOPEKS /
+    """Цена в валюте способа оплаты — см. диалог: экран показывает ₽/TON/★ сразу
+    в кнопке. Конвертация в TON и ★ приблизительная (settings.TON_RATE_KOPEKS /
     STARS_RATE_KOPEKS) — только для отображения, см. комментарий в app/config.py."""
-    if method == 'cryptobot':
-        usd = amount_kopeks / settings.USD_RATE_KOPEKS
-        return f'${usd:.1f}'
     if method == 'stars':
         stars = max(1, round(amount_kopeks / settings.STARS_RATE_KOPEKS))
         return f'★{stars}'
+    if method == 'ton':
+        ton = amount_kopeks / settings.TON_RATE_KOPEKS
+        return f'{ton:.2f} TON'
     return f'{amount_kopeks / 100:.0f} ₽'
 
 

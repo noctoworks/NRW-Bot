@@ -171,7 +171,7 @@ async def run_payment_poll_once(bot: Bot) -> None:
         for payment in pending_payments:
             try:
                 provider = get_payment_provider(payment.provider)
-                status = await provider.check_payment_status(payment.external_id)
+                status = await provider.check_payment_status(payment.external_id, amount_kopeks=payment.amount_kopeks)
             except Exception:
                 logger.warning('payment_poll_loop: не удалось опросить payment_id=%s', payment.id, exc_info=True)
                 continue

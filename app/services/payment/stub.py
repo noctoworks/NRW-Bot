@@ -28,5 +28,5 @@ class StubPaymentProvider(PaymentProvider):
     async def verify_webhook(self, payload: dict, headers: dict) -> bool:
         return True
 
-    async def check_payment_status(self, external_id: str) -> str:
+    async def check_payment_status(self, external_id: str, *, amount_kopeks: int | None = None) -> str:
         return 'success'

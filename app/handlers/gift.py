@@ -28,7 +28,7 @@ router = Router(name='gift')
 
 PAYMENT_METHODS = [
     ('platega', '🏦 Карты и СБП'),
-    ('cryptobot', '🪙 Криптовалюта'),
+    ('ton', '💎 TON'),
     ('stars', '⭐️ Telegram Stars'),
 ]
 

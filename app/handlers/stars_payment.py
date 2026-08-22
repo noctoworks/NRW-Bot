@@ -8,7 +8,7 @@ pre_checkout_query — Telegram требует ответ в течение 10 �
 
 successful_payment — приходит уже ПОСЛЕ реального списания звёзд у пользователя;
 единственный момент, когда Stars-платёж вообще можно подтвердить — в отличие от
-Platega/CryptoBot, у Stars нет API для опроса статуса конкретного счёта (см.
+Platega/TON, у Stars нет API для опроса статуса конкретного счёта (см.
 StarsProvider.check_payment_status), поэтому payment_poll_loop для Stars бесполезен.
 """
 

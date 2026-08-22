@@ -160,7 +160,7 @@ class PlategaProvider(PaymentProvider):
             and hmac.compare_digest(secret, settings.PLATEGA_SECRET_KEY)
         )
 
-    async def check_payment_status(self, external_id: str) -> str:
+    async def check_payment_status(self, external_id: str, *, amount_kopeks: int | None = None) -> str:
         # Тот же выбор версии, что и в create_payment (endpoint) — раньше здесь был
         # всегда захардкожен v1-путь, независимо от PLATEGA_API_VERSION. При
         # PLATEGA_API_VERSION=v2 платёж создавался по v2-контракту, а опрашивался
