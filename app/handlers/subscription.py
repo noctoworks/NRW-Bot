@@ -590,12 +590,12 @@ async def cb_subscription_my(callback: CallbackQuery, db: AsyncSession, db_user:
     subscription = await get_user_subscription(db, db_user.id)
 
     if subscription is None:
-        summary_html = format_subscription_summary(None, db_user.balance_kopeks, name=db_user.full_name)
+        summary_html = format_subscription_summary(None, db_user.balance_kopeks, name=db_user.display_name)
         await callback.message.edit_text(rich_message=InputRichMessage(html=summary_html), reply_markup=kb_no_subscription())
         await callback.answer()
         return
 
-    text = format_subscription_summary(subscription, db_user.balance_kopeks, name=db_user.full_name)
+    text = format_subscription_summary(subscription, db_user.balance_kopeks, name=db_user.display_name)
     await _send_subscription_view(callback, text, subscription.subscription_url, autopay_enabled=subscription.autopay_enabled)
     await callback.answer()
 
@@ -660,7 +660,7 @@ async def cb_autopay_toggle(callback: CallbackQuery, db: AsyncSession, db_user: 
         )
         await callback.answer('Автоплатёж создан, подтвердите привязку')
 
-    text = format_subscription_summary(subscription, db_user.balance_kopeks, name=db_user.full_name)
+    text = format_subscription_summary(subscription, db_user.balance_kopeks, name=db_user.display_name)
     await _send_subscription_view(callback, text, subscription.subscription_url, autopay_enabled=subscription.autopay_enabled)
 
 
@@ -900,7 +900,7 @@ async def cb_confirm_purchase(
         return
 
     text = f'<p>{SUCCESS} <b>Оплата прошла успешно!</b></p>' + format_subscription_summary(
-        subscription, db_user.balance_kopeks, name=db_user.full_name
+        subscription, db_user.balance_kopeks, name=db_user.display_name
     )
     await _send_subscription_view(callback, text, subscription.subscription_url, autopay_enabled=subscription.autopay_enabled)
     await callback.answer()
