@@ -215,7 +215,7 @@ async def _show_main_menu(target: Message | CallbackQuery, db: AsyncSession, db_
     from app.handlers.subscription import format_subscription_summary, get_user_subscription
 
     subscription = await get_user_subscription(db, db_user.id)
-    html = format_subscription_summary(subscription, db_user.balance_kopeks, name=db_user.display_name)
+    html = format_subscription_summary(subscription, db_user.balance_kopeks, name=target.from_user.full_name)
 
     if isinstance(target, CallbackQuery):
         await _edit_or_answer_rich(target, html, get_main_menu_keyboard(is_admin=db_user.is_admin))

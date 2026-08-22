@@ -84,16 +84,6 @@ class User(TimestampMixin, Base):
     referred_by: Mapped['User | None'] = relationship(remote_side=[id])
     promo_group: Mapped['PromoGroup | None'] = relationship()
 
-    @property
-    def display_name(self) -> str:
-        """Имя для персонального обращения (карточка подписки, приветствия) —
-        full_name предпочтительнее @username (см. диалог "не username, а
-        просто name"), но у части юзеров, перенесённых из старого бота,
-        full_name пусто (найдено вживую — падал /start с AttributeError на
-        html.escape(None)). username — тоже опционален в Telegram, поэтому
-        третий фолбэк на telegram_id, который есть всегда."""
-        return self.full_name or self.username or f'id{self.telegram_id}'
-
 
 class PromoGroup(TimestampMixin, Base):
     """Скидочный тир на юзера (см. диалог, портировано из Bedolaga упрощённо —
