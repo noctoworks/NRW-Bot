@@ -13,8 +13,9 @@
 
 from __future__ import annotations
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
+from app.config import settings
 from app.emoji import MENU_GIFT, MENU_REFERRAL, MENU_RENEW, MENU_SUBSCRIPTION, MENU_SUPPORT, icon_button
 
 CB_SUBSCRIPTION_MY = 'subscription:my'
@@ -47,12 +48,19 @@ def back_to_menu_button() -> InlineKeyboardButton:
 def get_main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
     """Базовый сценарий — всегда в чате бота (см. диалог: "нужно оставить также
     базовый функционал в боте", человек должен мочь оплатить и через бота, и
-    через Mini App, а не только через одно из двух). Отдельной кнопки в Mini
-    App здесь больше нет (см. диалог "убери кнопку Открыть приложение") — вход
-    в Mini App остаётся точечным, только там, где у него есть явное преимущество
-    (см. handlers/subscription.py, кнопки покупки/продления)."""
+    через Mini App, а не только через одно из двух). Отдельной кнопки-шортката
+    в Mini App здесь больше нет (см. диалог "убери кнопку Открыть приложение"),
+    кроме "Моя подписка" — та теперь сама ведёт в Mini App (см. диалог), а не в
+    чат-сценарий; остальной вход в Mini App остаётся точечным, только там, где
+    у него есть явное преимущество (см. handlers/subscription.py, кнопки
+    покупки/продления)."""
+    my_subscription_button = (
+        icon_button('Моя подписка', MENU_SUBSCRIPTION, web_app=WebAppInfo(url=settings.MINIAPP_URL))
+        if settings.MINIAPP_URL
+        else icon_button('Моя подписка', MENU_SUBSCRIPTION, callback_data=CB_SUBSCRIPTION_MY)
+    )
     rows: list[list[InlineKeyboardButton]] = [
-        [icon_button('Моя подписка', MENU_SUBSCRIPTION, callback_data=CB_SUBSCRIPTION_MY)],
+        [my_subscription_button],
         [icon_button('Продлить подписку', MENU_RENEW, callback_data=CB_SUBSCRIPTION_RENEW)],
         [icon_button('Подарить подписку', MENU_GIFT, callback_data=CB_GIFT_MENU)],
         [
