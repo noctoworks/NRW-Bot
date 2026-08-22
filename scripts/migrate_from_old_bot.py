@@ -370,6 +370,11 @@ async def _run(old_conn: asyncpg.Connection, *, dry_run: bool) -> None:
                             user_id=new_user_id,
                             tariff_id=old_tariff_id_to_new[sub_row['tariff_id']],
                             status=new_status,
+                            # Реальная схема Bedolaga уже хранит is_trial нативно (не эвристика,
+                            # см. диалог 2026-08-22) — раньше запрашивали это поле из старой
+                            # строки, но никуда не подставляли, и оно тихо оставалось дефолтным
+                            # False у ВСЕХ перенесённых подписок (в т.ч. триальных).
+                            is_trial=bool(sub_row['is_trial']),
                             start_date=_aware(sub_row['start_date']) or _aware(sub_row['created_at']),
                             end_date=_aware(sub_row['end_date']) or datetime.now(timezone.utc),
                             traffic_limit_gb=sub_row['traffic_limit_gb'] or 0,
