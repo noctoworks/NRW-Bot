@@ -51,6 +51,7 @@ from app.keyboards.main_menu import (
     CB_SUBSCRIPTION_MY,
     CB_SUBSCRIPTION_RENEW,
     CB_SUPPORT_MENU,
+    back_to_menu_button,
 )
 from app.services.notification_service import notify_balance_changed
 from app.states import AdminBroadcastStates, AdminEmojiStates, AdminPromoCodeStates, AdminTariffStates, AdminUserStates
@@ -141,6 +142,11 @@ def _root_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text='📊 Статистика', callback_data=CB_STATS_MENU),
                 InlineKeyboardButton(text='📢 Рассылка', callback_data=CB_ADMIN_BROADCAST),
             ],
+            # Разделы ниже уходят через _back_button() на CB_ADMIN_ROOT (сюда же),
+            # но сам корневой экран раньше был тупиком — обратно в обычное меню
+            # можно было попасть только новым /start (см. диалог "нужно добавить
+            # кнопку, чтобы я мог вернуться на главный экран").
+            [back_to_menu_button()],
         ]
     )
 

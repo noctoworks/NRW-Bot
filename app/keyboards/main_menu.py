@@ -13,9 +13,7 @@
 
 from __future__ import annotations
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
-
-from app.config import settings
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 CB_SUBSCRIPTION_MY = 'subscription:my'
 CB_SUBSCRIPTION_RENEW = 'subscription:renew'
@@ -47,15 +45,11 @@ def back_to_menu_button() -> InlineKeyboardButton:
 def get_main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
     """Базовый сценарий — всегда в чате бота (см. диалог: "нужно оставить также
     базовый функционал в боте", человек должен мочь оплатить и через бота, и
-    через Mini App, а не только через одно из двух). Mini App — ДОПОЛНИТЕЛЬНЫЙ
-    способ, отдельная кнопка сверху, а не замена остальных пунктов меню.
-
-    (Более ранняя версия переводила часть пунктов меню в web_app-кнопки вместо
-    чат-сценария — откачено по этому же диалогу.)"""
-    rows: list[list[InlineKeyboardButton]] = []
-    if settings.MINIAPP_URL:
-        rows.append([InlineKeyboardButton(text='🚀 Открыть приложение', web_app=WebAppInfo(url=settings.MINIAPP_URL))])
-    rows += [
+    через Mini App, а не только через одно из двух). Отдельной кнопки в Mini
+    App здесь больше нет (см. диалог "убери кнопку Открыть приложение") — вход
+    в Mini App остаётся точечным, только там, где у него есть явное преимущество
+    (см. handlers/subscription.py, кнопки покупки/продления)."""
+    rows: list[list[InlineKeyboardButton]] = [
         [InlineKeyboardButton(text='🌐 Моя подписка', callback_data=CB_SUBSCRIPTION_MY)],
         [InlineKeyboardButton(text='💎 Продлить подписку', callback_data=CB_SUBSCRIPTION_RENEW)],
         [InlineKeyboardButton(text='🎁 Подарить подписку', callback_data=CB_GIFT_MENU)],
@@ -63,10 +57,7 @@ def get_main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text='👥 Пригласить', callback_data=CB_REFERRAL_MENU),
             InlineKeyboardButton(text='❓ Поддержка', callback_data=CB_SUPPORT_MENU),
         ],
-        [
-            InlineKeyboardButton(text='ℹ️ О сервисе', callback_data=CB_INFO_ABOUT),
-            InlineKeyboardButton(text='⚙️ Настройки', callback_data=CB_SETTINGS_MENU),
-        ],
+        [InlineKeyboardButton(text='ℹ️ О сервисе', callback_data=CB_INFO_ABOUT)],
     ]
     if is_admin:
         rows.append([InlineKeyboardButton(text='🛠 Админ панель', callback_data=CB_ADMIN_ROOT)])
