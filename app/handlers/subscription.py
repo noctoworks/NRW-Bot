@@ -380,20 +380,17 @@ def format_subscription_summary(subscription: Subscription | None, balance_kopek
 
 
 def kb_no_subscription() -> InlineKeyboardMarkup:
+    # Обе кнопки одновременно (см. диалог: "нужно оставить также базовый
+    # функционал в боте... человек мог оплатить и через бота, и через
+    # MiniApp") — старый чат-сценарий выбора тарифа/периода/способа оплаты
+    # никуда не делся, Mini App — просто ещё один способ добраться до оплаты.
+    rows = [[InlineKeyboardButton(text='💎 Купить подписку', callback_data='sub:buy')]]
     if settings.MINIAPP_URL:
-        # Тот же принцип, что у "🔌 Подключить VPN" ниже — ведём в Mini App
-        # вместо старого чат-сценария выбора тарифа/периода/способа оплаты.
-        buy_button = InlineKeyboardButton(
-            text='💎 Купить подписку', web_app=WebAppInfo(url=f'{settings.MINIAPP_URL}/payment')
+        rows.append(
+            [InlineKeyboardButton(text='🚀 Купить в приложении', web_app=WebAppInfo(url=f'{settings.MINIAPP_URL}/payment'))]
         )
-    else:
-        buy_button = InlineKeyboardButton(text='💎 Купить подписку', callback_data='sub:buy')
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [buy_button],
-            [back_to_menu_button()],
-        ]
-    )
+    rows.append([back_to_menu_button()])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 COPY_TEXT_MAX_LENGTH = 256  # ограничение Telegram Bot API для CopyTextButton.text
@@ -425,24 +422,17 @@ def kb_subscription_active(
     else:
         rows.append([InlineKeyboardButton(text='📋 Скопировать ключ', callback_data='sub:connect')])
 
+    # Тот же принцип, что и в kb_no_subscription — чат-сценарий продления
+    # остаётся основным, Mini App добавляется отдельной кнопкой рядом, а не
+    # вместо него.
+    rows.append([InlineKeyboardButton(text='💎 Продлить подписку', callback_data=CB_SUBSCRIPTION_RENEW)])
     if settings.MINIAPP_URL:
         rows.append(
-            [
-                InlineKeyboardButton(
-                    text='💎 Продлить подписку', web_app=WebAppInfo(url=f'{settings.MINIAPP_URL}/payment')
-                )
-            ]
+            [InlineKeyboardButton(text='🚀 Продлить в приложении', web_app=WebAppInfo(url=f'{settings.MINIAPP_URL}/payment'))]
         )
-    else:
-        rows.append([InlineKeyboardButton(text='💎 Продлить подписку', callback_data=CB_SUBSCRIPTION_RENEW)])
     autopay_label = '🔕 Отключить автоплатёж' if autopay_enabled else '🔄 Включить автоплатёж'
     rows.append([InlineKeyboardButton(text=autopay_label, callback_data='sub:autopay:toggle')])
-    if settings.MINIAPP_URL:
-        rows.append(
-            [InlineKeyboardButton(text='📱 Устройства', web_app=WebAppInfo(url=f'{settings.MINIAPP_URL}/devices'))]
-        )
-    else:
-        rows.append([InlineKeyboardButton(text='📱 Устройства', callback_data='sub:devices')])
+    rows.append([InlineKeyboardButton(text='📱 Устройства', callback_data='sub:devices')])
     rows.append([back_to_menu_button()])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
