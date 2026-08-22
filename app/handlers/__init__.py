@@ -42,6 +42,10 @@ def register_all_handlers(dp: Dispatcher) -> None:
 
     support.register_handlers(dp)
 
+    from app.handlers import proxy
+
+    proxy.register_handlers(dp)
+
     from app.handlers import admin
 
     admin.register_handlers(dp)

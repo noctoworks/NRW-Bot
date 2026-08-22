@@ -32,6 +32,28 @@ services:
       timeout: 5s
       retries: 10
 
+  # MTProto-прокси для самого Telegram (FakeTLS, см. диалог 2026-08-22) — НЕ VPN
+  # на весь трафик, только разгоняет сам мессенджер. Профиль 'proxy' — сервис НЕ
+  # стартует по умолчанию (`docker compose up`), только явно:
+  #   docker compose --profile proxy up -d
+  # Секрет генерируется один раз командой:
+  #   docker run --rm nineseconds/mtg:2 generate-secret tls -c www.google.com
+  # и кладётся в .env как PROXY_SECRET — тот же секрет должен знать и бот
+  # (для ссылки t.me/proxy?...), и сам mtg (чтобы шифровать/расшифровывать).
+  mtg:
+    image: nineseconds/mtg:2
+    restart: unless-stopped
+    profiles: ['proxy']
+    # :- а не :? — интерполяция переменных в compose считается для ВСЕХ
+    # сервисов при любом запуске, даже без --profile proxy; :? уронил бы
+    # обычный `docker compose up` бота, если PROXY_SECRET ещё не задан.
+    command: ['run', '${PROXY_SECRET:-unset}']
+    ports:
+      # 443 совместно с реверс-прокси на этом порту не уживётся — если 443 уже
+      # занят Caddy/nginx, выберите другой PROXY_PORT (например 8443) и укажите
+      # его же в .env бота, он ходит в ссылку, а не в сам контейнер.
+      - '${PROXY_PORT:-443}:3128'
+
   bot:
     build: .
     restart: unless-stopped

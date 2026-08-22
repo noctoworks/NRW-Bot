@@ -7,6 +7,7 @@
     gift:menu            -> handlers/gift.py           ("Подарить подписку")
     referral:menu         -> handlers/referral.py        ("Пригласить")
     support:menu           -> handlers/support.py          ("Поддержка")
+    proxy:menu               -> handlers/proxy.py             ("Прокси", см. диалог 2026-08-22)
     info:about               -> handlers/start.py             ("О сервисе", статика)
     settings:menu              -> handlers/start.py             ("Настройки", язык)
 """
@@ -16,13 +17,14 @@ from __future__ import annotations
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
 from app.config import settings
-from app.emoji import MENU_GIFT, MENU_REFERRAL, MENU_RENEW, MENU_SUBSCRIPTION, MENU_SUPPORT, icon_button
+from app.emoji import MENU_GIFT, MENU_PROXY, MENU_REFERRAL, MENU_RENEW, MENU_SUBSCRIPTION, MENU_SUPPORT, icon_button
 
 CB_SUBSCRIPTION_MY = 'subscription:my'
 CB_SUBSCRIPTION_RENEW = 'subscription:renew'
 CB_GIFT_MENU = 'gift:menu'
 CB_REFERRAL_MENU = 'referral:menu'
 CB_SUPPORT_MENU = 'support:menu'
+CB_PROXY_MENU = 'proxy:menu'
 CB_INFO_ABOUT = 'info:about'
 CB_SETTINGS_MENU = 'settings:menu'
 
@@ -70,6 +72,10 @@ def get_main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
         # Без эмодзи вообще (см. диалог) — ни fallback-символа в тексте, ни иконки.
         [InlineKeyboardButton(text='О сервисе', callback_data=CB_INFO_ABOUT)],
     ]
+    if settings.PROXY_ENABLED:
+        # Отдельной строкой, а не в паре с "Пригласить"/"Поддержка" — фича не
+        # связана с ними по смыслу, добавлена позже (см. диалог 2026-08-22).
+        rows.append([icon_button('Прокси для Telegram', MENU_PROXY, callback_data=CB_PROXY_MENU)])
     if is_admin:
         rows.append([InlineKeyboardButton(text='🛠 Админ панель', callback_data=CB_ADMIN_ROOT)])
     return InlineKeyboardMarkup(inline_keyboard=rows)

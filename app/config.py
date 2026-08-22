@@ -117,6 +117,17 @@ class Settings(BaseSettings):
     # --- Сид-данные ---
     DEFAULT_TARIFF_NAME: str = 'Standard'
 
+    # --- Telegram-прокси (MTProto/FakeTLS через mtg, см. диалог 2026-08-22) —
+    # разгоняет/разблокирует сам Telegram (не весь трафик, для этого есть VPN-
+    # подписка). Секрет ОБЩИЙ на всех пользователей — как в любом публичном
+    # MTProxy-боте, персональные секреты не нужны для этого MVP. Секрет и
+    # PROXY_SERVER/PROXY_PORT должны совпадать с тем, что реально слушает
+    # контейнер mtg (см. docker-compose.yml, профиль 'proxy'). ---
+    PROXY_ENABLED: bool = False
+    PROXY_SERVER: str = ''
+    PROXY_PORT: int = 443
+    PROXY_SECRET: str = ''
+
     @model_validator(mode='after')
     def _validate_dependent_secrets(self) -> 'Settings':
         if self.CABINET_ENABLED and not self.CABINET_JWT_SECRET:
@@ -131,6 +142,8 @@ class Settings(BaseSettings):
             or self.TON_WALLET_ADDRESS
         ):
             raise ValueError('PAYMENTS_MODE=real требует ключей хотя бы одного провайдера')
+        if self.PROXY_ENABLED and not (self.PROXY_SERVER and self.PROXY_SECRET):
+            raise ValueError('PROXY_ENABLED=true требует PROXY_SERVER и PROXY_SECRET')
         return self
 
     def admin_ids(self) -> set[int]:
