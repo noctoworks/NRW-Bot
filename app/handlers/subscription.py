@@ -24,6 +24,7 @@ callback-кнопку, показывающую ссылку текстом (с�
 
 from __future__ import annotations
 
+import html
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -45,7 +46,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database.models import Payment, Subscription, Tariff, Transaction, User
-from app.emoji import CALENDAR, CHART, EXPIRED, GLOBE, HOURGLASS, MONEY, SBP, STARS, SUCCESS, TON, Emoji, icon_button
+from app.emoji import CHART, EXPIRED, GLOBE, HOURGLASS, MONEY, SBP, STARS, SUCCESS, TON, Emoji, icon_button
 from app.external.remnawave import get_remnawave_client, remnawave_user_description
 from app.keyboards.main_menu import CB_SUBSCRIPTION_MY, CB_SUBSCRIPTION_RENEW, back_to_menu_button
 from app.services.notification_service import notify_payment_success
@@ -351,7 +352,7 @@ def _format_time_left(end_date: datetime) -> str:
     return ' '.join(parts)
 
 
-def format_subscription_summary(subscription: Subscription | None, balance_kopeks: int) -> str:
+def format_subscription_summary(subscription: Subscription | None, balance_kopeks: int, name: str) -> str:
     """Компактная карточка в разметке Rich Message (Bot API 10.1) — <h2>/<blockquote>
     подтверждены живым тестом на реальном боте (см. диалог), не выдумано по документации.
     Результат — HTML для InputRichMessage(html=...), НЕ для обычного parse_mode=HTML
@@ -361,25 +362,33 @@ def format_subscription_summary(subscription: Subscription | None, balance_kopek
     статус/устройства/тариф намеренно не дублируются здесь — они доступны через
     кнопку «Устройства» и не нужны на этом экране.
 
+    Заголовок — персональное приветствие по имени (db_user.full_name, см. диалог
+    "писать имя пользователя, не username, а просто name") вместо родового "Моя
+    подписка" — та же информация уже есть в кнопке. Имя экранируется html.escape
+    (это ввод из Telegram-профиля пользователя, может содержать html-спецсимволы,
+    см. тот же паттерн в handlers/support.py). "Осталось"/"До" из двух строк
+    склеены в одну — см. диалог "надо сделать почище всё".
+
     Иконки — через app/emoji.py (Emoji.html()): пока custom_id не задан, рендерится
     обычный unicode-fallback (текущее видимое поведение не меняется), см. диалог
     про кастомные премиум-эмодзи."""
+    greeting = f'<h2>Привет, {html.escape(name)}!</h2>'
     balance_line = f'<p>{MONEY} Баланс: <b>{balance_kopeks / 100:.2f} ₽</b></p>'
 
     if subscription is None:
-        return f'<h2>{GLOBE} Подписка не оформлена</h2>{balance_line}'
+        return f'{greeting}<p>{GLOBE} Подписка не оформлена</p>{balance_line}'
 
     if subscription.status != 'active' or not subscription.end_date:
         end_date_str = subscription.end_date.strftime('%d.%m.%Y') if subscription.end_date else '—'
-        return f'<h2>{EXPIRED} Подписка истекла</h2><p>{end_date_str}</p>{balance_line}'
+        return f'{greeting}<p>{EXPIRED} Подписка истекла {end_date_str}</p>{balance_line}'
 
     traffic_limit = '∞' if subscription.traffic_limit_gb == 0 else str(subscription.traffic_limit_gb)
     end_date_str = subscription.end_date.strftime('%d.%m.%Y')
 
     return (
-        f'<h2>{GLOBE} Моя подписка</h2>'
-        f'<blockquote>{HOURGLASS} Осталось: <b>{_format_time_left(subscription.end_date)}</b></blockquote>'
-        f'<p>{CALENDAR} До {end_date_str}</p>'
+        f'{greeting}'
+        f'<blockquote>{HOURGLASS} Осталось: <b>{_format_time_left(subscription.end_date)}</b> '
+        f'(до {end_date_str})</blockquote>'
         f'<p>{CHART} Трафик: <b>{subscription.traffic_used_gb:.1f} / {traffic_limit} ГБ</b></p>'
         f'{balance_line}'
     )
@@ -581,12 +590,12 @@ async def cb_subscription_my(callback: CallbackQuery, db: AsyncSession, db_user:
     subscription = await get_user_subscription(db, db_user.id)
 
     if subscription is None:
-        html = format_subscription_summary(None, db_user.balance_kopeks)
-        await callback.message.edit_text(rich_message=InputRichMessage(html=html), reply_markup=kb_no_subscription())
+        summary_html = format_subscription_summary(None, db_user.balance_kopeks, name=db_user.full_name)
+        await callback.message.edit_text(rich_message=InputRichMessage(html=summary_html), reply_markup=kb_no_subscription())
         await callback.answer()
         return
 
-    text = format_subscription_summary(subscription, db_user.balance_kopeks)
+    text = format_subscription_summary(subscription, db_user.balance_kopeks, name=db_user.full_name)
     await _send_subscription_view(callback, text, subscription.subscription_url, autopay_enabled=subscription.autopay_enabled)
     await callback.answer()
 
@@ -651,7 +660,7 @@ async def cb_autopay_toggle(callback: CallbackQuery, db: AsyncSession, db_user: 
         )
         await callback.answer('Автоплатёж создан, подтвердите привязку')
 
-    text = format_subscription_summary(subscription, db_user.balance_kopeks)
+    text = format_subscription_summary(subscription, db_user.balance_kopeks, name=db_user.full_name)
     await _send_subscription_view(callback, text, subscription.subscription_url, autopay_enabled=subscription.autopay_enabled)
 
 
@@ -890,7 +899,9 @@ async def cb_confirm_purchase(
         await callback.answer()
         return
 
-    text = f'<p>{SUCCESS} <b>Оплата прошла успешно!</b></p>' + format_subscription_summary(subscription, db_user.balance_kopeks)
+    text = f'<p>{SUCCESS} <b>Оплата прошла успешно!</b></p>' + format_subscription_summary(
+        subscription, db_user.balance_kopeks, name=db_user.full_name
+    )
     await _send_subscription_view(callback, text, subscription.subscription_url, autopay_enabled=subscription.autopay_enabled)
     await callback.answer()
 
