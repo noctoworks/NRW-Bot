@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from app.emoji import MENU_GIFT, MENU_REFERRAL, MENU_RENEW, MENU_SUBSCRIPTION, MENU_SUPPORT, icon_button
+
 CB_SUBSCRIPTION_MY = 'subscription:my'
 CB_SUBSCRIPTION_RENEW = 'subscription:renew'
 CB_GIFT_MENU = 'gift:menu'
@@ -50,14 +52,15 @@ def get_main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
     в Mini App остаётся точечным, только там, где у него есть явное преимущество
     (см. handlers/subscription.py, кнопки покупки/продления)."""
     rows: list[list[InlineKeyboardButton]] = [
-        [InlineKeyboardButton(text='🌐 Моя подписка', callback_data=CB_SUBSCRIPTION_MY)],
-        [InlineKeyboardButton(text='💎 Продлить подписку', callback_data=CB_SUBSCRIPTION_RENEW)],
-        [InlineKeyboardButton(text='🎁 Подарить подписку', callback_data=CB_GIFT_MENU)],
+        [icon_button('Моя подписка', MENU_SUBSCRIPTION, callback_data=CB_SUBSCRIPTION_MY)],
+        [icon_button('Продлить подписку', MENU_RENEW, callback_data=CB_SUBSCRIPTION_RENEW)],
+        [icon_button('Подарить подписку', MENU_GIFT, callback_data=CB_GIFT_MENU)],
         [
-            InlineKeyboardButton(text='👥 Пригласить', callback_data=CB_REFERRAL_MENU),
-            InlineKeyboardButton(text='❓ Поддержка', callback_data=CB_SUPPORT_MENU),
+            icon_button('Пригласить', MENU_REFERRAL, callback_data=CB_REFERRAL_MENU),
+            icon_button('Поддержка', MENU_SUPPORT, callback_data=CB_SUPPORT_MENU),
         ],
-        [InlineKeyboardButton(text='ℹ️ О сервисе', callback_data=CB_INFO_ABOUT)],
+        # Без эмодзи вообще (см. диалог) — ни fallback-символа в тексте, ни иконки.
+        [InlineKeyboardButton(text='О сервисе', callback_data=CB_INFO_ABOUT)],
     ]
     if is_admin:
         rows.append([InlineKeyboardButton(text='🛠 Админ панель', callback_data=CB_ADMIN_ROOT)])

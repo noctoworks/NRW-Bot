@@ -79,3 +79,12 @@ SUCCESS = Emoji(fallback='✅')
 SBP = Emoji(fallback='🏦', custom_id='5368446439800197476')  # СБП (Платега)
 STARS = Emoji(fallback='⭐️', custom_id='5321485469249198987')  # Telegram Stars
 TON = Emoji(fallback='💎')  # custom_id ещё не пришёл — пока обычный fallback
+
+# === Главное меню (app/keyboards/main_menu.py) — только на кнопках, через
+# icon_button(). custom_id присланы и сверены через bot.get_custom_emoji_stickers
+# (родные эмодзи совпали с fallback ниже). ===
+MENU_SUBSCRIPTION = Emoji(fallback='🌐', custom_id='5879585266426973039')  # "Моя подписка"
+MENU_RENEW = Emoji(fallback='💎', custom_id='5807465992363710697')  # "Продлить подписку"
+MENU_GIFT = Emoji(fallback='🎁', custom_id='6032937473162614352')  # "Подарить подписку"
+MENU_REFERRAL = Emoji(fallback='👥', custom_id='5944970130554359187')  # "Пригласить"
+MENU_SUPPORT = Emoji(fallback='✉️', custom_id='5967280668885913944')  # "Поддержка"
