@@ -380,9 +380,17 @@ def format_subscription_summary(subscription: Subscription | None, balance_kopek
 
 
 def kb_no_subscription() -> InlineKeyboardMarkup:
+    if settings.MINIAPP_URL:
+        # Тот же принцип, что у "🔌 Подключить VPN" ниже — ведём в Mini App
+        # вместо старого чат-сценария выбора тарифа/периода/способа оплаты.
+        buy_button = InlineKeyboardButton(
+            text='💎 Купить подписку', web_app=WebAppInfo(url=f'{settings.MINIAPP_URL}/payment')
+        )
+    else:
+        buy_button = InlineKeyboardButton(text='💎 Купить подписку', callback_data='sub:buy')
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text='💎 Купить подписку', callback_data='sub:buy')],
+            [buy_button],
             [back_to_menu_button()],
         ]
     )
@@ -417,10 +425,24 @@ def kb_subscription_active(
     else:
         rows.append([InlineKeyboardButton(text='📋 Скопировать ключ', callback_data='sub:connect')])
 
-    rows.append([InlineKeyboardButton(text='💎 Продлить подписку', callback_data=CB_SUBSCRIPTION_RENEW)])
+    if settings.MINIAPP_URL:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text='💎 Продлить подписку', web_app=WebAppInfo(url=f'{settings.MINIAPP_URL}/payment')
+                )
+            ]
+        )
+    else:
+        rows.append([InlineKeyboardButton(text='💎 Продлить подписку', callback_data=CB_SUBSCRIPTION_RENEW)])
     autopay_label = '🔕 Отключить автоплатёж' if autopay_enabled else '🔄 Включить автоплатёж'
     rows.append([InlineKeyboardButton(text=autopay_label, callback_data='sub:autopay:toggle')])
-    rows.append([InlineKeyboardButton(text='📱 Устройства', callback_data='sub:devices')])
+    if settings.MINIAPP_URL:
+        rows.append(
+            [InlineKeyboardButton(text='📱 Устройства', web_app=WebAppInfo(url=f'{settings.MINIAPP_URL}/devices'))]
+        )
+    else:
+        rows.append([InlineKeyboardButton(text='📱 Устройства', callback_data='sub:devices')])
     rows.append([back_to_menu_button()])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
