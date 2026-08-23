@@ -98,11 +98,9 @@ class ReferralResponse(BaseModel):
     percent: int
     invited_count: int
     earned_kopeks: int
-    # Ближайший непройденный порог REFERRAL_MILESTONES (см.
-    # services/referral_service.py) — null, если все известные пороги уже
-    # пройдены. Даёт фронту показать прогресс-бар "ещё N друзей до бонуса".
-    next_milestone_at: int | None = None
-    next_milestone_bonus_days: int | None = None
+    # Флэт-бонус (см. services/referral_service.py::REFERRAL_INVITE_BONUS_DAYS) —
+    # начисляется рефереру за КАЖДОГО приглашённого сразу при регистрации.
+    invite_bonus_days: int
 
 
 class ProfileResponse(BaseModel):

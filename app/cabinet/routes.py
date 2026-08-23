@@ -53,7 +53,7 @@ from app.handlers.subscription import (
 )
 from app.services.pricing_service import apply_discount, get_discount_percent
 from app.services.promocode_service import PromoCodeError, activate_promocode
-from app.services.referral_service import REFERRAL_MILESTONES, generate_referral_code
+from app.services.referral_service import REFERRAL_INVITE_BONUS_DAYS, generate_referral_code
 
 router = APIRouter(prefix='/cabinet')
 
@@ -286,20 +286,12 @@ async def referral(db: AsyncSession = Depends(get_db), user: User = Depends(get_
     percent = user.referral_commission_percent if user.referral_commission_percent is not None else settings.REFERRAL_PERCENT
     referral_link = f'https://t.me/{settings.BOT_USERNAME}?start=ref_{user.referral_code}' if settings.BOT_USERNAME else ''
 
-    next_milestone_at: int | None = None
-    next_milestone_bonus_days: int | None = None
-    upcoming = sorted(t for t in REFERRAL_MILESTONES if t > invited_count)
-    if upcoming:
-        next_milestone_at = upcoming[0]
-        next_milestone_bonus_days = REFERRAL_MILESTONES[next_milestone_at]
-
     return ReferralResponse(
         referral_link=referral_link,
         percent=percent,
         invited_count=invited_count,
         earned_kopeks=earned_kopeks,
-        next_milestone_at=next_milestone_at,
-        next_milestone_bonus_days=next_milestone_bonus_days,
+        invite_bonus_days=REFERRAL_INVITE_BONUS_DAYS,
     )
 
 

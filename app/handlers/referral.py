@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database.models import ReferralEarning, User
 from app.keyboards.main_menu import CB_REFERRAL_MENU, back_to_menu_button
+from app.services.referral_service import REFERRAL_INVITE_BONUS_DAYS
 
 router = Router(name='referral')
 
@@ -24,7 +25,9 @@ TEXTS = {
         'info': (
             '👥 <b>Реферальная программа</b>\n\n'
             'Приглашайте друзей и получайте {percent}% от каждой их оплаты '
-            '(покупка/продление подписки, пополнение баланса) на свой баланс.\n\n'
+            '(покупка/продление подписки, пополнение баланса) на свой баланс — '
+            'плюс +{bonus_days} дн. подписки сразу, как только друг зарегистрируется '
+            'по вашей ссылке.\n\n'
             'Ваша ссылка:\n<code>{link}</code>\n\n'
             'Приглашено: <b>{count}</b>\n'
             'Заработано: <b>{earned:.2f} ₽</b>'
@@ -38,7 +41,9 @@ TEXTS = {
         'info': (
             '👥 <b>Referral program</b>\n\n'
             'Invite friends and get {percent}% of every payment they make '
-            '(subscription purchase/renewal, balance top-up) credited to your balance.\n\n'
+            '(subscription purchase/renewal, balance top-up) credited to your balance — '
+            'plus +{bonus_days}d of subscription instantly once a friend registers via '
+            'your link.\n\n'
             'Your link:\n<code>{link}</code>\n\n'
             'Invited: <b>{count}</b>\n'
             'Earned: <b>{earned:.2f}</b>'
@@ -86,6 +91,7 @@ async def cb_referral_menu(callback: CallbackQuery, db: AsyncSession, db_user: U
 
     text = _t(lang, 'info').format(
         percent=settings.REFERRAL_PERCENT,
+        bonus_days=REFERRAL_INVITE_BONUS_DAYS,
         link=link,
         count=invited_count,
         earned=earned_kopeks / 100,

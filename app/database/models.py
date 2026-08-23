@@ -45,11 +45,6 @@ class User(TimestampMixin, Base):
     # settings.REFERRAL_PERCENT" (см. services/referral_service.py::credit_referral_earning).
     # Не 0 по умолчанию: 0 означало бы "начислять 0%", а не "используй глобальную".
     referral_commission_percent: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # Наибольший порог реф-программы (см. services/referral_service.py::REFERRAL_MILESTONES),
-    # за который уже начислен бонус — без этого при каждой новой регистрации
-    # рефералы пришлось бы пересчитывать и начислять заново. 0 = ни один порог
-    # ещё не достигнут.
-    referral_milestone_reached: Mapped[int] = mapped_column(Integer, default=0)
 
     remnawave_uuid: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 

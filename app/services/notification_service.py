@@ -19,7 +19,9 @@ import logging
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramRetryAfter
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -54,10 +56,10 @@ async def notify_referral_bonus(bot: Bot, *, telegram_id: int, amount_kopeks: in
     await _safe_send(bot, telegram_id=telegram_id, text=text)
 
 
-async def notify_referral_milestone(bot: Bot, *, telegram_id: int, invited_count: int, bonus_days: int) -> None:
+async def notify_referral_invite_bonus(bot: Bot, *, telegram_id: int, bonus_days: int) -> None:
     text = (
-        f'🚀 Вы пригласили уже {invited_count} друзей!\n\n'
-        f'Начислено +{bonus_days} дн. подписки за это достижение — загляните в «Моя подписка».'
+        f'🚀 По вашей ссылке зарегистрировался друг — начислено +{bonus_days} дн. подписки!\n\n'
+        'Приглашайте ещё — бонус начисляется за каждого нового друга.'
     )
     await _safe_send(bot, telegram_id=telegram_id, text=text)
 
@@ -137,29 +139,33 @@ async def notify_autopay_stopped(bot: Bot, *, telegram_id: int) -> None:
 # уведомления — вернуть юзера в конкретный экран, а не просто сообщить факт. ===
 
 
-async def notify_winback(bot: Bot, *, telegram_id: int) -> None:
+def _renew_button(text: str) -> InlineKeyboardButton:
+    """Ведёт сразу на экран оплаты Mini App (сам подставляет тариф/период/способ
+    по умолчанию — см. Payment.tsx), а не в чат-сценарий выбора тарифа. Пока
+    MINIAPP_URL не задан (нет https-домена) — фолбэк на прежний callback_data,
+    тот же паттерн, что в kb_subscription_active (handlers/subscription.py)."""
+    if settings.MINIAPP_URL:
+        return InlineKeyboardButton(text=text, web_app=WebAppInfo(url=f'{settings.MINIAPP_URL}/payment'))
     from app.keyboards.main_menu import CB_SUBSCRIPTION_RENEW
 
+    return InlineKeyboardButton(text=text, callback_data=CB_SUBSCRIPTION_RENEW)
+
+
+async def notify_winback(bot: Bot, *, telegram_id: int) -> None:
     text = (
         '👋 Соскучились? Ваша подписка уже некоторое время неактивна — '
         'самое время вернуться, пока для вас держим ваш профиль и настройки.'
     )
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text='💎 Возобновить подписку', callback_data=CB_SUBSCRIPTION_RENEW)]]
-    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[_renew_button('💎 Возобновить подписку')]])
     await _safe_send(bot, telegram_id=telegram_id, text=text, reply_markup=keyboard)
 
 
 async def notify_abandoned_payment(bot: Bot, *, telegram_id: int) -> None:
-    from app.keyboards.main_menu import CB_SUBSCRIPTION_RENEW
-
     text = (
         '💳 Похоже, оплата не завершилась. Если передумали или что-то пошло не '
         'так — можно оформить заново, это займёт минуту.'
     )
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text='🔁 Попробовать снова', callback_data=CB_SUBSCRIPTION_RENEW)]]
-    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[_renew_button('🔁 Попробовать снова')]])
     await _safe_send(bot, telegram_id=telegram_id, text=text, reply_markup=keyboard)
 
 
@@ -168,5 +174,12 @@ async def notify_welcome_nudge(bot: Bot, *, telegram_id: int) -> None:
         '🔐 Не забыли про VPN? Пробный период уже начался — попробуйте подключиться '
         'сейчас, а когда пробный период закончится, сможете оформить подписку в один тап.'
     )
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text='🚀 Открыть меню', callback_data='sub:buy')]])
+    # Дэшборд Mini App (не сразу /payment — юзер ещё на триале, экран сам
+    # предложит подключиться/посмотреть статус, а не давит на оплату), фолбэк —
+    # прежний чат-сценарий 'sub:buy'.
+    if settings.MINIAPP_URL:
+        button = InlineKeyboardButton(text='🚀 Открыть приложение', web_app=WebAppInfo(url=settings.MINIAPP_URL))
+    else:
+        button = InlineKeyboardButton(text='🚀 Открыть меню', callback_data='sub:buy')
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[button]])
     await _safe_send(bot, telegram_id=telegram_id, text=text, reply_markup=keyboard)

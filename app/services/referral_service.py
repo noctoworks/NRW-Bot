@@ -12,7 +12,7 @@ import secrets
 import string
 
 from aiogram import Bot
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -22,12 +22,11 @@ from app.services.subscription_provisioning import provision_or_extend_subscript
 
 logger = logging.getLogger(__name__)
 
-# Виральность (см. диалог): "пригласил N друзей -> +N дней подписки" —
-# реферер получает бонусные дни за КОЛИЧЕСТВО приглашённых (не за оплаты —
-# это отдельно уже покрыто REFERRAL_PERCENT/credit_referral_earning), простой
-# игровой стимул позвать ещё. threshold -> бонусные дни за пересечение
-# именно этого порога (не накопительно с предыдущих — см. check_referral_milestones).
-REFERRAL_MILESTONES: dict[int, int] = {3: 3, 5: 5, 10: 10, 25: 25, 50: 50}
+# Виральность (см. диалог 2026-08-23: "пригласил друга -> сразу 3 дня") —
+# флэт-бонус рефереру за КАЖДОГО приглашённого, сразу при регистрации (не за
+# оплаты — это отдельно уже покрыто REFERRAL_PERCENT/credit_referral_earning).
+# Заменяет прежнюю систему вех 3/5/10/25/50 приглашённых.
+REFERRAL_INVITE_BONUS_DAYS = 3
 
 
 def generate_referral_code(length: int = 8) -> str:
@@ -120,41 +119,22 @@ async def credit_referral_earning(db: AsyncSession, payment: Payment, bot: Bot |
         logger.exception('credit_referral_earning failed for payment_id=%s', getattr(payment, 'id', None))
 
 
-async def check_referral_milestones(db: AsyncSession, referrer: User, bot: Bot | None = None) -> None:
-    """Вызывается после регистрации нового пользователя по реф-ссылке (см.
-    handlers/start.py::cb_accept_rules) — считает текущее число приглашённых
-    реферером и начисляет бонусные дни подписки за каждый впервые пересечённый
-    порог REFERRAL_MILESTONES (может быть сразу несколько, если реферер долго
-    не открывал бота, а по факту уже накопил много приглашений — например
-    зарегистрировали 12 друзей за раз через рассылку своей ссылки, пороги 3+5+10
-    начислятся все разом). Не бросает исключение наружу — бонус за регистрацию
-    не должен ломать саму регистрацию нового пользователя."""
+async def credit_referral_invite_bonus(db: AsyncSession, referrer: User, bot: Bot | None = None) -> None:
+    """Вызывается один раз сразу после регистрации нового пользователя по
+    реф-ссылке (см. handlers/start.py::cb_accept_rules) — начисляет рефереру
+    флэт REFERRAL_INVITE_BONUS_DAYS дней подписки за это приглашение, без
+    требования, чтобы приглашённый что-то оплатил (это отдельно уже покрыто
+    REFERRAL_PERCENT/credit_referral_earning). Не бросает исключение наружу —
+    бонус за приглашение не должен ломать саму регистрацию нового пользователя."""
     try:
-        # with_for_update() — двое приглашённых, зарегистрировавшихся почти
-        # одновременно по одной ссылке, иначе оба читают один и тот же
-        # referral_milestone_reached до чьего-либо commit'а и оба независимо
-        # начисляют один и тот же порог (задвоение бонуса + лишние вызовы
-        # Remnawave) — см. ревью, тот же класс гонки, что уже закрыт в
-        # credit_referral_earning/handlers/subscription.py оплатой балансом.
+        # with_for_update() — свежее значение is_blocked, если админ заблокировал
+        # реферера прямо в этот момент (тот же приём, что был в предыдущей
+        # версии этой функции для порогов).
         locked = await db.execute(select(User).where(User.id == referrer.id).with_for_update())
         referrer = locked.scalar_one()
 
         if referrer.is_blocked:
             return
-
-        count_result = await db.execute(select(func.count(User.id)).where(User.referred_by_id == referrer.id))
-        invited_count = count_result.scalar_one() or 0
-
-        newly_reached = sorted(
-            threshold
-            for threshold in REFERRAL_MILESTONES
-            if threshold <= invited_count and threshold > referrer.referral_milestone_reached
-        )
-        if not newly_reached:
-            return
-
-        bonus_days = sum(REFERRAL_MILESTONES[t] for t in newly_reached)
-        referrer.referral_milestone_reached = newly_reached[-1]
 
         # Локальный импорт — get_active_tariff живёт в handlers/subscription.py,
         # который сам импортирует этот модуль (credit_referral_earning) на
@@ -164,20 +144,18 @@ async def check_referral_milestones(db: AsyncSession, referrer: User, bot: Bot |
 
         tariff = await get_active_tariff(db)
         if tariff is None:
-            logger.warning('check_referral_milestones: нет активного тарифа, бонус не начислен referrer_id=%s', referrer.id)
+            logger.warning('credit_referral_invite_bonus: нет активного тарифа, бонус не начислен referrer_id=%s', referrer.id)
             return
 
-        await provision_or_extend_subscription(db, user=referrer, tariff=tariff, period_days=bonus_days)
+        await provision_or_extend_subscription(db, user=referrer, tariff=tariff, period_days=REFERRAL_INVITE_BONUS_DAYS)
         await db.flush()
 
         if bot is not None:
             try:
-                from app.services.notification_service import notify_referral_milestone
+                from app.services.notification_service import notify_referral_invite_bonus
 
-                await notify_referral_milestone(
-                    bot, telegram_id=referrer.telegram_id, invited_count=invited_count, bonus_days=bonus_days
-                )
+                await notify_referral_invite_bonus(bot, telegram_id=referrer.telegram_id, bonus_days=REFERRAL_INVITE_BONUS_DAYS)
             except Exception:
-                logger.exception('notify_referral_milestone failed for referrer_id=%s', referrer.id)
+                logger.exception('notify_referral_invite_bonus failed for referrer_id=%s', referrer.id)
     except Exception:
-        logger.exception('check_referral_milestones failed for referrer_id=%s', getattr(referrer, 'id', None))
+        logger.exception('credit_referral_invite_bonus failed for referrer_id=%s', getattr(referrer, 'id', None))

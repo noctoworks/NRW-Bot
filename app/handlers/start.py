@@ -35,7 +35,7 @@ from app.keyboards.main_menu import (
     get_main_menu_keyboard,
 )
 from app.services.gift_service import GiftCodeError, redeem_gift_code
-from app.services.referral_service import check_referral_milestones, generate_referral_code
+from app.services.referral_service import credit_referral_invite_bonus, generate_referral_code
 from app.states import RegistrationStates
 
 logger = logging.getLogger(__name__)
@@ -333,18 +333,18 @@ async def cb_accept_rules(callback: CallbackQuery, db: AsyncSession, state: FSMC
         except Exception:
             logger.exception('Автовыдача триала упала (не блокирует регистрацию)')
 
-    # Пороговые бонусы рефереру ("пригласил N друзей -> +N дней", см.
-    # services/referral_service.py::REFERRAL_MILESTONES) — считаются от факта
-    # регистрации, не от оплаты (в отличие от credit_referral_earning). Ошибка
-    # здесь не должна ломать регистрацию нового пользователя — сам
-    # check_referral_milestones уже не бросает исключения наружу, но на
-    # всякий случай (например обрыв со стороны Remnawave) не оборачиваем
-    # весь остальной флоу зависимостью от него.
+    # Флэт-бонус рефереру за приглашение (см. services/referral_service.py::
+    # REFERRAL_INVITE_BONUS_DAYS) — считается от факта регистрации, не от
+    # оплаты (в отличие от credit_referral_earning). Ошибка здесь не должна
+    # ломать регистрацию нового пользователя — сам credit_referral_invite_bonus
+    # уже не бросает исключения наружу, но на всякий случай (например обрыв
+    # со стороны Remnawave) не оборачиваем весь остальной флоу зависимостью
+    # от него.
     if referred_by_id is not None:
         referrer_result = await db.execute(select(User).where(User.id == referred_by_id))
         referrer = referrer_result.scalar_one_or_none()
         if referrer is not None:
-            await check_referral_milestones(db, referrer, callback.bot)
+            await credit_referral_invite_bonus(db, referrer, callback.bot)
 
     await callback.message.edit_reply_markup(reply_markup=None)
     await _show_main_menu(callback, db, new_user, is_new=True)
