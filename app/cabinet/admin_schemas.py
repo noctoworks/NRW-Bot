@@ -14,6 +14,8 @@ class OverviewResponse(BaseModel):
     revenue_30d_kopeks: int
     revenue_all_time_kopeks: int
     active_subscriptions: int
+    paying_subscriptions: int
+    new_paying_subscriptions_today: int
     total_users: int
     new_users_7d: int
     conversion_percent: float

@@ -76,6 +76,29 @@ async def get_overview(db: AsyncSession) -> dict:
         await db.execute(select(func.count(Subscription.id)).where(Subscription.status == 'active'))
     ).scalar_one()
 
+    # "Платящих" — активные И не триальные (Subscription.is_trial=False), в
+    # отличие от active_subscriptions выше, который триал не отделяет.
+    # "+сегодня" — только ЖИВЫЕ новые (never had-a-row-before) платные подписки:
+    # created_at сегодня. НЕ ловит конверсию триал→платная тем же днём — при
+    # продлении/переводе на платную существующая Subscription-строка правится
+    # in-place (см. subscription_provisioning.py::provision_or_extend_subscription),
+    # created_at остаётся от первой выдачи (в т.ч. от триала). Так и задумано —
+    # это счётчик новых подписчиков, а не платежей (см. диалог).
+    paying_subscriptions = (
+        await db.execute(
+            select(func.count(Subscription.id)).where(
+                Subscription.status == 'active', Subscription.is_trial.is_(False)
+            )
+        )
+    ).scalar_one()
+    new_paying_subscriptions_today = (
+        await db.execute(
+            select(func.count(Subscription.id)).where(
+                Subscription.is_trial.is_(False), Subscription.created_at >= today_start
+            )
+        )
+    ).scalar_one()
+
     total_users = (await db.execute(select(func.count(User.id)))).scalar_one()
     new_users_7d = (
         await db.execute(select(func.count(User.id)).where(User.created_at >= now - timedelta(days=7)))
@@ -110,6 +133,8 @@ async def get_overview(db: AsyncSession) -> dict:
         'revenue_30d_kopeks': revenue_30d,
         'revenue_all_time_kopeks': revenue_all_time,
         'active_subscriptions': active_subscriptions,
+        'paying_subscriptions': paying_subscriptions,
+        'new_paying_subscriptions_today': new_paying_subscriptions_today,
         'total_users': total_users,
         'new_users_7d': new_users_7d,
         'conversion_percent': conversion_percent,
