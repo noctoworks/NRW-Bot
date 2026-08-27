@@ -71,6 +71,11 @@ async def main() -> None:
         logger.info('Cabinet API запущен на порту %s', settings.CABINET_PORT)
 
     try:
+        # Обязательно перед polling: если на этом BOT_TOKEN ранее был выставлен
+        # Telegram-вебхук (см. переезд со старого бота, admin.nocto.online/webhook*
+        # в его Caddy-конфиге), getUpdates будет молча возвращать пусто, пока
+        # вебхук не снят явно — Telegram не отдаёт апдейты через оба канала сразу.
+        await bot.delete_webhook(drop_pending_updates=False)
         await dp.start_polling(bot, skip_updates=False)
     finally:
         for task in background_tasks:
