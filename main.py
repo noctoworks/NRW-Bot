@@ -54,9 +54,12 @@ async def main() -> None:
         asyncio.create_task(expiry_checker_loop(bot)),
         asyncio.create_task(traffic_sync_loop()),
         asyncio.create_task(payment_poll_loop(bot)),
-        asyncio.create_task(winback_loop(bot)),
-        asyncio.create_task(welcome_nudge_loop(bot)),
     ]
+    if settings.BULK_NOTIFICATIONS_ENABLED:
+        background_tasks.append(asyncio.create_task(winback_loop(bot)))
+        background_tasks.append(asyncio.create_task(welcome_nudge_loop(bot)))
+    else:
+        logger.warning('BULK_NOTIFICATIONS_ENABLED=false — winback_loop/welcome_nudge_loop не запущены')
     # === END BACKGROUND TASKS ===
 
     if settings.CABINET_ENABLED:
