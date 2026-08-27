@@ -21,7 +21,7 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramRetryAfter
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
-from app.config import settings
+from app.config import miniapp_url, settings
 
 logger = logging.getLogger(__name__)
 
@@ -145,7 +145,7 @@ def _renew_button(text: str) -> InlineKeyboardButton:
     MINIAPP_URL не задан (нет https-домена) — фолбэк на прежний callback_data,
     тот же паттерн, что в kb_subscription_active (handlers/subscription.py)."""
     if settings.MINIAPP_URL:
-        return InlineKeyboardButton(text=text, web_app=WebAppInfo(url=f'{settings.MINIAPP_URL}/payment'))
+        return InlineKeyboardButton(text=text, web_app=WebAppInfo(url=miniapp_url('/payment')))
     from app.keyboards.main_menu import CB_SUBSCRIPTION_RENEW
 
     return InlineKeyboardButton(text=text, callback_data=CB_SUBSCRIPTION_RENEW)
@@ -178,7 +178,7 @@ async def notify_welcome_nudge(bot: Bot, *, telegram_id: int) -> None:
     # предложит подключиться/посмотреть статус, а не давит на оплату), фолбэк —
     # прежний чат-сценарий 'sub:buy'.
     if settings.MINIAPP_URL:
-        button = InlineKeyboardButton(text='🚀 Открыть приложение', web_app=WebAppInfo(url=settings.MINIAPP_URL))
+        button = InlineKeyboardButton(text='🚀 Открыть приложение', web_app=WebAppInfo(url=miniapp_url()))
     else:
         button = InlineKeyboardButton(text='🚀 Открыть меню', callback_data='sub:buy')
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[button]])

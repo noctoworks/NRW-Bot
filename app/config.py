@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import time
 from functools import lru_cache
 from typing import Literal
 
@@ -170,3 +171,24 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
+
+# Cache-busting query-параметр для всех web_app-ссылок на Mini App, привязанный
+# к моменту старта процесса — иначе мобильный Telegram может резюмировать
+# старый WebView со старым закэшированным index.html сколь угодно долго,
+# не делая нового сетевого запроса вообще (найдено вживую 2026-08-27: админ
+# видел старый интерфейс + "initData устарела", не помогал ни ручной reload,
+# ни полный перезапуск Telegram — потому что URL кнопки не менялся, значит и
+# WebView переиспользовался как есть). Каждый рестарт бота (= каждый деплой) —
+# новый URL — гарантированный cache miss на клиенте.
+_MINIAPP_BUILD_ID = str(int(time.time()))
+
+
+def miniapp_url(path: str = '') -> str:
+    """MINIAPP_URL + path + cache-busting `?v=`. Возвращает '', если
+    MINIAPP_URL не задан — вызывающий код уже проверяет settings.MINIAPP_URL
+    перед использованием (см. handlers/subscription.py, keyboards/main_menu.py,
+    services/notification_service.py)."""
+    if not settings.MINIAPP_URL:
+        return ''
+    separator = '&' if '?' in settings.MINIAPP_URL else '?'
+    return f'{settings.MINIAPP_URL}{path}{separator}v={_MINIAPP_BUILD_ID}'

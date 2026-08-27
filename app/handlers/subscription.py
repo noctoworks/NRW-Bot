@@ -44,7 +44,7 @@ from aiogram.types import (
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
+from app.config import miniapp_url, settings
 from app.database.models import Payment, Subscription, Tariff, Transaction, User
 from app.emoji import CHART, EXPIRED, GLOBE, HOURGLASS, MONEY, SBP, STARS, SUCCESS, TON, Emoji, icon_button
 from app.external.remnawave import get_remnawave_client, remnawave_user_description
@@ -426,7 +426,7 @@ def kb_subscription_active(
         # диалог) — пока MINIAPP_URL не задан (нет https-домена), остаётся
         # прежний прямой happ://-fallback ниже, чтобы не сломать кнопку.
         rows.append(
-            [InlineKeyboardButton(text='🔌 Подключить VPN', web_app=WebAppInfo(url=settings.MINIAPP_URL))]
+            [InlineKeyboardButton(text='🔌 Подключить VPN', web_app=WebAppInfo(url=miniapp_url()))]
         )
     elif subscription_url and use_deep_link:
         rows.append(

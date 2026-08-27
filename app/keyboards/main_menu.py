@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
-from app.config import settings
+from app.config import miniapp_url, settings
 from app.emoji import MENU_GIFT, MENU_PROXY, MENU_REFERRAL, MENU_RENEW, MENU_SUBSCRIPTION, MENU_SUPPORT, icon_button
 
 CB_SUBSCRIPTION_MY = 'subscription:my'
@@ -57,7 +57,7 @@ def get_main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
     у него есть явное преимущество (см. handlers/subscription.py, кнопки
     покупки/продления)."""
     my_subscription_button = (
-        icon_button('Моя подписка', MENU_SUBSCRIPTION, web_app=WebAppInfo(url=settings.MINIAPP_URL))
+        icon_button('Моя подписка', MENU_SUBSCRIPTION, web_app=WebAppInfo(url=miniapp_url()))
         if settings.MINIAPP_URL
         else icon_button('Моя подписка', MENU_SUBSCRIPTION, callback_data=CB_SUBSCRIPTION_MY)
     )
