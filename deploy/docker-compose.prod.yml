@@ -1,0 +1,31 @@
+# Прод-оверлей поверх ../docker-compose.yml — добавляет сервис bot в общую сеть
+# remnawave-network (уже создана стеком remnawave/Caddy на боевом сервере),
+# под network alias remnawave_bot/bot. Caddy на боевом сервере проксирует
+# именно по этому имени контейнера — и admin.nocto.online (/webhook*,
+# /tribute-webhook*, /cryptobot-webhook*, /platega-webhook*, /health*), и
+# cabinet.nocto.online (/api/*) — см. /opt/remnawave/caddy/Caddyfile на
+# боевом сервере. Значит смены самого Caddyfile при cutover не требуется:
+# кто отвечает на алиас remnawave_bot:8080 в этой сети, того Caddy и проксирует.
+#
+# Запуск на боевом сервере (каталог проекта, например /home/claude-ro/nrw-bot-prod,
+# аналогично тому, как сделан staging в /home/claude-ro/nrw-bot-staging):
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml up -d --build
+#
+# КРИТИЧНО для cutover: имя remnawave_bot на сети remnawave-network уже занято
+# старым ботом. Перед `up` этого стека — остановить и удалить старый контейнер:
+#   docker stop remnawave_bot && docker rm remnawave_bot
+# (сам образ/данные старого бота этим не удаляются — только контейнер;
+# remnawave_bot_db/remnawave_bot_redis не трогать, это отдельная БД,
+# нужная только на случай отката).
+services:
+  bot:
+    networks:
+      default: {}
+      remnawave-network:
+        aliases:
+          - remnawave_bot
+          - bot
+
+networks:
+  remnawave-network:
+    external: true
