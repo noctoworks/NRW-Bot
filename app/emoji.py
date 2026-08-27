@@ -88,4 +88,4 @@ MENU_RENEW = Emoji(fallback='💎', custom_id='5807465992363710697')  # "Про�
 MENU_GIFT = Emoji(fallback='🎁', custom_id='6032937473162614352')  # "Подарить подписку"
 MENU_REFERRAL = Emoji(fallback='👥', custom_id='5944970130554359187')  # "Пригласить"
 MENU_SUPPORT = Emoji(fallback='✉️', custom_id='5967280668885913944')  # "Поддержка"
-MENU_PROXY = Emoji(fallback='🔌')  # "Прокси" — custom_id ещё не пришёл
+MENU_PROXY = Emoji(fallback='⚡️', custom_id='5456140674028019486')  # "Прокси"

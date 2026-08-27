@@ -65,17 +65,20 @@ def get_main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
         [my_subscription_button],
         [icon_button('Продлить подписку', MENU_RENEW, callback_data=CB_SUBSCRIPTION_RENEW)],
         [icon_button('Подарить подписку', MENU_GIFT, callback_data=CB_GIFT_MENU)],
+    ]
+    if settings.PROXY_ENABLED:
+        # Сразу под "Подарить подписку" (см. диалог 2026-08-27) — отдельной
+        # строкой, а не в паре с "Пригласить"/"Поддержка", фича не связана с
+        # ними по смыслу.
+        rows.append([icon_button('Прокси для Telegram', MENU_PROXY, callback_data=CB_PROXY_MENU)])
+    rows.append(
         [
             icon_button('Пригласить', MENU_REFERRAL, callback_data=CB_REFERRAL_MENU),
             icon_button('Поддержка', MENU_SUPPORT, callback_data=CB_SUPPORT_MENU),
-        ],
-        # Без эмодзи вообще (см. диалог) — ни fallback-символа в тексте, ни иконки.
-        [InlineKeyboardButton(text='О сервисе', callback_data=CB_INFO_ABOUT)],
-    ]
-    if settings.PROXY_ENABLED:
-        # Отдельной строкой, а не в паре с "Пригласить"/"Поддержка" — фича не
-        # связана с ними по смыслу, добавлена позже (см. диалог 2026-08-22).
-        rows.append([icon_button('Прокси для Telegram', MENU_PROXY, callback_data=CB_PROXY_MENU)])
+        ]
+    )
+    # Без эмодзи вообще (см. диалог) — ни fallback-символа в тексте, ни иконки.
+    rows.append([InlineKeyboardButton(text='О сервисе', callback_data=CB_INFO_ABOUT)])
     if is_admin:
         rows.append([InlineKeyboardButton(text='🛠 Админ панель', callback_data=CB_ADMIN_ROOT)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
