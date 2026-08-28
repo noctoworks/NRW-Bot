@@ -148,6 +148,35 @@ class MessageRequest(BaseModel):
     text: str
 
 
+class SupportThreadOut(BaseModel):
+    user_id: int
+    telegram_id: int
+    username: str | None
+    full_name: str | None
+    last_message: str
+    last_message_at: datetime
+    unread: bool
+
+
+class SupportMessageOut(BaseModel):
+    id: int
+    direction: str
+    body: str
+    created_at: datetime
+
+
+class SupportThreadDetailResponse(BaseModel):
+    user_id: int
+    telegram_id: int
+    username: str | None
+    full_name: str | None
+    messages: list[SupportMessageOut]
+
+
+class SupportReplyRequest(BaseModel):
+    text: str
+
+
 class MassbanRequest(BaseModel):
     telegram_ids: list[int]
 

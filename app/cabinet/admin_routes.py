@@ -43,11 +43,24 @@ from app.cabinet.admin_schemas import (
     RevenuePointOut,
     SetUserPromoGroupRequest,
     SubscriptionDaysAdjustRequest,
+    SupportMessageOut,
+    SupportReplyRequest,
+    SupportThreadDetailResponse,
+    SupportThreadOut,
     SyncResultResponse,
 )
 from app.cabinet.deps import get_db
 from app.config import settings
-from app.database.models import Campaign, PromoGroup, ReferralEarning, Subscription, Tariff, Transaction, User
+from app.database.models import (
+    Campaign,
+    PromoGroup,
+    ReferralEarning,
+    Subscription,
+    SupportMessage,
+    Tariff,
+    Transaction,
+    User,
+)
 from app.external.remnawave import get_remnawave_client
 from app.services import analytics_service, campaign_service
 from app.services.notification_service import notify_balance_changed
@@ -353,6 +366,79 @@ async def message_user(
     except Exception as error:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, 'Не удалось отправить сообщение') from error
 
+    return {'status': 'sent'}
+
+
+@router.get('/support/threads', response_model=list[SupportThreadOut])
+async def support_threads(db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)) -> list[dict]:
+    # Тред = все SupportMessage одного user_id (см. app/handlers/support.py) —
+    # тут нет отдельной таблицы тикетов, группируем по последнему сообщению.
+    last_ids = select(func.max(SupportMessage.id)).group_by(SupportMessage.user_id).scalar_subquery()
+    result = await db.execute(
+        select(SupportMessage, User)
+        .join(User, User.id == SupportMessage.user_id)
+        .where(SupportMessage.id.in_(last_ids))
+        .order_by(SupportMessage.created_at.desc())
+    )
+    return [
+        {
+            'user_id': user.id,
+            'telegram_id': user.telegram_id,
+            'username': user.username,
+            'full_name': user.full_name,
+            'last_message': msg.body,
+            'last_message_at': msg.created_at,
+            # direction == 'in' и это последнее сообщение в треде => админ ещё
+            # не ответил после него — простая эвристика без отдельного поля "прочитано".
+            'unread': msg.direction == 'in',
+        }
+        for msg, user in result.all()
+    ]
+
+
+@router.get('/support/threads/{user_id}', response_model=SupportThreadDetailResponse)
+async def support_thread_detail(
+    user_id: int, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> dict:
+    user = await _get_user_or_404(db, user_id)
+    result = await db.execute(
+        select(SupportMessage).where(SupportMessage.user_id == user_id).order_by(SupportMessage.id)
+    )
+    messages = [
+        SupportMessageOut(id=m.id, direction=m.direction, body=m.body, created_at=m.created_at)
+        for m in result.scalars().all()
+    ]
+    return {
+        'user_id': user.id,
+        'telegram_id': user.telegram_id,
+        'username': user.username,
+        'full_name': user.full_name,
+        'messages': messages,
+    }
+
+
+@router.post('/support/threads/{user_id}/reply')
+async def support_thread_reply(
+    user_id: int,
+    payload: SupportReplyRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+) -> dict[str, str]:
+    # Тот же способ доставки, что у on_admin_reply (app/handlers/support.py) —
+    # роутинг через reply_to_message там не нужен, отвечаем сразу по user_id.
+    target = await _get_user_or_404(db, user_id)
+    try:
+        await request.app.state.bot.send_message(target.telegram_id, f'💬 Ответ поддержки:\n\n{payload.text}')
+    except TelegramForbiddenError:
+        target.blocked_bot = True
+        await db.commit()
+        return {'status': 'blocked_bot'}
+    except Exception as error:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, 'Не удалось отправить сообщение') from error
+
+    db.add(SupportMessage(user_id=target.id, direction='out', body=payload.text))
+    await db.commit()
     return {'status': 'sent'}
 
 
