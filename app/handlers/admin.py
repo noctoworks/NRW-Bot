@@ -40,7 +40,8 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.config import settings
+from app.cabinet.security import ACCESS_TOKEN_TTL_SECONDS, create_access_token
+from app.config import miniapp_url, settings
 from app.database.models import BroadcastHistory, PromoCode, Subscription, Tariff, Transaction, User
 from app.handlers.promocode import CB_PROMO_ENTER
 from app.handlers.subscription import PERIOD_LABELS, get_active_tariff, get_active_tariffs
@@ -215,6 +216,27 @@ async def cmd_admin(message: Message, db: AsyncSession, db_user: User | None, st
         return
     await state.clear()
     await message.answer(await _render_root_header(db), reply_markup=_root_keyboard())
+
+
+@router.message(Command('adminweb'))
+async def cmd_admin_web(message: Message, db_user: User | None) -> None:
+    """Одноразовая (по времени жизни токена) ссылка для входа в /admin
+    из обычного браузера — Mini App вне Telegram initData не получить,
+    поэтому выдаём тот же JWT (см. app/cabinet/security.py), что и обычный
+    вход, просто в обход проверки initData. Ссылка — открытый текст (НЕ
+    web_app-кнопка), чтобы Telegram открыл её в системном браузере, а не
+    в собственном WebView."""
+    if not _is_admin(db_user):
+        return
+    if not settings.MINIAPP_URL:
+        await message.answer('MINIAPP_URL не настроен — ссылку сформировать нельзя.')
+        return
+    token = create_access_token(db_user.id)
+    link = f'{miniapp_url("/admin")}&token={token}'
+    hours = ACCESS_TOKEN_TTL_SECONDS // 3600
+    await message.answer(
+        f'🔐 Ссылка для входа в админку из браузера (действует {hours}ч, не пересылайте её):\n{link}'
+    )
 
 
 @router.callback_query(F.data == CB_ADMIN_ROOT)
