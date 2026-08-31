@@ -14,9 +14,9 @@
 
 from __future__ import annotations
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from app.config import miniapp_url, settings
+from app.config import settings
 from app.emoji import MENU_GIFT, MENU_PROXY, MENU_REFERRAL, MENU_RENEW, MENU_SUBSCRIPTION, MENU_SUPPORT, icon_button
 
 CB_SUBSCRIPTION_MY = 'subscription:my'
@@ -52,15 +52,11 @@ def get_main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
     базовый функционал в боте", человек должен мочь оплатить и через бота, и
     через Mini App, а не только через одно из двух). Отдельной кнопки-шортката
     в Mini App здесь больше нет (см. диалог "убери кнопку Открыть приложение"),
-    кроме "Моя подписка" — та теперь сама ведёт в Mini App (см. диалог), а не в
-    чат-сценарий; остальной вход в Mini App остаётся точечным, только там, где
-    у него есть явное преимущество (см. handlers/subscription.py, кнопки
-    покупки/продления)."""
-    my_subscription_button = (
-        icon_button('Моя подписка', MENU_SUBSCRIPTION, web_app=WebAppInfo(url=miniapp_url()))
-        if settings.MINIAPP_URL
-        else icon_button('Моя подписка', MENU_SUBSCRIPTION, callback_data=CB_SUBSCRIPTION_MY)
-    )
+    "Моя подписка" тоже ведёт в чат-сценарий (см. диалог 2026-08-30 — откат
+    от Mini App обратно); остальной вход в Mini App остаётся точечным, только
+    там, где у него есть явное преимущество (см. handlers/subscription.py,
+    кнопки покупки/продления)."""
+    my_subscription_button = icon_button('Моя подписка', MENU_SUBSCRIPTION, callback_data=CB_SUBSCRIPTION_MY)
     rows: list[list[InlineKeyboardButton]] = [
         [my_subscription_button],
         [icon_button('Продлить подписку', MENU_RENEW, callback_data=CB_SUBSCRIPTION_RENEW)],
