@@ -55,6 +55,7 @@ from app.keyboards.main_menu import (
     back_to_menu_button,
 )
 from app.services.notification_service import notify_balance_changed
+from app.services.time_utils import business_day_start_utc
 from app.states import AdminBroadcastStates, AdminEmojiStates, AdminPromoCodeStates, AdminTariffStates, AdminUserStates
 
 logger = logging.getLogger(__name__)
@@ -390,7 +391,7 @@ async def _render_users_menu_header(db: AsyncSession) -> str:
     active = (await db.execute(select(func.count(User.id)).where(User.is_blocked.is_(False)))).scalar_one()
     blocked = (await db.execute(select(func.count(User.id)).where(User.is_blocked.is_(True)))).scalar_one()
     new_today = (
-        await db.execute(select(func.count(User.id)).where(User.created_at >= now - timedelta(days=1)))
+        await db.execute(select(func.count(User.id)).where(User.created_at >= business_day_start_utc(now)))
     ).scalar_one()
     new_week = (
         await db.execute(select(func.count(User.id)).where(User.created_at >= now - timedelta(days=7)))
@@ -2221,7 +2222,7 @@ async def _render_users_stats(db: AsyncSession) -> str:
     total = (await db.execute(select(func.count(User.id)))).scalar_one()
     blocked = (await db.execute(select(func.count(User.id)).where(User.is_blocked.is_(True)))).scalar_one()
     new_today = (
-        await db.execute(select(func.count(User.id)).where(User.created_at >= now - timedelta(days=1)))
+        await db.execute(select(func.count(User.id)).where(User.created_at >= business_day_start_utc(now)))
     ).scalar_one()
     new_week = (
         await db.execute(select(func.count(User.id)).where(User.created_at >= now - timedelta(days=7)))

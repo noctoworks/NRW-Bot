@@ -35,6 +35,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import Payment, ReferralEarning, Subscription, Transaction, User
+from app.services.time_utils import business_day_start_utc
 
 REVENUE_TYPES = ('subscription_payment', 'gift')
 
@@ -65,7 +66,7 @@ async def _revenue_sum(db: AsyncSession, *, since: datetime | None = None) -> in
 
 async def get_overview(db: AsyncSession) -> dict:
     now = datetime.now(timezone.utc)
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = business_day_start_utc(now)
 
     revenue_today = await _revenue_sum(db, since=today_start)
     revenue_7d = await _revenue_sum(db, since=now - timedelta(days=7))
