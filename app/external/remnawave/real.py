@@ -255,6 +255,26 @@ class RealRemnawaveClient(RemnawaveClient):
         squads = data.get('internalSquads', []) if isinstance(data, dict) else (data or [])
         return [{'uuid': s['uuid'], 'name': s.get('name', ''), 'country': ''} for s in squads]
 
+    async def list_nodes(self) -> list[dict]:
+        # Проверено вживую на тестовой панели (см. диалог 2026-09-01): GET /nodes
+        # отдаёт голый массив (не {"nodes": [...]}), но на всякий случай — тот же
+        # defensive-фоллбэк, что и в list_internal_squads выше, если формат
+        # ответа отличается на другой версии панели. countryCode у части нод
+        # реально приходит "XX" (не задан на панели) — не наша ошибка парсинга.
+        data = await self._request('GET', '/nodes')
+        nodes = data.get('nodes', []) if isinstance(data, dict) else (data or [])
+        return [
+            {
+                'uuid': n['uuid'],
+                'name': n.get('name', ''),
+                'country_code': n.get('countryCode') or '',
+                'is_connected': bool(n.get('isConnected')),
+                'is_disabled': bool(n.get('isDisabled')),
+                'traffic_used_gb': int(n.get('trafficUsedBytes') or 0) / 1024**3,
+            }
+            for n in nodes
+        ]
+
     async def get_subscription_page_config(self) -> SubscriptionPageConfig | None:
         # Эндпоинты сверены вживую с боевой панелью (см. диалог, 2026-08-19):
         # GET /api/subscription-page-configs -> {"total", "configs": [{"uuid","name","config": null}, ...]}

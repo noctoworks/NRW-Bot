@@ -33,6 +33,7 @@ from app.cabinet.admin_schemas import (
     MassbanRequest,
     MassbanResponse,
     MessageRequest,
+    NodeOut,
     OverviewResponse,
     PaginatedTransactionsResponse,
     PromoGroupCreateRequest,
@@ -93,6 +94,11 @@ async def recent_payments(
     limit: int = Query(10, ge=1, le=50), db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
 ) -> list[dict]:
     return await analytics_service.get_recent_payments(db, limit=limit)
+
+
+@router.get('/nodes', response_model=list[NodeOut])
+async def nodes(_admin: User = Depends(require_admin)) -> list[dict]:
+    return await get_remnawave_client().list_nodes()
 
 
 @router.get('/ltv', response_model=LtvResponse)

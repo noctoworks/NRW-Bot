@@ -184,6 +184,18 @@ class MockRemnawaveClient(RemnawaveClient):
             {'uuid': 'mock-squad-nl', 'name': 'Netherlands', 'country': 'NL'},
         ]
 
+    async def list_nodes(self) -> list[dict]:
+        # Staging/dev гоняют REMNAWAVE_MODE=mock (см. диалог 2026-09-01) — реальной
+        # ноды тут нет физически, поэтому фикс-набор для превью раздела "Ноды" в
+        # админке. Формат полей — 1:1 с RealRemnawaveClient.list_nodes (см. real.py,
+        # проверено вживую на тестовой панели), только значения выдуманы.
+        return [
+            {'uuid': 'mock-node-de', 'name': 'DE-01', 'country_code': 'DE', 'is_connected': True, 'is_disabled': False, 'traffic_used_gb': 412.7},
+            {'uuid': 'mock-node-fi', 'name': 'FI-01', 'country_code': 'FI', 'is_connected': True, 'is_disabled': False, 'traffic_used_gb': 198.3},
+            {'uuid': 'mock-node-nl', 'name': 'NL-01', 'country_code': 'NL', 'is_connected': True, 'is_disabled': False, 'traffic_used_gb': 305.1},
+            {'uuid': 'mock-node-se', 'name': 'SE-01', 'country_code': 'SE', 'is_connected': False, 'is_disabled': False, 'traffic_used_gb': 89.4},
+        ]
+
     async def get_subscription_page_config(self) -> SubscriptionPageConfig | None:
         # Урезанная копия реального Subpage Builder боевой панели (см. диалог,
         # проверено вживую 2026-08-19) — только по одному приложению на платформу,

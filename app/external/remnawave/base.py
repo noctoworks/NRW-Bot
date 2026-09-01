@@ -136,6 +136,16 @@ class RemnawaveClient(ABC):
         """[{"uuid": ..., "name": ..., "country": ...}, ...] — для сид-скрипта тарифа/ServerSquad."""
 
     @abstractmethod
+    async def list_nodes(self) -> list[dict]:
+        """[{"uuid", "name", "country_code", "is_connected", "is_disabled",
+        "traffic_used_gb"}, ...] — для раздела "Ноды" веб-админки (см. диалог
+        2026-09-01). Не было в исходном §5 clone-architecture.md (сознательное
+        расширение по прямому запросу пользователя, не "на всякий случай"), см.
+        app/cabinet/admin_routes.py::nodes. Панель реально отдаёт больше полей
+        (CPU/память и т.п. под "Мониторинг" не проверялись — на GET /nodes их нет,
+        нужен отдельный эндпоинт, если он вообще есть)."""
+
+    @abstractmethod
     async def get_subscription_page_config(self) -> SubscriptionPageConfig | None:
         """One-tap connect (§8) — конфиг Subpage Builder панели: список VPN-клиентов
         по платформам с реальными deep-link-схемами (не наши догадки в Mini App).

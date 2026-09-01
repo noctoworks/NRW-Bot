@@ -40,6 +40,15 @@ class TopPayerOut(BaseModel):
     total_kopeks: int
 
 
+class NodeOut(BaseModel):
+    uuid: str
+    name: str
+    country_code: str
+    is_connected: bool
+    is_disabled: bool
+    traffic_used_gb: float
+
+
 class RecentPaymentOut(BaseModel):
     user_id: int
     telegram_id: int
