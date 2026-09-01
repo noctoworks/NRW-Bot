@@ -276,6 +276,17 @@ class RealRemnawaveClient(RemnawaveClient):
         squads = data.get('internalSquads', []) if isinstance(data, dict) else (data or [])
         return [{'uuid': s['uuid'], 'name': s.get('name', ''), 'country': ''} for s in squads]
 
+    @staticmethod
+    def _parse_node(n: dict) -> dict:
+        return {
+            'uuid': n['uuid'],
+            'name': n.get('name', ''),
+            'country_code': n.get('countryCode') or '',
+            'is_connected': bool(n.get('isConnected')),
+            'is_disabled': bool(n.get('isDisabled')),
+            'traffic_used_gb': int(n.get('trafficUsedBytes') or 0) / 1024**3,
+        }
+
     async def list_nodes(self) -> list[dict]:
         # Проверено вживую на тестовой панели (см. диалог 2026-09-01): GET /nodes
         # отдаёт голый массив (не {"nodes": [...]}), но на всякий случай — тот же
@@ -284,17 +295,26 @@ class RealRemnawaveClient(RemnawaveClient):
         # реально приходит "XX" (не задан на панели) — не наша ошибка парсинга.
         data = await self._request('GET', '/nodes')
         nodes = data.get('nodes', []) if isinstance(data, dict) else (data or [])
-        return [
-            {
-                'uuid': n['uuid'],
-                'name': n.get('name', ''),
-                'country_code': n.get('countryCode') or '',
-                'is_connected': bool(n.get('isConnected')),
-                'is_disabled': bool(n.get('isDisabled')),
-                'traffic_used_gb': int(n.get('trafficUsedBytes') or 0) / 1024**3,
-            }
-            for n in nodes
-        ]
+        return [self._parse_node(n) for n in nodes]
+
+    async def enable_node(self, *, remnawave_uuid: str) -> dict:
+        # Путь по образцу /users/{id}/actions/enable выше — сверен с контрактом
+        # панели (github.com/remnawave/backend, libs/contract/api/controllers/
+        # nodes.ts: NODES_ROUTES.ACTIONS.ENABLE = `{uuid}/actions/enable`,
+        # commands/nodes/actions/enable.command.ts: HTTP-метод POST), НЕ
+        # проверено вживую (в отличие от list_nodes) — первый реальный вызов
+        # будет на бою при первом включении ноды из веб-админки.
+        data = await self._request('POST', f'/nodes/{remnawave_uuid}/actions/enable')
+        return self._parse_node(data)
+
+    async def disable_node(self, *, remnawave_uuid: str) -> dict:
+        data = await self._request('POST', f'/nodes/{remnawave_uuid}/actions/disable')
+        return self._parse_node(data)
+
+    async def restart_node(self, *, remnawave_uuid: str) -> None:
+        # forceRestart обязателен в теле (contract: z.boolean(), без .optional()/
+        # .default()) — панель не даёт его опустить. Шлём False — мягкий рестарт.
+        await self._request('POST', f'/nodes/{remnawave_uuid}/actions/restart', json_data={'forceRestart': False})
 
     async def get_system_stats(self) -> dict:
         # Проверено вживую на тестовой панели (см. диалог 2026-09-01): GET /system/stats.

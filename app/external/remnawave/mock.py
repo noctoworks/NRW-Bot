@@ -39,6 +39,14 @@ logger = logging.getLogger(__name__)
 
 _STATE_FILE = Path(__file__).resolve().parents[3] / 'mock_remnawave_state.json'
 
+# Управление нодами (диалог 2026-09-01) — MockRemnawaveClient создаётся заново
+# на каждый вызов get_remnawave_client() (см. комментарий в real.py), поэтому
+# состояние "включена/выключена" держим на уровне модуля, не инстанса. В файл
+# не сохраняем — это чисто dev-превью кнопок в админке, не переживать рестарт
+# бота не страшно (в отличие от _STATE_FILE выше, где реальная потеря
+# remnawave_uuid ломает пользователей).
+_disabled_node_uuids: set[str] = set()
+
 
 def _dt_to_str(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
@@ -204,12 +212,28 @@ class MockRemnawaveClient(RemnawaveClient):
         # ноды тут нет физически, поэтому фикс-набор для превью раздела "Ноды" в
         # админке. Формат полей — 1:1 с RealRemnawaveClient.list_nodes (см. real.py,
         # проверено вживую на тестовой панели), только значения выдуманы.
-        return [
+        # is_disabled поверх фикс-набора — из _disabled_node_uuids, чтобы кнопки
+        # вкл/выкл в админке реально что-то меняли даже в mock-режиме.
+        nodes = [
             {'uuid': 'mock-node-de', 'name': 'DE-01', 'country_code': 'DE', 'is_connected': True, 'is_disabled': False, 'traffic_used_gb': 412.7},
             {'uuid': 'mock-node-fi', 'name': 'FI-01', 'country_code': 'FI', 'is_connected': True, 'is_disabled': False, 'traffic_used_gb': 198.3},
             {'uuid': 'mock-node-nl', 'name': 'NL-01', 'country_code': 'NL', 'is_connected': True, 'is_disabled': False, 'traffic_used_gb': 305.1},
             {'uuid': 'mock-node-se', 'name': 'SE-01', 'country_code': 'SE', 'is_connected': False, 'is_disabled': False, 'traffic_used_gb': 89.4},
         ]
+        for node in nodes:
+            node['is_disabled'] = node['uuid'] in _disabled_node_uuids
+        return nodes
+
+    async def enable_node(self, *, remnawave_uuid: str) -> dict:
+        _disabled_node_uuids.discard(remnawave_uuid)
+        return next(n for n in await self.list_nodes() if n['uuid'] == remnawave_uuid)
+
+    async def disable_node(self, *, remnawave_uuid: str) -> dict:
+        _disabled_node_uuids.add(remnawave_uuid)
+        return next(n for n in await self.list_nodes() if n['uuid'] == remnawave_uuid)
+
+    async def restart_node(self, *, remnawave_uuid: str) -> None:
+        logger.info('Mock: restart_node(%s) — нет реальной ноды, ничего не делаем', remnawave_uuid)
 
     async def get_system_stats(self) -> dict:
         # Формат полей — 1:1 с RealRemnawaveClient.get_system_stats (см. real.py,

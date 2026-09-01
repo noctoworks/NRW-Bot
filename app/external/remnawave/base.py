@@ -157,6 +157,27 @@ class RemnawaveClient(ABC):
         нужен отдельный эндпоинт, если он вообще есть)."""
 
     @abstractmethod
+    async def enable_node(self, *, remnawave_uuid: str) -> dict:
+        """Управление нодами из веб-админки (диалог 2026-09-01, приоритет
+        владельца продукта — до этого раздел "Ноды" был read-only). Пути
+        сверены с исходником контракта панели (github.com/remnawave/backend,
+        libs/contract/api/controllers/nodes.ts + commands/nodes/actions/*,
+        не "вживую на тестовой панели", как остальные методы этого файла —
+        подтвердить в реальном ответе панели при первом реальном включении/
+        отключении ноды на бою). Возвращает узел в том же формате, что и
+        list_nodes (один элемент)."""
+
+    @abstractmethod
+    async def disable_node(self, *, remnawave_uuid: str) -> dict: ...
+
+    @abstractmethod
+    async def restart_node(self, *, remnawave_uuid: str) -> None:
+        """Требует forceRestart в теле запроса — панель не даёт его опустить
+        (см. real.py). Всегда шлём False (мягкий рестарт); ручку под "жёсткий"
+        рестарт не делаем, пока не попросят — не тот случай, чтобы гадать
+        заранее."""
+
+    @abstractmethod
     async def get_system_stats(self) -> dict:
         """Живые метрики ПАНЕЛИ (не отдельных нод — см. get_nodes_metrics ниже):
         {"cpu_cores", "memory_used_bytes", "memory_total_bytes", "uptime_seconds",

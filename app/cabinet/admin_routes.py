@@ -222,6 +222,22 @@ async def nodes(_admin: User = Depends(require_admin)) -> list[dict]:
     return await get_remnawave_client().list_nodes()
 
 
+@router.post('/nodes/{node_uuid}/enable', response_model=NodeOut)
+async def enable_node(node_uuid: str, _admin: User = Depends(require_admin)) -> dict:
+    return await get_remnawave_client().enable_node(remnawave_uuid=node_uuid)
+
+
+@router.post('/nodes/{node_uuid}/disable', response_model=NodeOut)
+async def disable_node(node_uuid: str, _admin: User = Depends(require_admin)) -> dict:
+    return await get_remnawave_client().disable_node(remnawave_uuid=node_uuid)
+
+
+@router.post('/nodes/{node_uuid}/restart')
+async def restart_node(node_uuid: str, _admin: User = Depends(require_admin)) -> dict:
+    await get_remnawave_client().restart_node(remnawave_uuid=node_uuid)
+    return {'status': 'accepted'}
+
+
 @router.get('/infra-billing', response_model=InfraBillingOut)
 async def infra_billing(_admin: User = Depends(require_admin)) -> dict:
     return await get_remnawave_client().get_infra_billing()
