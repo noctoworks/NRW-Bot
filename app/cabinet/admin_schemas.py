@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -320,6 +321,41 @@ class PromoGroupUpdateRequest(BaseModel):
 
 class SetUserPromoGroupRequest(BaseModel):
     promo_group_id: int | None = None
+
+
+class PromoCodeOut(BaseModel):
+    id: int
+    code: str
+    type: Literal['balance', 'days']
+    value: int
+    max_activations: int
+    activations_count: int
+    expires_at: datetime | None
+    is_active: bool
+    created_at: datetime
+
+
+class PromoCodeCreateRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=32)
+    type: Literal['balance', 'days']
+    # value — копейки для balance, дни для days (см. PromoCode.value в models.py
+    # и app/services/promocode_service.py::activate_promocode). gt=0 — тот же
+    # инвариант, что уже проверяет создание промокода в чат-админке
+    # (handlers/admin.py) — 0/отрицательный номинал бессмысленен.
+    value: int = Field(gt=0)
+    max_activations: int = Field(gt=0, default=1)
+    # Ни один существующий промокод не имеет expires_at — в чат-админке (см.
+    # handlers/admin.py) поле только ОТОБРАЖАЕТСЯ ("бессрочно"), но никогда не
+    # заполняется при создании. Тут добавляем реальную возможность его задать —
+    # осознанное расширение возможностей чат-версии, не паритет 1:1.
+    expires_at: datetime | None = None
+
+
+class PromoCodeUpdateRequest(BaseModel):
+    # Только переключение активности — ровно то, что умеет чат-админка
+    # (cb_promo_toggle); значение/тип/лимит активаций после создания не
+    # редактируются нигде, не изобретаем новую возможность здесь.
+    is_active: bool
 
 
 class CampaignOut(BaseModel):

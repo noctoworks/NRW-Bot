@@ -39,6 +39,9 @@ from app.cabinet.admin_schemas import (
     NodeOut,
     OverviewResponse,
     PaginatedTransactionsResponse,
+    PromoCodeCreateRequest,
+    PromoCodeOut,
+    PromoCodeUpdateRequest,
     PromoGroupCreateRequest,
     PromoGroupOut,
     PromoGroupUpdateRequest,
@@ -61,6 +64,7 @@ from app.config import settings
 from app.database.models import (
     Campaign,
     Payment,
+    PromoCode,
     PromoGroup,
     ReferralEarning,
     Subscription,
@@ -947,6 +951,109 @@ async def delete_promo_group(
     group = await _get_promo_group_or_404(db, group_id)
     await db.delete(group)
     await db.commit()  # users.promo_group_id -> NULL автоматически (ondelete='SET NULL')
+    return {'status': 'deleted'}
+
+
+# === Промокоды (разовая активация юзером, см. app/services/promocode_service.py,
+# ранее управлялись только из чат-админки — handlers/admin.py) ================
+
+
+@router.get('/promo-codes', response_model=list[PromoCodeOut])
+async def list_promo_codes(db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)) -> list[dict]:
+    codes = (await db.execute(select(PromoCode).order_by(PromoCode.created_at.desc()))).scalars().all()
+    return [
+        {
+            'id': c.id,
+            'code': c.code,
+            'type': c.type,
+            'value': c.value,
+            'max_activations': c.max_activations,
+            'activations_count': c.activations_count,
+            'expires_at': c.expires_at,
+            'is_active': c.is_active,
+            'created_at': c.created_at,
+        }
+        for c in codes
+    ]
+
+
+@router.post('/promo-codes', response_model=PromoCodeOut)
+async def create_promo_code(
+    payload: PromoCodeCreateRequest, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> dict:
+    # Нормализация/регистронезависимая проверка уникальности — те же правила,
+    # что activate_promocode использует при активации (см. promocode_service.py),
+    # иначе можно завести LETO2026 и leto2026 как два разных кода, которые
+    # activate_promocode всё равно считает одним и тем же.
+    normalized = payload.code.strip().upper()
+    if not normalized:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Код не может быть пустым')
+    existing = await db.execute(select(PromoCode.id).where(func.upper(PromoCode.code) == normalized))
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f'Промокод {normalized} уже существует')
+
+    code = PromoCode(
+        code=normalized,
+        type=payload.type,
+        value=payload.value,
+        max_activations=payload.max_activations,
+        expires_at=payload.expires_at,
+        is_active=True,
+        activations_count=0,
+    )
+    db.add(code)
+    await db.commit()
+    await db.refresh(code)
+    return {
+        'id': code.id,
+        'code': code.code,
+        'type': code.type,
+        'value': code.value,
+        'max_activations': code.max_activations,
+        'activations_count': code.activations_count,
+        'expires_at': code.expires_at,
+        'is_active': code.is_active,
+        'created_at': code.created_at,
+    }
+
+
+async def _get_promo_code_or_404(db: AsyncSession, code_id: int) -> PromoCode:
+    code = await db.get(PromoCode, code_id)
+    if code is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, 'Промокод не найден')
+    return code
+
+
+@router.patch('/promo-codes/{code_id}', response_model=PromoCodeOut)
+async def update_promo_code(
+    code_id: int,
+    payload: PromoCodeUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+) -> dict:
+    code = await _get_promo_code_or_404(db, code_id)
+    code.is_active = payload.is_active
+    await db.commit()
+    return {
+        'id': code.id,
+        'code': code.code,
+        'type': code.type,
+        'value': code.value,
+        'max_activations': code.max_activations,
+        'activations_count': code.activations_count,
+        'expires_at': code.expires_at,
+        'is_active': code.is_active,
+        'created_at': code.created_at,
+    }
+
+
+@router.delete('/promo-codes/{code_id}')
+async def delete_promo_code(
+    code_id: int, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> dict[str, str]:
+    code = await _get_promo_code_or_404(db, code_id)
+    await db.delete(code)
+    await db.commit()  # promocode_uses каскадно (ondelete='CASCADE', см. models.py)
     return {'status': 'deleted'}
 
 
