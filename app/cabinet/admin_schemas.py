@@ -471,6 +471,15 @@ class InfraBillingOut(BaseModel):
     nodes: list[InfraBillingNodeOut]
 
 
+class NetProfitOut(BaseModel):
+    revenue_all_time: float
+    cost_all_time: float
+    net_profit_all_time: float
+    revenue_this_month: float
+    cost_this_month: float
+    net_profit_this_month: float
+
+
 class SubscriptionPulseOut(BaseModel):
     new_today: int
     renewals_today: int

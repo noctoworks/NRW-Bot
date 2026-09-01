@@ -39,6 +39,7 @@ from app.cabinet.admin_schemas import (
     MassbanResponse,
     MessageRequest,
     MonitoringResponse,
+    NetProfitOut,
     NodeOut,
     OverviewResponse,
     PaginatedTransactionsResponse,
@@ -224,6 +225,29 @@ async def nodes(_admin: User = Depends(require_admin)) -> list[dict]:
 @router.get('/infra-billing', response_model=InfraBillingOut)
 async def infra_billing(_admin: User = Depends(require_admin)) -> dict:
     return await get_remnawave_client().get_infra_billing()
+
+
+@router.get('/net-profit', response_model=NetProfitOut)
+async def net_profit(db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)) -> dict:
+    # Выручка — в копейках (Transaction.amount_kopeks), расходы на инфру —
+    # голое число из Remnawave БЕЗ единиц валюты (см. get_infra_billing).
+    # Пользователь подтвердил (диалог 2026-09-01): расходы вводятся в рублях
+    # в самой панели Remnawave — поэтому здесь оба переводим в рубли (float)
+    # и вычитаем напрямую. Если это когда-то перестанет быть верным (расходы
+    # в $/€), эта разница станет враньём — считать по-прежнему только рубли.
+    revenue_all_time = (await analytics_service.get_revenue_all_time(db)) / 100
+    revenue_this_month = (await analytics_service.get_revenue_this_month(db)) / 100
+    billing = await get_remnawave_client().get_infra_billing()
+    cost_all_time = billing['total_spent']
+    cost_this_month = billing['current_month_payments']
+    return {
+        'revenue_all_time': revenue_all_time,
+        'cost_all_time': cost_all_time,
+        'net_profit_all_time': revenue_all_time - cost_all_time,
+        'revenue_this_month': revenue_this_month,
+        'cost_this_month': cost_this_month,
+        'net_profit_this_month': revenue_this_month - cost_this_month,
+    }
 
 
 @router.get('/monitoring', response_model=MonitoringResponse)

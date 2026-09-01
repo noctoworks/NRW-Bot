@@ -64,6 +64,19 @@ async def _revenue_sum(db: AsyncSession, *, since: datetime | None = None) -> in
     return (await db.execute(stmt)).scalar_one()
 
 
+async def get_revenue_all_time(db: AsyncSession) -> int:
+    return await _revenue_sum(db)
+
+
+async def get_revenue_this_month(db: AsyncSession) -> int:
+    """Календарный месяц (не business-day, не скользящие 30 дней) — чтобы
+    честно сравнивать с Remnawave-статистикой currentMonthPayments в чистой
+    прибыли (диалог 2026-09-01), которая тоже календарная."""
+    now = datetime.now(timezone.utc)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return await _revenue_sum(db, since=month_start)
+
+
 async def get_subscription_pulse(db: AsyncSession) -> dict:
     """"Пульс" подписок для Обзора и для /alerts (диалог 2026-09-01,
     "перевёрстать Обзор под мокап") — одна функция вместо дублирования
