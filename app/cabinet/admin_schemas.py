@@ -23,6 +23,7 @@ class OverviewResponse(BaseModel):
     mrr_kopeks: int
     arr_kopeks: int
     churn_percent_30d: float
+    total_traffic_gb: float
 
 
 class RevenuePointOut(BaseModel):
@@ -37,6 +38,16 @@ class TopPayerOut(BaseModel):
     username: str | None
     full_name: str | None
     total_kopeks: int
+
+
+class RecentPaymentOut(BaseModel):
+    user_id: int
+    telegram_id: int
+    username: str | None
+    full_name: str | None
+    amount_kopeks: int
+    type: str
+    created_at: datetime
 
 
 class LtvResponse(BaseModel):
@@ -149,6 +160,9 @@ class MessageRequest(BaseModel):
 
 
 class SupportThreadOut(BaseModel):
+    ticket_id: int
+    status: str
+    assigned_admin_name: str | None
     user_id: int
     telegram_id: int
     username: str | None
@@ -166,6 +180,9 @@ class SupportMessageOut(BaseModel):
 
 
 class SupportThreadDetailResponse(BaseModel):
+    ticket_id: int
+    status: str
+    assigned_admin_name: str | None
     user_id: int
     telegram_id: int
     username: str | None

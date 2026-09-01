@@ -274,15 +274,48 @@ class ReferralEarning(TimestampMixin, Base):
     source: Mapped[str] = mapped_column(String(32))  # purchase|topup
 
 
+class SupportTicket(Base):
+    """Тикет поддержки — одна переписка юзера с поддержкой. status='open' пока
+    юзер/админ не закроют явно (закрытие — только из MiniApp-админки, см.
+    app/cabinet/admin_routes.py). assigned_admin_* — «застолбил» тикет тот
+    админ, кто ответил первым (паттерн как у BroadcastHistory.admin_id/admin_name
+    ниже), это не жёсткий лок — остальные админы всё равно видят и могут
+    ответить, просто в шапке пересланного сообщения видно, кто уже ведёт."""
+
+    __tablename__ = 'support_tickets'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'), index=True)
+    status: Mapped[str] = mapped_column(String(16), default='open')  # open|closed
+    assigned_admin_id: Mapped[int | None] = mapped_column(ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    assigned_admin_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class SupportMessage(Base):
     __tablename__ = 'support_messages'
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ticket_id: Mapped[int] = mapped_column(ForeignKey('support_tickets.id', ondelete='CASCADE'), index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey('users.id', ondelete='CASCADE'), index=True)
     direction: Mapped[str] = mapped_column(String(8))  # in|out
     body: Mapped[str] = mapped_column(Text)
-    admin_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # id пересланного сообщения в админ-чате, для reply-роутинга
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SupportMessageDelivery(Base):
+    """Кому из админов и под каким message_id переслано конкретное входящее
+    сообщение — нужно, чтобы reply-роутинг (on_admin_reply) работал для ЛЮБОГО
+    админа, а не только для первого в ADMIN_TELEGRAM_IDS (старое ограничение,
+    см. app/handlers/support.py)."""
+
+    __tablename__ = 'support_message_deliveries'
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    support_message_id: Mapped[int] = mapped_column(ForeignKey('support_messages.id', ondelete='CASCADE'), index=True)
+    admin_telegram_id: Mapped[int] = mapped_column(BigInteger)
+    admin_message_id: Mapped[int] = mapped_column(BigInteger)
 
 
 class CabinetRefreshToken(Base):

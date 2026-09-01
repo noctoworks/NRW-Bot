@@ -38,6 +38,7 @@ from app.cabinet.admin_schemas import (
     PromoGroupCreateRequest,
     PromoGroupOut,
     PromoGroupUpdateRequest,
+    RecentPaymentOut,
     ReferralCommissionRequest,
     ReferralFunnelResponse,
     RevenuePointOut,
@@ -57,6 +58,7 @@ from app.database.models import (
     ReferralEarning,
     Subscription,
     SupportMessage,
+    SupportTicket,
     Tariff,
     Transaction,
     User,
@@ -84,6 +86,13 @@ async def revenue_timeseries(
     days: int = Query(30, ge=1, le=180), db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
 ) -> list[dict]:
     return await analytics_service.get_revenue_timeseries(db, days=days)
+
+
+@router.get('/recent-payments', response_model=list[RecentPaymentOut])
+async def recent_payments(
+    limit: int = Query(10, ge=1, le=50), db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> list[dict]:
+    return await analytics_service.get_recent_payments(db, limit=limit)
 
 
 @router.get('/ltv', response_model=LtvResponse)
@@ -369,19 +378,30 @@ async def message_user(
     return {'status': 'sent'}
 
 
+async def _get_ticket_or_404(db: AsyncSession, ticket_id: int) -> SupportTicket:
+    ticket = await db.get(SupportTicket, ticket_id)
+    if ticket is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, 'Тикет не найден')
+    return ticket
+
+
 @router.get('/support/threads', response_model=list[SupportThreadOut])
 async def support_threads(db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)) -> list[dict]:
-    # Тред = все SupportMessage одного user_id (см. app/handlers/support.py) —
-    # тут нет отдельной таблицы тикетов, группируем по последнему сообщению.
-    last_ids = select(func.max(SupportMessage.id)).group_by(SupportMessage.user_id).scalar_subquery()
+    # Тред = тикет (см. app/database/models.py::SupportTicket, редизайн из MVP,
+    # где тредом была неявная группировка SupportMessage по user_id).
+    last_ids = select(func.max(SupportMessage.id)).group_by(SupportMessage.ticket_id).scalar_subquery()
     result = await db.execute(
-        select(SupportMessage, User)
-        .join(User, User.id == SupportMessage.user_id)
+        select(SupportMessage, SupportTicket, User)
+        .join(SupportTicket, SupportTicket.id == SupportMessage.ticket_id)
+        .join(User, User.id == SupportTicket.user_id)
         .where(SupportMessage.id.in_(last_ids))
         .order_by(SupportMessage.created_at.desc())
     )
     return [
         {
+            'ticket_id': ticket.id,
+            'status': ticket.status,
+            'assigned_admin_name': ticket.assigned_admin_name,
             'user_id': user.id,
             'telegram_id': user.telegram_id,
             'username': user.username,
@@ -392,23 +412,27 @@ async def support_threads(db: AsyncSession = Depends(get_db), _admin: User = Dep
             # не ответил после него — простая эвристика без отдельного поля "прочитано".
             'unread': msg.direction == 'in',
         }
-        for msg, user in result.all()
+        for msg, ticket, user in result.all()
     ]
 
 
-@router.get('/support/threads/{user_id}', response_model=SupportThreadDetailResponse)
+@router.get('/support/threads/{ticket_id}', response_model=SupportThreadDetailResponse)
 async def support_thread_detail(
-    user_id: int, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+    ticket_id: int, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
 ) -> dict:
-    user = await _get_user_or_404(db, user_id)
+    ticket = await _get_ticket_or_404(db, ticket_id)
+    user = await _get_user_or_404(db, ticket.user_id)
     result = await db.execute(
-        select(SupportMessage).where(SupportMessage.user_id == user_id).order_by(SupportMessage.id)
+        select(SupportMessage).where(SupportMessage.ticket_id == ticket_id).order_by(SupportMessage.id)
     )
     messages = [
         SupportMessageOut(id=m.id, direction=m.direction, body=m.body, created_at=m.created_at)
         for m in result.scalars().all()
     ]
     return {
+        'ticket_id': ticket.id,
+        'status': ticket.status,
+        'assigned_admin_name': ticket.assigned_admin_name,
         'user_id': user.id,
         'telegram_id': user.telegram_id,
         'username': user.username,
@@ -417,9 +441,9 @@ async def support_thread_detail(
     }
 
 
-@router.post('/support/threads/{user_id}/reply')
+@router.post('/support/threads/{ticket_id}/reply')
 async def support_thread_reply(
-    user_id: int,
+    ticket_id: int,
     payload: SupportReplyRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -427,7 +451,8 @@ async def support_thread_reply(
 ) -> dict[str, str]:
     # Тот же способ доставки, что у on_admin_reply (app/handlers/support.py) —
     # роутинг через reply_to_message там не нужен, отвечаем сразу по user_id.
-    target = await _get_user_or_404(db, user_id)
+    ticket = await _get_ticket_or_404(db, ticket_id)
+    target = await _get_user_or_404(db, ticket.user_id)
     try:
         await request.app.state.bot.send_message(target.telegram_id, f'💬 Ответ поддержки:\n\n{payload.text}')
     except TelegramForbiddenError:
@@ -437,9 +462,36 @@ async def support_thread_reply(
     except Exception as error:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, 'Не удалось отправить сообщение') from error
 
-    db.add(SupportMessage(user_id=target.id, direction='out', body=payload.text))
+    db.add(SupportMessage(ticket_id=ticket.id, user_id=target.id, direction='out', body=payload.text))
+    # Первый ответивший из MiniApp тоже "застолбливает" тикет — тот же паттерн
+    # claim, что у on_admin_reply в боте, чтобы бот-часть видела, кто уже ведёт.
+    if ticket.assigned_admin_id is None and ticket.assigned_admin_name is None:
+        ticket.assigned_admin_id = _admin.id
+        ticket.assigned_admin_name = _admin.username or str(_admin.telegram_id)
     await db.commit()
     return {'status': 'sent'}
+
+
+@router.post('/support/threads/{ticket_id}/close')
+async def support_thread_close(
+    ticket_id: int, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> dict[str, str]:
+    ticket = await _get_ticket_or_404(db, ticket_id)
+    ticket.status = 'closed'
+    ticket.closed_at = datetime.now(timezone.utc)
+    await db.commit()
+    return {'status': 'closed'}
+
+
+@router.post('/support/threads/{ticket_id}/reopen')
+async def support_thread_reopen(
+    ticket_id: int, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> dict[str, str]:
+    ticket = await _get_ticket_or_404(db, ticket_id)
+    ticket.status = 'open'
+    ticket.closed_at = None
+    await db.commit()
+    return {'status': 'open'}
 
 
 @router.post('/users/massban', response_model=MassbanResponse)

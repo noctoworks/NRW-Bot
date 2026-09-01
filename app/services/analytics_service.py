@@ -128,6 +128,15 @@ async def get_overview(db: AsyncSession) -> dict:
 
     churn_percent_30d = await _churn_percent(db, since=now - timedelta(days=30), until=now)
 
+    # traffic_used_gb синхронизируется фоновой задачей из Remnawave в саму
+    # Subscription (см. models.py) — не живой запрос к панели, поэтому сумма
+    # по активным подпискам дешёвая (см. диалог 2026-09-01, дашборд "Обзор").
+    total_traffic_gb = (
+        await db.execute(
+            select(func.coalesce(func.sum(Subscription.traffic_used_gb), 0)).where(Subscription.status == 'active')
+        )
+    ).scalar_one()
+
     return {
         'revenue_today_kopeks': revenue_today,
         'revenue_7d_kopeks': revenue_7d,
@@ -143,6 +152,7 @@ async def get_overview(db: AsyncSession) -> dict:
         'mrr_kopeks': revenue_30d,
         'arr_kopeks': revenue_30d * 12,
         'churn_percent_30d': churn_percent_30d,
+        'total_traffic_gb': round(total_traffic_gb, 1),
     }
 
 
@@ -331,3 +341,40 @@ async def get_referral_funnel(db: AsyncSession) -> dict:
         'total_earnings_kopeks': total_earnings_kopeks,
         'top_referrers': top_referrers,
     }
+
+
+async def get_recent_payments(db: AsyncSession, *, limit: int = 10) -> list[dict]:
+    """Лента последних платежей для главного экрана новой админки (см. диалог
+    2026-09-01, "максимально прозрачная аналитика") — та же выручка, что и
+    _revenue_sum выше (REVENUE_TYPES, status='completed', НЕ оплата балансом),
+    просто последние N штук вместо суммы."""
+    result = await db.execute(
+        select(Transaction)
+        .where(Transaction.type.in_(REVENUE_TYPES), Transaction.status == 'completed', _NOT_BALANCE_FUNDED)
+        .order_by(Transaction.created_at.desc())
+        .limit(limit)
+    )
+    transactions = list(result.scalars())
+    if not transactions:
+        return []
+
+    users_result = await db.execute(select(User).where(User.id.in_([t.user_id for t in transactions])))
+    users_by_id = {u.id: u for u in users_result.scalars().all()}
+
+    payments = []
+    for t in transactions:
+        user = users_by_id.get(t.user_id)
+        if user is None:
+            continue
+        payments.append(
+            {
+                'user_id': user.id,
+                'telegram_id': user.telegram_id,
+                'username': user.username,
+                'full_name': user.full_name,
+                'amount_kopeks': t.amount_kopeks,
+                'type': t.type,
+                'created_at': t.created_at,
+            }
+        )
+    return payments
