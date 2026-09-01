@@ -24,6 +24,7 @@ from app.cabinet.admin_schemas import (
     AdminUserDetailResponse,
     AdminUserListItem,
     AdminUserListResponse,
+    AlertOut,
     BalanceAdjustRequest,
     BlockRequest,
     CampaignCreateRequest,
@@ -118,6 +119,110 @@ async def sales_breakdown(db: AsyncSession = Depends(get_db), _admin: User = Dep
         'by_weekday': await analytics_service.get_revenue_by_weekday(db),
         'active_subs_by_tariff': await analytics_service.get_active_subscriptions_by_tariff(db),
     }
+
+
+@router.get('/alerts', response_model=list[AlertOut])
+async def alerts(db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)) -> list[dict]:
+    """"Требует внимания" на Обзоре (диалог 2026-09-01) — только то, что честно
+    считается из уже имеющихся данных: без Prometheus/выдуманных источников,
+    без истории состояний (нет alert-таблицы — 'recovered' показать нечем,
+    это живой снимок сейчас, не журнал событий)."""
+    now = datetime.now(timezone.utc)
+    result: list[dict] = []
+
+    expiring_24h = (
+        await db.execute(
+            select(func.count(Subscription.id)).where(
+                Subscription.status == 'active',
+                Subscription.end_date >= now,
+                Subscription.end_date <= now + timedelta(hours=24),
+            )
+        )
+    ).scalar_one()
+    if expiring_24h > 0:
+        result.append(
+            {
+                'id': 'subs-expiring-24h',
+                'severity': 'critical',
+                'title': f'Истекает в ближайшие 24 часа: {expiring_24h}',
+                'link': '/admin/subscriptions',
+            }
+        )
+
+    expiring_3d = (
+        await db.execute(
+            select(func.count(Subscription.id)).where(
+                Subscription.status == 'active',
+                Subscription.end_date > now + timedelta(hours=24),
+                Subscription.end_date <= now + timedelta(days=3),
+            )
+        )
+    ).scalar_one()
+    if expiring_3d > 0:
+        result.append(
+            {
+                'id': 'subs-expiring-3d',
+                'severity': 'warning',
+                'title': f'Истекает в ближайшие 3 дня: {expiring_3d}',
+                'link': '/admin/subscriptions',
+            }
+        )
+
+    nodes = await get_remnawave_client().list_nodes()
+    offline_nodes = [n for n in nodes if not n['is_connected'] and not n['is_disabled']]
+    for n in offline_nodes:
+        result.append(
+            {
+                'id': f'node-offline-{n["uuid"]}',
+                'severity': 'critical',
+                'title': f'Нода «{n["name"]}» недоступна',
+                'link': '/admin/nodes',
+            }
+        )
+    disabled_nodes = [n for n in nodes if n['is_disabled']]
+    if disabled_nodes:
+        result.append(
+            {
+                'id': 'nodes-disabled',
+                'severity': 'warning',
+                'title': f'Отключено вручную нод: {len(disabled_nodes)}',
+                'link': '/admin/nodes',
+            }
+        )
+
+    panel_stats = await get_remnawave_client().get_system_stats()
+    if panel_stats['memory_total_bytes'] > 0:
+        mem_percent = panel_stats['memory_used_bytes'] / panel_stats['memory_total_bytes']
+        if mem_percent > 0.85:
+            result.append(
+                {
+                    'id': 'panel-memory-high',
+                    'severity': 'warning',
+                    'title': f'Память панели Remnawave заполнена на {round(mem_percent * 100)}%',
+                    'link': '/admin/monitoring',
+                }
+            )
+
+    last_ids = select(func.max(SupportMessage.id)).group_by(SupportMessage.ticket_id).scalar_subquery()
+    unread_count = (
+        await db.execute(
+            select(func.count())
+            .select_from(SupportMessage)
+            .join(SupportTicket, SupportTicket.id == SupportMessage.ticket_id)
+            .where(SupportMessage.id.in_(last_ids), SupportTicket.status == 'open', SupportMessage.direction == 'in')
+        )
+    ).scalar_one()
+    if unread_count > 0:
+        result.append(
+            {
+                'id': 'support-unread',
+                'severity': 'info',
+                'title': f'Обращений без ответа: {unread_count}',
+                'link': '/admin/support',
+            }
+        )
+
+    return result
 
 
 @router.get('/nodes', response_model=list[NodeOut])

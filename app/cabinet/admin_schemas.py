@@ -455,3 +455,10 @@ class SalesBreakdownResponse(BaseModel):
     by_provider: list[RevenueByProviderOut]
     by_weekday: list[RevenueByWeekdayOut]
     active_subs_by_tariff: list[ActiveSubsByTariffOut]
+
+
+class AlertOut(BaseModel):
+    id: str
+    severity: Literal['critical', 'warning', 'info']
+    title: str
+    link: str | None = None
