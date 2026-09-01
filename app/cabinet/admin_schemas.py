@@ -290,6 +290,13 @@ class DeviceOut(BaseModel):
     created_at: datetime | None
 
 
+class UserNodeTrafficOut(BaseModel):
+    node_uuid: str
+    node_name: str
+    country_code: str
+    total_bytes: int
+
+
 class SyncResultResponse(BaseModel):
     status: str
     subscription: AdminSubscriptionOut | None = None

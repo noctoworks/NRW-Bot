@@ -178,6 +178,21 @@ class MockRemnawaveClient(RemnawaveClient):
         ]
         _save_state(self._state)
 
+    async def get_user_traffic_by_node(self, *, remnawave_uuid: str, days: int = 30) -> list[dict]:
+        # Формат полей — 1:1 с RealRemnawaveClient.get_user_traffic_by_node (см.
+        # real.py, проверено вживую на тестовой панели). Реального разбиения по
+        # нодам в моке нет — берём фактический traffic_used_gb юзера и делим
+        # между двумя фикс-нодами (см. list_nodes выше), чтобы карточка юзера в
+        # админке не была пустой на стенде (REMNAWAVE_MODE=mock).
+        user = self._require_user(remnawave_uuid)
+        total_bytes = int(user.traffic_used_gb * 1024**3)
+        if total_bytes <= 0:
+            return []
+        return [
+            {'node_uuid': 'mock-node-de', 'node_name': 'DE-01', 'country_code': 'DE', 'total_bytes': round(total_bytes * 0.7)},
+            {'node_uuid': 'mock-node-fi', 'node_name': 'FI-01', 'country_code': 'FI', 'total_bytes': round(total_bytes * 0.3)},
+        ]
+
     async def list_internal_squads(self) -> list[dict]:
         return [
             {'uuid': 'mock-squad-de', 'name': 'Germany', 'country': 'DE'},

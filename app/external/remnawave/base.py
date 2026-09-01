@@ -129,6 +129,17 @@ class RemnawaveClient(ABC):
     async def reset_user_devices(self, *, remnawave_uuid: str) -> None: ...
 
     @abstractmethod
+    async def get_user_traffic_by_node(self, *, remnawave_uuid: str, days: int = 30) -> list[dict]:
+        """Трафик пользователя по нодам за последние `days` дней:
+        [{"node_uuid", "node_name", "country_code", "total_bytes"}, ...],
+        отсортировано панелью по убыванию total. Для карточки пользователя в
+        веб-админке (диалог 2026-09-01) — "трафик по нодам", не было в §5
+        clone-architecture.md (сознательное расширение). Проверено вживую на
+        тестовой панели: GET /bandwidth-stats/users/{id}?start=...&end=...
+        &topNodesLimit=20 — id тот же numeric id, что и remnawave_uuid (см.
+        комментарий в real.py про переход панели на numeric id)."""
+
+    @abstractmethod
     async def remove_device(self, *, remnawave_uuid: str, hwid: str) -> None: ...
 
     @abstractmethod

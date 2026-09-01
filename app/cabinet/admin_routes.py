@@ -59,6 +59,7 @@ from app.cabinet.admin_schemas import (
     SupportThreadOut,
     SyncResultResponse,
     TransactionListResponse,
+    UserNodeTrafficOut,
 )
 from app.cabinet.deps import get_db
 from app.config import settings
@@ -822,6 +823,16 @@ async def reset_devices(
         raise HTTPException(status.HTTP_404_NOT_FOUND, 'У пользователя нет активной подписки в Remnawave')
     await get_remnawave_client().reset_user_devices(remnawave_uuid=target.remnawave_uuid)
     return {'status': 'reset'}
+
+
+@router.get('/users/{user_id}/traffic-by-node', response_model=list[UserNodeTrafficOut])
+async def user_traffic_by_node(
+    user_id: int, days: int = 30, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> list[dict]:
+    target = await _get_user_or_404(db, user_id)
+    if not target.remnawave_uuid:
+        return []
+    return await get_remnawave_client().get_user_traffic_by_node(remnawave_uuid=target.remnawave_uuid, days=days)
 
 
 # === Синхронизация с Remnawave =================================================

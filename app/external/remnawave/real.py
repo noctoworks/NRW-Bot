@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -246,6 +246,27 @@ class RealRemnawaveClient(RemnawaveClient):
 
     async def reset_user_devices(self, *, remnawave_uuid: str) -> None:
         await self._request('POST', '/hwid/devices/delete-all', json_data={'userId': int(remnawave_uuid)})
+
+    async def get_user_traffic_by_node(self, *, remnawave_uuid: str, days: int = 30) -> list[dict]:
+        # Проверено вживую на тестовой панели (см. диалог 2026-09-01):
+        # GET /bandwidth-stats/users/{id}.
+        end = date.today()
+        start = end - timedelta(days=days)
+        data = await self._request(
+            'GET',
+            f'/bandwidth-stats/users/{remnawave_uuid}',
+            params={'start': start.isoformat(), 'end': end.isoformat(), 'topNodesLimit': 20},
+        )
+        top_nodes = data.get('topNodes', []) if isinstance(data, dict) else []
+        return [
+            {
+                'node_uuid': n['uuid'],
+                'node_name': n.get('name', ''),
+                'country_code': n.get('countryCode') or '',
+                'total_bytes': int(n.get('total') or 0),
+            }
+            for n in top_nodes
+        ]
 
     async def remove_device(self, *, remnawave_uuid: str, hwid: str) -> None:
         await self._request('POST', '/hwid/devices/delete', json_data={'userId': int(remnawave_uuid), 'hwid': hwid})
