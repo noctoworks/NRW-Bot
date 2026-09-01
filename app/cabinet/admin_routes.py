@@ -99,7 +99,10 @@ async def overview(db: AsyncSession = Depends(get_db), _admin: User = Depends(re
 
 @router.get('/revenue-timeseries', response_model=list[RevenuePointOut])
 async def revenue_timeseries(
-    days: int = Query(30, ge=1, le=180), db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+    # le=800: страница "Динамика" (диалог 2026-09-01) запрашивает periodDays*2,
+    # чтобы посчитать % к предыдущему периоду той же длины одним запросом —
+    # при periodDays=365 (пресет "1 год") это 730.
+    days: int = Query(30, ge=1, le=800), db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
 ) -> list[dict]:
     return await analytics_service.get_revenue_timeseries(db, days=days)
 
