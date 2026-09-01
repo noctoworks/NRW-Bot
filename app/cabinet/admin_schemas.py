@@ -428,3 +428,30 @@ class NodeMetricOut(BaseModel):
 class MonitoringResponse(BaseModel):
     panel: PanelStatsOut
     nodes: list[NodeMetricOut]
+
+
+class RevenueByTypeOut(BaseModel):
+    type: str
+    revenue_kopeks: int
+
+
+class RevenueByProviderOut(BaseModel):
+    provider: str
+    revenue_kopeks: int
+
+
+class RevenueByWeekdayOut(BaseModel):
+    weekday: int
+    revenue_kopeks: int
+
+
+class ActiveSubsByTariffOut(BaseModel):
+    tariff_name: str
+    active_count: int
+
+
+class SalesBreakdownResponse(BaseModel):
+    by_type: list[RevenueByTypeOut]
+    by_provider: list[RevenueByProviderOut]
+    by_weekday: list[RevenueByWeekdayOut]
+    active_subs_by_tariff: list[ActiveSubsByTariffOut]

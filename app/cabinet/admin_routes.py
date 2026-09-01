@@ -50,6 +50,7 @@ from app.cabinet.admin_schemas import (
     ReferralCommissionRequest,
     ReferralFunnelResponse,
     RevenuePointOut,
+    SalesBreakdownResponse,
     SetUserPromoGroupRequest,
     SubscriptionDaysAdjustRequest,
     SupportMessageOut,
@@ -107,6 +108,16 @@ async def recent_payments(
     limit: int = Query(10, ge=1, le=50), db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
 ) -> list[dict]:
     return await analytics_service.get_recent_payments(db, limit=limit)
+
+
+@router.get('/sales-breakdown', response_model=SalesBreakdownResponse)
+async def sales_breakdown(db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)) -> dict:
+    return {
+        'by_type': await analytics_service.get_revenue_by_type(db),
+        'by_provider': await analytics_service.get_revenue_by_provider(db),
+        'by_weekday': await analytics_service.get_revenue_by_weekday(db),
+        'active_subs_by_tariff': await analytics_service.get_active_subscriptions_by_tariff(db),
+    }
 
 
 @router.get('/nodes', response_model=list[NodeOut])

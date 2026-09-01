@@ -34,7 +34,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import Payment, ReferralEarning, Subscription, Transaction, User
+from app.database.models import Payment, ReferralEarning, Subscription, Tariff, Transaction, User
 from app.services.time_utils import business_day_start_utc
 
 REVENUE_TYPES = ('subscription_payment', 'gift')
@@ -378,3 +378,82 @@ async def get_recent_payments(db: AsyncSession, *, limit: int = 10) -> list[dict
             }
         )
     return payments
+
+
+async def get_revenue_by_type(db: AsyncSession, *, days: int = 30) -> list[dict]:
+    """Разбивка выручки по REVENUE_TYPES (см. докстринг модуля) — ТОЛЬКО
+    subscription_payment/gift, не все типы Transaction: 'topup' и
+    'referral_reward' — это деньги, которые бизнес сам раздал, а не заработал
+    (см. докстринг), включать их в "доход по типу" было бы тем же завышением,
+    что уже один раз ловили в этом файле. Отсюда всего 2 категории, а не 5 —
+    так и должно быть, не баг диаграммы."""
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    result = await db.execute(
+        select(Transaction.type, func.coalesce(func.sum(Transaction.amount_kopeks), 0))
+        .where(
+            Transaction.type.in_(REVENUE_TYPES),
+            Transaction.status == 'completed',
+            Transaction.created_at >= since,
+            _NOT_BALANCE_FUNDED,
+        )
+        .group_by(Transaction.type)
+    )
+    by_type = dict(result.all())
+    return [{'type': t, 'revenue_kopeks': by_type.get(t, 0)} for t in REVENUE_TYPES]
+
+
+async def get_revenue_by_provider(db: AsyncSession, *, days: int = 30) -> list[dict]:
+    """Разбивка выручки по Payment.provider — 'balance' (оплата бонусным
+    балансом) намеренно исключён, той же логикой, что и _NOT_BALANCE_FUNDED
+    в остальном файле: это не новые деньги, а трата уже начисленных ранее
+    бонусов/рефералки."""
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    result = await db.execute(
+        select(Payment.provider, func.coalesce(func.sum(Transaction.amount_kopeks), 0))
+        .join(Transaction, Transaction.id == Payment.transaction_id)
+        .where(
+            Transaction.type.in_(REVENUE_TYPES),
+            Transaction.status == 'completed',
+            Transaction.created_at >= since,
+            Payment.provider != 'balance',
+        )
+        .group_by(Payment.provider)
+        .order_by(func.sum(Transaction.amount_kopeks).desc())
+    )
+    return [{'provider': provider, 'revenue_kopeks': revenue} for provider, revenue in result.all()]
+
+
+async def get_revenue_by_weekday(db: AsyncSession, *, days: int = 90) -> list[dict]:
+    """Доход по дням недели — в Python над выгруженными строками (см.
+    докстринг модуля про date_trunc/strftime), 90 дней по умолчанию (не 30,
+    как у остальных разрезов) — дню недели нужно больше данных, чтобы не
+    быть шумом одной случайной недели."""
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    result = await db.execute(
+        select(Transaction.created_at, Transaction.amount_kopeks).where(
+            Transaction.type.in_(REVENUE_TYPES),
+            Transaction.status == 'completed',
+            Transaction.created_at >= since,
+            _NOT_BALANCE_FUNDED,
+        )
+    )
+    buckets = [0] * 7  # datetime.weekday(): 0=понедельник .. 6=воскресенье
+    for created_at, amount_kopeks in result.all():
+        buckets[_as_utc(created_at).weekday()] += amount_kopeks
+    return [{'weekday': i, 'revenue_kopeks': buckets[i]} for i in range(7)]
+
+
+async def get_active_subscriptions_by_tariff(db: AsyncSession) -> list[dict]:
+    """Прокси-метрика вместо "выручки по тарифам" (см. диалог 2026-09-01):
+    Transaction не хранит tariff_id, только текущий Subscription.tariff_id —
+    для старых покупок это было бы неверно, если юзер сменил тариф. Поэтому
+    здесь — снимок СЕЙЧАС: сколько активных подписок на каждом тарифе, не
+    сколько денег этот тариф принёс исторически."""
+    result = await db.execute(
+        select(Tariff.name, func.count(Subscription.id))
+        .join(Subscription, Subscription.tariff_id == Tariff.id)
+        .where(Subscription.status == 'active')
+        .group_by(Tariff.name)
+        .order_by(func.count(Subscription.id).desc())
+    )
+    return [{'tariff_name': name, 'active_count': count} for name, count in result.all()]
