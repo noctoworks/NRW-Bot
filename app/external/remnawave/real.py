@@ -297,6 +297,42 @@ class RealRemnawaveClient(RemnawaveClient):
         nodes = data.get('nodes', []) if isinstance(data, dict) else (data or [])
         return [self._parse_node(n) for n in nodes]
 
+    async def get_node_detail(self, *, remnawave_uuid: str) -> dict | None:
+        # GET /nodes (не отдельный per-uuid запрос) реально отдаёт ВСЕ поля
+        # ноды сразу — проверено вживую 2026-09-01 (см. base.py). Один лишний
+        # запрос при первом клике на ноду, зато без риска, что отдельный
+        # эндпоинт GET /nodes/{uuid} отдаёт другой формат (не проверялся).
+        data = await self._request('GET', '/nodes')
+        nodes = data.get('nodes', []) if isinstance(data, dict) else (data or [])
+        n = next((node for node in nodes if node.get('uuid') == remnawave_uuid), None)
+        if n is None:
+            return None
+        provider = n.get('provider')
+        return {
+            **self._parse_node(n),
+            'address': n.get('address', ''),
+            'port': n.get('port'),
+            'is_connecting': bool(n.get('isConnecting')),
+            'users_online': int(n.get('usersOnline') or 0),
+            'xray_uptime_seconds': float(n.get('xrayUptime') or 0),
+            'last_status_change': n.get('lastStatusChange'),
+            'last_status_message': n.get('lastStatusMessage'),
+            'traffic_limit_gb': (int(n['trafficLimitBytes']) / 1024**3) if n.get('trafficLimitBytes') else None,
+            'traffic_reset_day': n.get('trafficResetDay'),
+            'notify_percent': n.get('notifyPercent'),
+            'consumption_multiplier': float(n.get('consumptionMultiplier') or 1),
+            'tags': n.get('tags') or [],
+            'note': n.get('note'),
+            'provider_name': provider.get('name') if provider else None,
+            'versions': {
+                'xray': (n.get('versions') or {}).get('xray'),
+                'node': (n.get('versions') or {}).get('node'),
+            },
+            'system': n.get('system'),
+            'created_at': n.get('createdAt'),
+            'updated_at': n.get('updatedAt'),
+        }
+
     async def enable_node(self, *, remnawave_uuid: str) -> dict:
         # Путь по образцу /users/{id}/actions/enable выше — сверен с контрактом
         # панели (github.com/remnawave/backend, libs/contract/api/controllers/

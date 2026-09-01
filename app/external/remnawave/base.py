@@ -157,7 +157,19 @@ class RemnawaveClient(ABC):
         нужен отдельный эндпоинт, если он вообще есть)."""
 
     @abstractmethod
-    async def enable_node(self, *, remnawave_uuid: str) -> dict:
+    async def get_node_detail(self, *, remnawave_uuid: str) -> dict | None:
+        """Полная карточка ноды для веб-админки (диалог 2026-09-01: "можем
+        выводить всю инфу о ноде?") — GET /nodes реально отдаёт куда больше
+        полей, чем list_nodes использует, отдельного per-uuid запроса не
+        нужно (тот же ответ, что и list_nodes, просто разбираем полностью).
+        Проверено вживую на боевой панели 2026-09-01: {"address", "port",
+        "versions": {"xray", "node"}, "usersOnline", "xrayUptime",
+        "lastStatusChange"/"lastStatusMessage", "trafficLimitBytes"/
+        "trafficResetDay"/"notifyPercent", "consumptionMultiplier", "tags",
+        "note", "provider", "createdAt"/"updatedAt" — все реально заполнены
+        (или честный null/[]/0, не выдумка). "system" (CPU/RAM/uptime/
+        loadAvg) — поле в схеме панели ЕСТЬ, но агент нашей единственной
+        ноды его не репортит, там null. None — если ноды с таким uuid нет."""
         """Управление нодами из веб-админки (диалог 2026-09-01, приоритет
         владельца продукта — до этого раздел "Ноды" был read-only). Пути
         сверены с исходником контракта панели (github.com/remnawave/backend,

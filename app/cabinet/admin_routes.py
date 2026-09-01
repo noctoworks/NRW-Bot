@@ -40,6 +40,7 @@ from app.cabinet.admin_schemas import (
     MessageRequest,
     MonitoringResponse,
     NetProfitOut,
+    NodeDetailOut,
     NodeOut,
     OverviewResponse,
     PaginatedTransactionsResponse,
@@ -220,6 +221,14 @@ async def alerts(db: AsyncSession = Depends(get_db), _admin: User = Depends(requ
 @router.get('/nodes', response_model=list[NodeOut])
 async def nodes(_admin: User = Depends(require_admin)) -> list[dict]:
     return await get_remnawave_client().list_nodes()
+
+
+@router.get('/nodes/{node_uuid}', response_model=NodeDetailOut)
+async def node_detail(node_uuid: str, _admin: User = Depends(require_admin)) -> dict:
+    detail = await get_remnawave_client().get_node_detail(remnawave_uuid=node_uuid)
+    if detail is None:
+        raise HTTPException(status_code=404, detail='Node not found')
+    return detail
 
 
 @router.post('/nodes/{node_uuid}/enable', response_model=NodeOut)

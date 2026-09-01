@@ -235,6 +235,37 @@ class MockRemnawaveClient(RemnawaveClient):
     async def restart_node(self, *, remnawave_uuid: str) -> None:
         logger.info('Mock: restart_node(%s) — нет реальной ноды, ничего не делаем', remnawave_uuid)
 
+    async def get_node_detail(self, *, remnawave_uuid: str) -> dict | None:
+        # Формат — 1:1 с RealRemnawaveClient.get_node_detail (см. real.py),
+        # значения выдуманы. system всегда None — как и на реальной ноде на
+        # проде сейчас (диалог 2026-09-01: агент этого не репортит).
+        nodes = await self.list_nodes()
+        base = next((n for n in nodes if n['uuid'] == remnawave_uuid), None)
+        if base is None:
+            return None
+        now = datetime.now(timezone.utc)
+        return {
+            **base,
+            'address': f'{base["name"].lower()}.mock.local',
+            'port': 2222,
+            'is_connecting': False,
+            'users_online': 12,
+            'xray_uptime_seconds': 86_400.0,
+            'last_status_change': now - timedelta(days=3),
+            'last_status_message': None,
+            'traffic_limit_gb': None,
+            'traffic_reset_day': 1,
+            'notify_percent': 80,
+            'consumption_multiplier': 1.0,
+            'tags': ['mock'],
+            'note': None,
+            'provider_name': None,
+            'versions': {'xray': '26.7.28', 'node': '3.3.0'},
+            'system': None,
+            'created_at': now - timedelta(days=90),
+            'updated_at': now,
+        }
+
     async def get_system_stats(self) -> dict:
         # Формат полей — 1:1 с RealRemnawaveClient.get_system_stats (см. real.py,
         # проверено вживую на тестовой панели), значения выдуманы.

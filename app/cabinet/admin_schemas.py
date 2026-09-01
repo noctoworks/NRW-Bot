@@ -50,6 +50,37 @@ class NodeOut(BaseModel):
     traffic_used_gb: float
 
 
+class NodeVersionsOut(BaseModel):
+    xray: str | None
+    node: str | None
+
+
+class NodeDetailOut(NodeOut):
+    address: str
+    port: int | None
+    is_connecting: bool
+    users_online: int
+    xray_uptime_seconds: float
+    last_status_change: datetime | None
+    last_status_message: str | None
+    traffic_limit_gb: float | None
+    traffic_reset_day: int | None
+    notify_percent: int | None
+    consumption_multiplier: float
+    tags: list[str]
+    note: str | None
+    provider_name: str | None
+    versions: NodeVersionsOut
+    # dict, не строгая модель: поле в схеме панели ЕСТЬ (CPU/RAM/uptime/
+    # loadAvg), но на нашей единственной ноде оно всегда null — реальную
+    # вложенность полей никто не видел вживую, гадать не стал (см.
+    # RealRemnawaveClient.get_node_detail). Фронт рендерит как есть, если
+    # когда-нибудь придёт непустым.
+    system: dict | None
+    created_at: datetime
+    updated_at: datetime
+
+
 class RecentPaymentOut(BaseModel):
     user_id: int
     telegram_id: int
