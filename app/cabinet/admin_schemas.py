@@ -157,6 +157,19 @@ class TransactionListResponse(BaseModel):
     total_pages: int
 
 
+class AdminTransactionDetailResponse(AdminTransactionListItem):
+    """«Тело транзакции» (см. диалог 2026-09-01, клик по строке в /transactions)
+    — то же, что в списке, плюс всё, что знаем про сам платёж: статус на нашей
+    стороне, служебный контекст провижининга (raw_payload) и последний сырой
+    ответ провайдера (provider_raw_response, см. Payment в models.py) — то,
+    ради чего изначально заводили это поле при сверке с Platega. Оба None,
+    если у транзакции вообще нет Payment (топап админом/реферальный бонус)."""
+
+    payment_status: str | None
+    payment_raw_payload: dict | None
+    provider_raw_response: dict | None
+
+
 class AdminSubscriptionListItem(BaseModel):
     """Подписки по ВСЕМ пользователям (см. диалог 2026-09-01) — раньше видна
     была только внутри карточки одного юзера (AdminUserDetailResponse.

@@ -18,6 +18,7 @@ from app.cabinet.admin_deps import require_admin
 from app.cabinet.admin_schemas import (
     AdminSubscriptionListItem,
     AdminSubscriptionOut,
+    AdminTransactionDetailResponse,
     AdminTransactionListItem,
     AdminTransactionOut,
     AdminUserDetailResponse,
@@ -684,6 +685,47 @@ async def platega_reconcile(
     until = datetime.now(timezone.utc)
     records = await provider.export_transactions(since=since, until=until)
     return {r['recordId']: r['status'] for r in records if r.get('recordId')}
+
+
+# ВАЖНО: должен идти ПОСЛЕ /transactions/platega-reconcile выше — Starlette
+# матчит роуты в порядке регистрации, и {transaction_id}: int, стоящий раньше,
+# перехватил бы "platega-reconcile" как невалидный int (422) вместо того,
+# чтобы дать сработать точному роуту (см. диалог 2026-09-01).
+@router.get('/transactions/{transaction_id}', response_model=AdminTransactionDetailResponse)
+async def transaction_detail(
+    transaction_id: int, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> dict:
+    """«Тело транзакции» по клику на строку в /transactions (см. диалог
+    2026-09-01) — то же, что в списке, плюс Payment.raw_payload/
+    provider_raw_response, если у транзакции вообще есть Payment."""
+    row = (
+        await db.execute(
+            select(Transaction, User, Payment)
+            .join(User, User.id == Transaction.user_id)
+            .outerjoin(Payment, Payment.transaction_id == Transaction.id)
+            .where(Transaction.id == transaction_id)
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, 'Транзакция не найдена')
+    t, u, p = row
+    return {
+        'id': t.id,
+        'type': t.type,
+        'amount_kopeks': t.amount_kopeks,
+        'status': t.status,
+        'description': t.description,
+        'created_at': t.created_at,
+        'user_id': u.id,
+        'telegram_id': u.telegram_id,
+        'username': u.username,
+        'full_name': u.full_name,
+        'payment_provider': p.provider if p is not None else None,
+        'payment_external_id': p.external_id if p is not None else None,
+        'payment_status': p.status if p is not None else None,
+        'payment_raw_payload': p.raw_payload if p is not None else None,
+        'provider_raw_response': p.provider_raw_response if p is not None else None,
+    }
 
 
 @router.get('/users/{user_id}/transactions', response_model=PaginatedTransactionsResponse)
