@@ -64,6 +64,63 @@ async def _revenue_sum(db: AsyncSession, *, since: datetime | None = None) -> in
     return (await db.execute(stmt)).scalar_one()
 
 
+async def get_subscription_pulse(db: AsyncSession) -> dict:
+    """"Пульс" подписок для Обзора и для /alerts (диалог 2026-09-01,
+    "перевёрстать Обзор под мокап") — одна функция вместо дублирования
+    запросов истечения в обоих местах. 'Сегодня' — по business-day границе
+    (см. time_utils), как и остальные "today"-метрики в этом файле.
+    renewals_today — эвристика: оплата подписки сегодня у юзера, чья
+    Subscription-строка заведена раньше (не только что создана) — в модели
+    нет ни updated_at на Subscription, ни явного флага "это продление"."""
+    now = datetime.now(timezone.utc)
+    today_start = business_day_start_utc(now)
+
+    new_today = (
+        await db.execute(select(func.count(Subscription.id)).where(Subscription.created_at >= today_start))
+    ).scalar_one()
+
+    renewals_today = (
+        await db.execute(
+            select(func.count(func.distinct(Transaction.id)))
+            .select_from(Transaction)
+            .join(Subscription, Subscription.user_id == Transaction.user_id)
+            .where(
+                Transaction.type == 'subscription_payment',
+                Transaction.status == 'completed',
+                Transaction.created_at >= today_start,
+                Subscription.created_at < today_start,
+            )
+        )
+    ).scalar_one()
+
+    expiring_24h = (
+        await db.execute(
+            select(func.count(Subscription.id)).where(
+                Subscription.status == 'active',
+                Subscription.end_date >= now,
+                Subscription.end_date <= now + timedelta(hours=24),
+            )
+        )
+    ).scalar_one()
+
+    expiring_3d = (
+        await db.execute(
+            select(func.count(Subscription.id)).where(
+                Subscription.status == 'active',
+                Subscription.end_date > now + timedelta(hours=24),
+                Subscription.end_date <= now + timedelta(days=3),
+            )
+        )
+    ).scalar_one()
+
+    return {
+        'new_today': new_today,
+        'renewals_today': renewals_today,
+        'expiring_24h': expiring_24h,
+        'expiring_3d': expiring_3d,
+    }
+
+
 async def get_overview(db: AsyncSession) -> dict:
     now = datetime.now(timezone.utc)
     today_start = business_day_start_utc(now)

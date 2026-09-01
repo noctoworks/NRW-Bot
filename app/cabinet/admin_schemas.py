@@ -457,6 +457,13 @@ class SalesBreakdownResponse(BaseModel):
     active_subs_by_tariff: list[ActiveSubsByTariffOut]
 
 
+class SubscriptionPulseOut(BaseModel):
+    new_today: int
+    renewals_today: int
+    expiring_24h: int
+    expiring_3d: int
+
+
 class AlertOut(BaseModel):
     id: str
     severity: Literal['critical', 'warning', 'info']

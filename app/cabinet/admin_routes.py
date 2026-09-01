@@ -58,6 +58,7 @@ from app.cabinet.admin_schemas import (
     SupportReplyRequest,
     SupportThreadDetailResponse,
     SubscriptionListResponse,
+    SubscriptionPulseOut,
     SupportThreadOut,
     SyncResultResponse,
     TransactionListResponse,
@@ -124,49 +125,35 @@ async def sales_breakdown(db: AsyncSession = Depends(get_db), _admin: User = Dep
     }
 
 
+@router.get('/subscription-pulse', response_model=SubscriptionPulseOut)
+async def subscription_pulse(db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)) -> dict:
+    return await analytics_service.get_subscription_pulse(db)
+
+
 @router.get('/alerts', response_model=list[AlertOut])
 async def alerts(db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)) -> list[dict]:
     """"Требует внимания" на Обзоре (диалог 2026-09-01) — только то, что честно
     считается из уже имеющихся данных: без Prometheus/выдуманных источников,
     без истории состояний (нет alert-таблицы — 'recovered' показать нечем,
     это живой снимок сейчас, не журнал событий)."""
-    now = datetime.now(timezone.utc)
     result: list[dict] = []
 
-    expiring_24h = (
-        await db.execute(
-            select(func.count(Subscription.id)).where(
-                Subscription.status == 'active',
-                Subscription.end_date >= now,
-                Subscription.end_date <= now + timedelta(hours=24),
-            )
-        )
-    ).scalar_one()
-    if expiring_24h > 0:
+    pulse = await analytics_service.get_subscription_pulse(db)
+    if pulse['expiring_24h'] > 0:
         result.append(
             {
                 'id': 'subs-expiring-24h',
                 'severity': 'critical',
-                'title': f'Истекает в ближайшие 24 часа: {expiring_24h}',
+                'title': f'Истекает в ближайшие 24 часа: {pulse["expiring_24h"]}',
                 'link': '/admin/subscriptions',
             }
         )
-
-    expiring_3d = (
-        await db.execute(
-            select(func.count(Subscription.id)).where(
-                Subscription.status == 'active',
-                Subscription.end_date > now + timedelta(hours=24),
-                Subscription.end_date <= now + timedelta(days=3),
-            )
-        )
-    ).scalar_one()
-    if expiring_3d > 0:
+    if pulse['expiring_3d'] > 0:
         result.append(
             {
                 'id': 'subs-expiring-3d',
                 'severity': 'warning',
-                'title': f'Истекает в ближайшие 3 дня: {expiring_3d}',
+                'title': f'Истекает в ближайшие 3 дня: {pulse["expiring_3d"]}',
                 'link': '/admin/subscriptions',
             }
         )
