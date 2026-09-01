@@ -132,6 +132,25 @@ class AdminTransactionOut(BaseModel):
     created_at: datetime
 
 
+class AdminTransactionListItem(AdminTransactionOut):
+    """То же, что AdminTransactionOut, плюс кто платил — единый список
+    /transactions (см. диалог 2026-09-01, "решить вопрос по транзакциям")
+    показывает транзакции ПО ВСЕМ пользователям, не внутри одной карточки,
+    поэтому нужна личность плательщика в каждой строке."""
+
+    user_id: int
+    telegram_id: int
+    username: str | None
+    full_name: str | None
+
+
+class TransactionListResponse(BaseModel):
+    items: list[AdminTransactionListItem]
+    total: int
+    page: int
+    total_pages: int
+
+
 class AdminUserDetailResponse(BaseModel):
     id: int
     telegram_id: int

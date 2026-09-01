@@ -17,6 +17,7 @@ from sqlalchemy.orm import selectinload
 from app.cabinet.admin_deps import require_admin
 from app.cabinet.admin_schemas import (
     AdminSubscriptionOut,
+    AdminTransactionListItem,
     AdminTransactionOut,
     AdminUserDetailResponse,
     AdminUserListItem,
@@ -50,6 +51,7 @@ from app.cabinet.admin_schemas import (
     SupportThreadDetailResponse,
     SupportThreadOut,
     SyncResultResponse,
+    TransactionListResponse,
 )
 from app.cabinet.deps import get_db
 from app.config import settings
@@ -524,6 +526,70 @@ async def delete_user(
     target.username = None
     await db.commit()
     return {'status': 'anonymized'}
+
+
+_TRANSACTION_TYPES = {'topup', 'subscription_payment', 'referral_reward', 'refund', 'gift'}
+_TRANSACTION_STATUSES = {'pending', 'completed', 'failed'}
+
+
+@router.get('/transactions', response_model=TransactionListResponse)
+async def list_transactions(
+    query: str | None = None,
+    type: str | None = None,  # noqa: A002 - имя параметра фиксировано контрактом API
+    # alias, а не просто `status: str | None` — так называется параметр в
+    # HTTPException/status.HTTP_400_BAD_REQUEST) ниже. Внешний контракт API
+    # (?status=) не меняется, alias подменяет только имя Python-переменной.
+    status_filter: str | None = Query(None, alias='status'),
+    page: int = Query(1, ge=1),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+) -> dict:
+    """Транзакции по ВСЕМ пользователям (см. диалог 2026-09-01) — раньше
+    список был только внутри карточки одного юзера (user_transactions ниже,
+    тот же PAGE_SIZE/паттерн пагинации, здесь плюс поиск/фильтры, портировано
+    из list_users выше)."""
+    if type is not None and type not in _TRANSACTION_TYPES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Неизвестный тип транзакции')
+    if status_filter is not None and status_filter not in _TRANSACTION_STATUSES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Неизвестный статус транзакции')
+
+    count_stmt = select(func.count(Transaction.id)).select_from(Transaction).join(User, User.id == Transaction.user_id)
+    list_stmt = (
+        select(Transaction, User).join(User, User.id == Transaction.user_id).order_by(Transaction.created_at.desc())
+    )
+
+    if type is not None:
+        count_stmt = count_stmt.where(Transaction.type == type)
+        list_stmt = list_stmt.where(Transaction.type == type)
+    if status_filter is not None:
+        count_stmt = count_stmt.where(Transaction.status == status_filter)
+        list_stmt = list_stmt.where(Transaction.status == status_filter)
+    if query:
+        stripped = query.strip().lstrip('@')
+        search_clause = User.telegram_id == int(stripped) if stripped.isdigit() else User.username.ilike(f'%{stripped}%')
+        count_stmt = count_stmt.where(search_clause)
+        list_stmt = list_stmt.where(search_clause)
+
+    total = (await db.execute(count_stmt)).scalar_one()
+    total_pages = max((total + PAGE_SIZE - 1) // PAGE_SIZE, 1)
+    rows = (await db.execute(list_stmt.limit(PAGE_SIZE).offset((page - 1) * PAGE_SIZE))).all()
+
+    items = [
+        AdminTransactionListItem(
+            id=t.id,
+            type=t.type,
+            amount_kopeks=t.amount_kopeks,
+            status=t.status,
+            description=t.description,
+            created_at=t.created_at,
+            user_id=u.id,
+            telegram_id=u.telegram_id,
+            username=u.username,
+            full_name=u.full_name,
+        )
+        for t, u in rows
+    ]
+    return {'items': items, 'total': total, 'page': page, 'total_pages': total_pages}
 
 
 @router.get('/users/{user_id}/transactions', response_model=PaginatedTransactionsResponse)
