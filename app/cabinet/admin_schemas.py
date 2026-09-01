@@ -457,6 +457,20 @@ class SalesBreakdownResponse(BaseModel):
     active_subs_by_tariff: list[ActiveSubsByTariffOut]
 
 
+class InfraBillingNodeOut(BaseModel):
+    node_uuid: str | None
+    node_name: str
+    provider_name: str
+    next_billing_at: datetime | None
+
+
+class InfraBillingOut(BaseModel):
+    total_spent: float
+    current_month_payments: float
+    upcoming_nodes_count: int
+    nodes: list[InfraBillingNodeOut]
+
+
 class SubscriptionPulseOut(BaseModel):
     new_today: int
     renewals_today: int

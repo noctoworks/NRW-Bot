@@ -21,7 +21,7 @@ import json
 import logging
 import uuid
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from app.external.remnawave.base import (
@@ -253,6 +253,23 @@ class MockRemnawaveClient(RemnawaveClient):
                 'outbound_stats': [{'tag': 'DIRECT', 'upload': '298.40 MiB', 'download': '2.18 GiB'}],
             },
         ]
+
+    async def get_infra_billing(self) -> dict:
+        # Формат полей — 1:1 с RealRemnawaveClient.get_infra_billing (см.
+        # real.py, проверено вживую на тестовой панели), значения выдуманы —
+        # на реальной тестовой панели сейчас 0 привязанных нод (никто ещё не
+        # настроил Providers/Billing в самом Remnawave), но пустой мок не дал
+        # бы проверить, как это вообще выглядит в UI.
+        now = datetime.now(timezone.utc)
+        return {
+            'total_spent': 312.0,
+            'current_month_payments': 78.0,
+            'upcoming_nodes_count': 2,
+            'nodes': [
+                {'node_uuid': 'mock-node-de', 'node_name': 'DE-01', 'provider_name': 'Hetzner', 'next_billing_at': now + timedelta(days=12)},
+                {'node_uuid': 'mock-node-fi', 'node_name': 'FI-01', 'provider_name': 'OVH', 'next_billing_at': now + timedelta(days=3)},
+            ],
+        }
 
     async def get_subscription_page_config(self) -> SubscriptionPageConfig | None:
         # Урезанная копия реального Subpage Builder боевой панели (см. диалог,

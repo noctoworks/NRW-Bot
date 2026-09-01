@@ -331,6 +331,27 @@ class RealRemnawaveClient(RemnawaveClient):
             for n in nodes
         ]
 
+    async def get_infra_billing(self) -> dict:
+        # Проверено вживую на тестовой панели (см. диалог 2026-09-01):
+        # GET /infra-billing/nodes.
+        data = await self._request('GET', '/infra-billing/nodes')
+        stats = data.get('stats') or {}
+        billing_nodes = data.get('billingNodes', []) if isinstance(data, dict) else []
+        return {
+            'total_spent': float(stats.get('totalSpent') or 0),
+            'current_month_payments': float(stats.get('currentMonthPayments') or 0),
+            'upcoming_nodes_count': int(stats.get('upcomingNodesCount') or 0),
+            'nodes': [
+                {
+                    'node_uuid': (bn.get('node') or {}).get('uuid') or bn.get('nodeUuid'),
+                    'node_name': (bn.get('node') or {}).get('name') or bn.get('name') or '',
+                    'provider_name': (bn.get('provider') or {}).get('name') or '',
+                    'next_billing_at': _parse_dt(bn.get('nextBillingAt')),
+                }
+                for bn in billing_nodes
+            ],
+        }
+
     async def get_subscription_page_config(self) -> SubscriptionPageConfig | None:
         # Эндпоинты сверены вживую с боевой панелью (см. диалог, 2026-08-19):
         # GET /api/subscription-page-configs -> {"total", "configs": [{"uuid","name","config": null}, ...]}

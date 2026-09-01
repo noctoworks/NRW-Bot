@@ -33,6 +33,7 @@ from app.cabinet.admin_schemas import (
     CampaignUpdateRequest,
     CohortsResponse,
     DeviceOut,
+    InfraBillingOut,
     LtvResponse,
     MassbanRequest,
     MassbanResponse,
@@ -218,6 +219,11 @@ async def alerts(db: AsyncSession = Depends(get_db), _admin: User = Depends(requ
 @router.get('/nodes', response_model=list[NodeOut])
 async def nodes(_admin: User = Depends(require_admin)) -> list[dict]:
     return await get_remnawave_client().list_nodes()
+
+
+@router.get('/infra-billing', response_model=InfraBillingOut)
+async def infra_billing(_admin: User = Depends(require_admin)) -> dict:
+    return await get_remnawave_client().get_infra_billing()
 
 
 @router.get('/monitoring', response_model=MonitoringResponse)

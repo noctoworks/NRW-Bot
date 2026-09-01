@@ -178,6 +178,22 @@ class RemnawaveClient(ABC):
         тестовой панели (диалог 2026-09-01): GET /system/nodes/metrics."""
 
     @abstractmethod
+    async def get_infra_billing(self) -> dict:
+        """Расходы на инфраструктуру — реальная фича панели (диалог 2026-09-01,
+        пользователь поправил: "у Remnawave есть Cost"), сверено с исходниками
+        remnawave/backend: {"total_spent", "current_month_payments",
+        "upcoming_nodes_count", "nodes": [{"node_uuid", "node_name",
+        "provider_name", "next_billing_at"}, ...]}. ВАЖНО: стоимость привязана
+        к ПРОВАЙДЕРУ (хостеру), не к конкретной ноде напрямую — один провайдер
+        может держать несколько нод, поэтому per-node "сколько стоит именно
+        эта нода" отдаём только когда у ноды есть привязка к биллингу и только
+        имя провайдера + дата след. платежа, БЕЗ суммы на ноду. Валюты в API
+        нет вообще (amount — голое число, что админ ввёл в Remnawave, то и
+        есть). Проверено вживую на тестовой панели: GET /infra-billing/nodes
+        — сейчас там пусто (0 привязанных нод), пока админ не настроит
+        Providers/Billing Nodes/History в самой панели Remnawave."""
+
+    @abstractmethod
     async def get_subscription_page_config(self) -> SubscriptionPageConfig | None:
         """One-tap connect (§8) — конфиг Subpage Builder панели: список VPN-клиентов
         по платформам с реальными deep-link-схемами (не наши догадки в Mini App).
