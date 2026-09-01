@@ -146,6 +146,27 @@ class RemnawaveClient(ABC):
         нужен отдельный эндпоинт, если он вообще есть)."""
 
     @abstractmethod
+    async def get_system_stats(self) -> dict:
+        """Живые метрики ПАНЕЛИ (не отдельных нод — см. get_nodes_metrics ниже):
+        {"cpu_cores", "memory_used_bytes", "memory_total_bytes", "uptime_seconds",
+        "users_online_now", "users_online_last_day", "users_online_last_week",
+        "users_never_online", "nodes_online", "nodes_total_bytes_lifetime"}.
+        Проверено вживую на тестовой панели (диалог 2026-09-01): GET /system/stats.
+        ВАЖНО: cpu/memory — это ресурсы машины, на которой крутится сама панель
+        Remnawave, а НЕ аппаратные метрики VPN-нод — такого эндпоинта у панели нет."""
+
+    @abstractmethod
+    async def get_nodes_metrics(self) -> list[dict]:
+        """Живой трафик и кол-во юзеров онлайн по каждой ноде с момента её
+        последнего рестарта (не за произвольный период, панель не хранит историю):
+        [{"node_uuid", "node_name", "users_online",
+        "inbound_stats": [{"tag", "upload", "download"}, ...],
+        "outbound_stats": [{"tag", "upload", "download"}, ...]}, ...].
+        upload/download — уже отформатированные панелью строки ("926.70 MiB"),
+        не байты — Remnawave не отдаёт сырое число здесь. Проверено вживую на
+        тестовой панели (диалог 2026-09-01): GET /system/nodes/metrics."""
+
+    @abstractmethod
     async def get_subscription_page_config(self) -> SubscriptionPageConfig | None:
         """One-tap connect (§8) — конфиг Subpage Builder панели: список VPN-клиентов
         по платформам с реальными deep-link-схемами (не наши догадки в Mini App).

@@ -389,3 +389,35 @@ class CampaignStatsResponse(BaseModel):
     paying_count: int
     conversion_percent: float
     revenue_kopeks: int
+
+
+class PanelStatsOut(BaseModel):
+    cpu_cores: int
+    memory_used_bytes: int
+    memory_total_bytes: int
+    uptime_seconds: float
+    users_online_now: int
+    users_online_last_day: int
+    users_online_last_week: int
+    users_never_online: int
+    nodes_online: int
+    nodes_total_bytes_lifetime: int
+
+
+class NodeMetricStat(BaseModel):
+    tag: str
+    upload: str
+    download: str
+
+
+class NodeMetricOut(BaseModel):
+    node_uuid: str
+    node_name: str
+    users_online: int
+    inbound_stats: list[NodeMetricStat]
+    outbound_stats: list[NodeMetricStat]
+
+
+class MonitoringResponse(BaseModel):
+    panel: PanelStatsOut
+    nodes: list[NodeMetricOut]

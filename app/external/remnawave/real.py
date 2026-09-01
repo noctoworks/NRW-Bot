@@ -275,6 +275,41 @@ class RealRemnawaveClient(RemnawaveClient):
             for n in nodes
         ]
 
+    async def get_system_stats(self) -> dict:
+        # Проверено вживую на тестовой панели (см. диалог 2026-09-01): GET /system/stats.
+        data = await self._request('GET', '/system/stats')
+        return {
+            'cpu_cores': data['cpu']['cores'],
+            'memory_used_bytes': data['memory']['used'],
+            'memory_total_bytes': data['memory']['total'],
+            'uptime_seconds': data['uptime'],
+            'users_online_now': data['onlineStats']['onlineNow'],
+            'users_online_last_day': data['onlineStats']['lastDay'],
+            'users_online_last_week': data['onlineStats']['lastWeek'],
+            'users_never_online': data['onlineStats']['neverOnline'],
+            'nodes_online': data['nodes']['totalOnline'],
+            'nodes_total_bytes_lifetime': int(data['nodes']['totalBytesLifetime']),
+        }
+
+    async def get_nodes_metrics(self) -> list[dict]:
+        # Проверено вживую на тестовой панели (см. диалог 2026-09-01): GET /system/nodes/metrics.
+        data = await self._request('GET', '/system/nodes/metrics')
+        nodes = data.get('nodes', []) if isinstance(data, dict) else (data or [])
+        return [
+            {
+                'node_uuid': n['nodeUuid'],
+                'node_name': n.get('nodeName', ''),
+                'users_online': n.get('usersOnline', 0),
+                'inbound_stats': [
+                    {'tag': s['tag'], 'upload': s['upload'], 'download': s['download']} for s in n.get('inboundsStats', [])
+                ],
+                'outbound_stats': [
+                    {'tag': s['tag'], 'upload': s['upload'], 'download': s['download']} for s in n.get('outboundsStats', [])
+                ],
+            }
+            for n in nodes
+        ]
+
     async def get_subscription_page_config(self) -> SubscriptionPageConfig | None:
         # Эндпоинты сверены вживую с боевой панелью (см. диалог, 2026-08-19):
         # GET /api/subscription-page-configs -> {"total", "configs": [{"uuid","name","config": null}, ...]}

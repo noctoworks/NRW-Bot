@@ -196,6 +196,49 @@ class MockRemnawaveClient(RemnawaveClient):
             {'uuid': 'mock-node-se', 'name': 'SE-01', 'country_code': 'SE', 'is_connected': False, 'is_disabled': False, 'traffic_used_gb': 89.4},
         ]
 
+    async def get_system_stats(self) -> dict:
+        # Формат полей — 1:1 с RealRemnawaveClient.get_system_stats (см. real.py,
+        # проверено вживую на тестовой панели), значения выдуманы.
+        return {
+            'cpu_cores': 2,
+            'memory_used_bytes': 1_200_000_000,
+            'memory_total_bytes': 4_000_000_000,
+            'uptime_seconds': 864_000.0,
+            'users_online_now': 18,
+            'users_online_last_day': 64,
+            'users_online_last_week': 112,
+            'users_never_online': 40,
+            'nodes_online': 3,
+            'nodes_total_bytes_lifetime': 1_200_000_000_000,
+        }
+
+    async def get_nodes_metrics(self) -> list[dict]:
+        # Формат полей — 1:1 с RealRemnawaveClient.get_nodes_metrics (см. real.py,
+        # проверено вживую на тестовой панели), значения выдуманы.
+        return [
+            {
+                'node_uuid': 'mock-node-de',
+                'node_name': 'DE-01',
+                'users_online': 7,
+                'inbound_stats': [{'tag': 'VLESS_SELFSTEAL_WITH_NGINX', 'upload': '412.30 MiB', 'download': '3.12 GiB'}],
+                'outbound_stats': [{'tag': 'DIRECT', 'upload': '398.10 MiB', 'download': '3.05 GiB'}],
+            },
+            {
+                'node_uuid': 'mock-node-fi',
+                'node_name': 'FI-01',
+                'users_online': 4,
+                'inbound_stats': [{'tag': 'VLESS_SELFSTEAL_WITH_NGINX', 'upload': '201.50 MiB', 'download': '1.44 GiB'}],
+                'outbound_stats': [{'tag': 'DIRECT', 'upload': '195.20 MiB', 'download': '1.40 GiB'}],
+            },
+            {
+                'node_uuid': 'mock-node-nl',
+                'node_name': 'NL-01',
+                'users_online': 5,
+                'inbound_stats': [{'tag': 'VLESS_SELFSTEAL_WITH_NGINX', 'upload': '305.80 MiB', 'download': '2.21 GiB'}],
+                'outbound_stats': [{'tag': 'DIRECT', 'upload': '298.40 MiB', 'download': '2.18 GiB'}],
+            },
+        ]
+
     async def get_subscription_page_config(self) -> SubscriptionPageConfig | None:
         # Урезанная копия реального Subpage Builder боевой панели (см. диалог,
         # проверено вживую 2026-08-19) — только по одному приложению на платформу,

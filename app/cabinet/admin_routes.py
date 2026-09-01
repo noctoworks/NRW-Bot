@@ -36,6 +36,7 @@ from app.cabinet.admin_schemas import (
     MassbanRequest,
     MassbanResponse,
     MessageRequest,
+    MonitoringResponse,
     NodeOut,
     OverviewResponse,
     PaginatedTransactionsResponse,
@@ -110,6 +111,14 @@ async def recent_payments(
 @router.get('/nodes', response_model=list[NodeOut])
 async def nodes(_admin: User = Depends(require_admin)) -> list[dict]:
     return await get_remnawave_client().list_nodes()
+
+
+@router.get('/monitoring', response_model=MonitoringResponse)
+async def monitoring(_admin: User = Depends(require_admin)) -> dict:
+    client = get_remnawave_client()
+    panel = await client.get_system_stats()
+    nodes_metrics = await client.get_nodes_metrics()
+    return {'panel': panel, 'nodes': nodes_metrics}
 
 
 _SUBSCRIPTION_STATUSES = {'active', 'expired', 'disabled'}
