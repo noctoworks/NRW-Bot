@@ -220,6 +220,7 @@ async def purchase_or_renew_subscription(
         amount_kopeks=amount_kopeks,
         status='success' if payment_success else 'pending',
         raw_payload={},
+        provider_raw_response=created.raw_response,
     )
     db.add(payment)
     await db.flush()

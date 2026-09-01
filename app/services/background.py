@@ -171,10 +171,19 @@ async def run_payment_poll_once(bot: Bot) -> None:
         for payment in pending_payments:
             try:
                 provider = get_payment_provider(payment.provider)
-                status = await provider.check_payment_status(payment.external_id, amount_kopeks=payment.amount_kopeks)
+                status, raw_response = await provider.check_payment_status_detailed(
+                    payment.external_id, amount_kopeks=payment.amount_kopeks
+                )
             except Exception:
                 logger.warning('payment_poll_loop: не удалось опросить payment_id=%s', payment.id, exc_info=True)
                 continue
+
+            # Сохраняем свежий сырой ответ провайдера ДО финализации — тот же
+            # identity-mapped объект Payment переиспользуется finalize_pending_payment/
+            # mark_payment_failed внутри этой же сессии (см. их SELECT ... FOR
+            # UPDATE по тому же id), так что правка попадёт в их же commit.
+            if raw_response is not None:
+                payment.provider_raw_response = raw_response
 
             try:
                 if status == 'success':
@@ -195,6 +204,11 @@ async def run_payment_poll_once(bot: Bot) -> None:
                         await notify_abandoned_payment(bot, telegram_id=payment_user.telegram_id)
                         await asyncio.sleep(BULK_SEND_DELAY_SECONDS)
                     payment.abandoned_reminder_sent = True
+                    await db.commit()
+                elif raw_response is not None:
+                    # Ещё pending, до ABANDONED_PAYMENT_DELAY не дошли — коммитим
+                    # отдельно, иначе правка provider_raw_response выше потеряется
+                    # (сессия просто закроется без коммита в конце итерации).
                     await db.commit()
             except Exception:
                 logger.exception('payment_poll_loop: сбой при обработке payment_id=%s', payment.id)

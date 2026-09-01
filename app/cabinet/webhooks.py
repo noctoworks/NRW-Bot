@@ -122,6 +122,7 @@ async def _handle_subscription_webhook(db: AsyncSession, bot, provider, payload:
             amount_kopeks=parsed['amount_kopeks'],
             status='success',
             raw_payload={'kind': 'autopay', 'subscription_id': subscription_id},
+            provider_raw_response=payload,
         )
         db.add(payment)
         await db.flush()
@@ -208,6 +209,7 @@ async def platega_webhook(request: Request, db: AsyncSession = Depends(get_db)) 
         logger.warning('Platega webhook: Payment не найден для external_id=%s', external_id)
         return JSONResponse({'status': 'error', 'reason': 'payment_not_found'}, status_code=400)
 
+    payment.provider_raw_response = payload
     bot = request.app.state.bot
 
     try:
@@ -215,7 +217,12 @@ async def platega_webhook(request: Request, db: AsyncSession = Depends(get_db)) 
             await finalize_pending_payment(db, payment, bot)
         elif webhook_status == 'failed':
             await mark_payment_failed(db, payment)
-        # 'pending' — не о чем сообщать, отвечаем 200 и ждём следующий колбэк.
+        else:
+            # 'pending' — не о чем сообщать по существу платежа, отвечаем 200 и
+            # ждём следующий колбэк; коммитим явно, иначе правка
+            # provider_raw_response выше потеряется при закрытии сессии без
+            # изменений статуса (get_db не коммитит сам по себе).
+            await db.commit()
     except Exception:
         logger.exception('Platega webhook: сбой при обработке payment_id=%s', payment.id)
         await db.rollback()

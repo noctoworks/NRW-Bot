@@ -220,6 +220,11 @@ class Payment(TimestampMixin, Base):
     amount_kopeks: Mapped[int] = mapped_column(BigInteger)
     status: Mapped[str] = mapped_column(String(16), default='pending')  # pending|success|failed
     raw_payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Последний сырой ответ провайдера (create_payment/check_payment_status/
+    # вебхук) — только для сверки с личным кабинетом провайдера при расхождениях
+    # в статистике (см. диалог 2026-09-01), НЕ используется бизнес-логикой.
+    # Перезаписывается на каждом новом ответе — история не хранится.
+    provider_raw_response: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # Незавершённая покупка (см. app/services/background.py::payment_poll_loop,
     # диалог 2026-08-21) — одно напоминание, если платёж всё ещё pending спустя
     # ABANDONED_PAYMENT_DELAY_MINUTES. Не трогаем сам платёж/его status —

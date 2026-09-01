@@ -162,6 +162,7 @@ async def purchase_gift_subscription(
                     'period_days': period_days,
                     'payment_url': created.payment_url,
                 },
+                provider_raw_response=created.raw_response,
             )
         )
         await db.flush()
@@ -180,6 +181,7 @@ async def purchase_gift_subscription(
         external_id=created.external_id,
         amount_kopeks=amount_kopeks,
         status='success',
+        provider_raw_response=created.raw_response,
     )
     db.add(payment)
     await db.flush()
