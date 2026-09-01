@@ -488,6 +488,16 @@ class SalesBreakdownResponse(BaseModel):
     active_subs_by_tariff: list[ActiveSubsByTariffOut]
 
 
+class RevenueByProviderDayOut(BaseModel):
+    provider: str
+    values: list[int]
+
+
+class RevenueCompositionResponse(BaseModel):
+    days: list[str]
+    series: list[RevenueByProviderDayOut]
+
+
 class InfraBillingNodeOut(BaseModel):
     node_uuid: str | None
     node_name: str

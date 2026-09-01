@@ -54,6 +54,7 @@ from app.cabinet.admin_schemas import (
     ReferralCommissionRequest,
     ReferralFunnelResponse,
     RevenuePointOut,
+    RevenueCompositionResponse,
     SalesBreakdownResponse,
     SetUserPromoGroupRequest,
     SubscriptionDaysAdjustRequest,
@@ -126,6 +127,13 @@ async def sales_breakdown(db: AsyncSession = Depends(get_db), _admin: User = Dep
         'by_weekday': await analytics_service.get_revenue_by_weekday(db),
         'active_subs_by_tariff': await analytics_service.get_active_subscriptions_by_tariff(db),
     }
+
+
+@router.get('/revenue-composition', response_model=RevenueCompositionResponse)
+async def revenue_composition(
+    days: int = Query(30, ge=1, le=90), db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> dict:
+    return await analytics_service.get_revenue_by_provider_timeseries(db, days=days)
 
 
 @router.get('/subscription-pulse', response_model=SubscriptionPulseOut)

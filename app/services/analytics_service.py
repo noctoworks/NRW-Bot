@@ -493,6 +493,44 @@ async def get_revenue_by_provider(db: AsyncSession, *, days: int = 30) -> list[d
     return [{'provider': provider, 'revenue_kopeks': revenue} for provider, revenue in result.all()]
 
 
+async def get_revenue_by_provider_timeseries(db: AsyncSession, *, days: int = 30) -> dict:
+    """Состав выручки по способам оплаты, по дням — та же выборка, что и
+    get_revenue_by_provider, но не сложенная в один снэпшот, а разбитая по
+    дням (диалог 2026-09-01, "разнообразим графики": вместо плоского
+    снэпшот-бара — состав по дням, stacked bar). Провайдеров мало и они не
+    меняются день ото дня (Payment.provider — фиксированный набор кодов
+    оплаты в этом продукте, не растущий каталог), так что раздутия по
+    категориям не будет — не тот случай, что get_revenue_by_type."""
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    result = await db.execute(
+        select(Transaction.created_at, Payment.provider, Transaction.amount_kopeks)
+        .join(Transaction, Transaction.id == Payment.transaction_id)
+        .where(
+            Transaction.type.in_(REVENUE_TYPES),
+            Transaction.status == 'completed',
+            Transaction.created_at >= since,
+            Payment.provider != 'balance',
+        )
+    )
+    buckets: dict[date, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    providers_seen: set[str] = set()
+    for created_at, provider, amount_kopeks in result.all():
+        day = _as_utc(created_at).date()
+        buckets[day][provider] += amount_kopeks
+        providers_seen.add(provider)
+
+    today = datetime.now(timezone.utc).date()
+    day_objects = [today - timedelta(days=offset) for offset in range(days, -1, -1)]
+    series = [
+        {
+            'provider': provider,
+            'values': [buckets.get(day, {}).get(provider, 0) for day in day_objects],
+        }
+        for provider in sorted(providers_seen)
+    ]
+    return {'days': [day.isoformat() for day in day_objects], 'series': series}
+
+
 async def get_revenue_by_weekday(db: AsyncSession, *, days: int = 90) -> list[dict]:
     """Доход по дням недели — в Python над выгруженными строками (см.
     докстринг модуля про date_trunc/strftime), 90 дней по умолчанию (не 30,
