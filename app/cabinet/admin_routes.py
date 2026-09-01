@@ -16,6 +16,7 @@ from sqlalchemy.orm import selectinload
 
 from app.cabinet.admin_deps import require_admin
 from app.cabinet.admin_schemas import (
+    AdminSubscriptionListItem,
     AdminSubscriptionOut,
     AdminTransactionListItem,
     AdminTransactionOut,
@@ -49,6 +50,7 @@ from app.cabinet.admin_schemas import (
     SupportMessageOut,
     SupportReplyRequest,
     SupportThreadDetailResponse,
+    SubscriptionListResponse,
     SupportThreadOut,
     SyncResultResponse,
     TransactionListResponse,
@@ -103,6 +105,65 @@ async def recent_payments(
 @router.get('/nodes', response_model=list[NodeOut])
 async def nodes(_admin: User = Depends(require_admin)) -> list[dict]:
     return await get_remnawave_client().list_nodes()
+
+
+_SUBSCRIPTION_STATUSES = {'active', 'expired', 'disabled'}
+
+
+@router.get('/subscriptions', response_model=SubscriptionListResponse)
+async def list_subscriptions(
+    query: str | None = None,
+    status_filter: str | None = Query(None, alias='status'),
+    page: int = Query(1, ge=1),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+) -> dict:
+    """Подписки по ВСЕМ пользователям (см. диалог 2026-09-01) — только наши
+    данные (Subscription join Tariff/User), никаких обращений к Remnawave —
+    тот же паттерн поиска/фильтра/пагинации, что list_users/list_transactions
+    выше."""
+    if status_filter is not None and status_filter not in _SUBSCRIPTION_STATUSES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Неизвестный статус подписки')
+
+    count_stmt = select(func.count(Subscription.id)).select_from(Subscription).join(User, User.id == Subscription.user_id)
+    list_stmt = (
+        select(Subscription, User, Tariff)
+        .join(User, User.id == Subscription.user_id)
+        .join(Tariff, Tariff.id == Subscription.tariff_id)
+        .order_by(Subscription.end_date.desc())
+    )
+
+    if status_filter is not None:
+        count_stmt = count_stmt.where(Subscription.status == status_filter)
+        list_stmt = list_stmt.where(Subscription.status == status_filter)
+    if query:
+        stripped = query.strip().lstrip('@')
+        search_clause = User.telegram_id == int(stripped) if stripped.isdigit() else User.username.ilike(f'%{stripped}%')
+        count_stmt = count_stmt.where(search_clause)
+        list_stmt = list_stmt.where(search_clause)
+
+    total = (await db.execute(count_stmt)).scalar_one()
+    total_pages = max((total + PAGE_SIZE - 1) // PAGE_SIZE, 1)
+    rows = (await db.execute(list_stmt.limit(PAGE_SIZE).offset((page - 1) * PAGE_SIZE))).all()
+
+    items = [
+        AdminSubscriptionListItem(
+            user_id=u.id,
+            telegram_id=u.telegram_id,
+            username=u.username,
+            full_name=u.full_name,
+            tariff_name=tf.name,
+            status=s.status,
+            is_trial=s.is_trial,
+            end_date=s.end_date,
+            traffic_used_gb=s.traffic_used_gb,
+            traffic_limit_gb=s.traffic_limit_gb,
+            device_limit=s.device_limit,
+            autopay_enabled=s.autopay_enabled,
+        )
+        for s, u, tf in rows
+    ]
+    return {'items': items, 'total': total, 'page': page, 'total_pages': total_pages}
 
 
 @router.get('/ltv', response_model=LtvResponse)

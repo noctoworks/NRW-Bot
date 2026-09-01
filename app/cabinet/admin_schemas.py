@@ -157,6 +157,34 @@ class TransactionListResponse(BaseModel):
     total_pages: int
 
 
+class AdminSubscriptionListItem(BaseModel):
+    """Подписки по ВСЕМ пользователям (см. диалог 2026-09-01) — раньше видна
+    была только внутри карточки одного юзера (AdminUserDetailResponse.
+    subscription). Только наши данные (Subscription/Tariff), без обращений
+    к Remnawave — traffic_used_gb уже синхронизирован фоновой задачей (см.
+    analytics_service.get_overview::total_traffic_gb)."""
+
+    user_id: int
+    telegram_id: int
+    username: str | None
+    full_name: str | None
+    tariff_name: str
+    status: str
+    is_trial: bool
+    end_date: datetime
+    traffic_used_gb: float
+    traffic_limit_gb: int
+    device_limit: int
+    autopay_enabled: bool
+
+
+class SubscriptionListResponse(BaseModel):
+    items: list[AdminSubscriptionListItem]
+    total: int
+    page: int
+    total_pages: int
+
+
 class AdminUserDetailResponse(BaseModel):
     id: int
     telegram_id: int
