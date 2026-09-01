@@ -16,6 +16,7 @@ class CreatedPayment:
     external_id: str
     payment_url: str | None  # None для Stars (используется send_invoice в самом боте)
     status: str  # pending|success
+    raw_response: dict | None = None  # сырой ответ провайдера, только для Payment.provider_raw_response
 
 
 class PaymentProvider(ABC):
@@ -49,3 +50,14 @@ class PaymentProvider(ABC):
         это сам блокчейн, транзакцию с нужным комментарием мог прислать кто угодно
         на любую сумму, поэтому сумму обязаны сверить мы сами. Остальные провайдеры
         параметр игнорируют."""
+
+    async def check_payment_status_detailed(
+        self, external_id: str, *, amount_kopeks: int | None = None
+    ) -> tuple[str, dict | None]:
+        """(status, raw_response) — по умолчанию просто оборачивает
+        check_payment_status и не даёт сырой ответ (None). Переопределён только
+        в PlategaProvider (см. диалог 2026-09-01, сверка со статистикой Platega) —
+        остальным провайдерам переопределять не нужно, payment_poll_loop
+        (app/services/background.py) сам обрабатывает raw_response=None."""
+        status = await self.check_payment_status(external_id, amount_kopeks=amount_kopeks)
+        return status, None
