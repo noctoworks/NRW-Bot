@@ -57,6 +57,7 @@ from app.cabinet.deps import get_db
 from app.config import settings
 from app.database.models import (
     Campaign,
+    Payment,
     PromoGroup,
     ReferralEarning,
     Subscription,
@@ -69,6 +70,7 @@ from app.database.models import (
 from app.external.remnawave import get_remnawave_client
 from app.services import analytics_service, campaign_service
 from app.services.notification_service import notify_balance_changed
+from app.services.payment import get_payment_provider
 from app.services.subscription_provisioning import provision_or_extend_subscription
 
 router = APIRouter(prefix='/cabinet/admin')
@@ -554,8 +556,13 @@ async def list_transactions(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Неизвестный статус транзакции')
 
     count_stmt = select(func.count(Transaction.id)).select_from(Transaction).join(User, User.id == Transaction.user_id)
+    # outerjoin (не join) — не у каждой транзакции есть Payment (топап админом/
+    # реферальный бонус ничего провайдеру не платят, см. AdminTransactionListItem).
     list_stmt = (
-        select(Transaction, User).join(User, User.id == Transaction.user_id).order_by(Transaction.created_at.desc())
+        select(Transaction, User, Payment)
+        .join(User, User.id == Transaction.user_id)
+        .outerjoin(Payment, Payment.transaction_id == Transaction.id)
+        .order_by(Transaction.created_at.desc())
     )
 
     if type is not None:
@@ -586,10 +593,36 @@ async def list_transactions(
             telegram_id=u.telegram_id,
             username=u.username,
             full_name=u.full_name,
+            payment_provider=p.provider if p is not None else None,
+            payment_external_id=p.external_id if p is not None else None,
         )
-        for t, u in rows
+        for t, u, p in rows
     ]
     return {'items': items, 'total': total, 'page': page, 'total_pages': total_pages}
+
+
+@router.get('/transactions/platega-reconcile', response_model=dict[str, str])
+async def platega_reconcile(
+    days: int = Query(7, ge=1, le=31), _admin: User = Depends(require_admin)
+) -> dict[str, str]:
+    """Сверка с личным кабинетом Platega (см. диалог 2026-09-01, "решить вопрос
+    по транзакциям, я хочу их видеть" — нашли эндпоинт по их документации,
+    POST /transaction/export/json, не было в коде раньше). Возвращает
+    {recordId: status} за последние `days` — фронт сопоставляет по
+    AdminTransactionListItem.payment_external_id (строки с provider!='platega'
+    не сверяются вообще, у них нет external_id в этом пространстве). Лимит 31
+    день — реальный запрос к платёжному провайдеру с реальными боевыми
+    ключами, не листаем произвольно широкий диапазон по требованию фронта.
+    """
+    provider = get_payment_provider('platega')
+    if not hasattr(provider, 'export_transactions'):
+        # PAYMENTS_MODE=stub (см. get_payment_provider) — сверять нечего,
+        # это не ошибка конфигурации, а ожидаемое состояние дев/тест-окружений.
+        return {}
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    until = datetime.now(timezone.utc)
+    records = await provider.export_transactions(since=since, until=until)
+    return {r['recordId']: r['status'] for r in records if r.get('recordId')}
 
 
 @router.get('/users/{user_id}/transactions', response_model=PaginatedTransactionsResponse)

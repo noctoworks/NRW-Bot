@@ -13,6 +13,7 @@ from __future__ import annotations
 import hmac
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -144,7 +145,9 @@ class PlategaProvider(PaymentProvider):
 
         payment_url = response.get('redirect') or response.get('url')
 
-        return CreatedPayment(external_id=str(transaction_id), payment_url=payment_url, status='pending')
+        return CreatedPayment(
+            external_id=str(transaction_id), payment_url=payment_url, status='pending', raw_response=response
+        )
 
     async def verify_webhook(self, payload: dict, headers: dict) -> bool:
         # Platega аутентифицирует колбэк ТЕМИ ЖЕ заголовками, что и мы её (см.
@@ -169,6 +172,33 @@ class PlategaProvider(PaymentProvider):
         endpoint = f'/v2/transaction/{external_id}' if self.api_version == 'v2' else f'/transaction/{external_id}'
         response = await self._request('GET', endpoint)
         return _classify_status(str(response.get('status') or 'PENDING'))
+
+    async def check_payment_status_detailed(
+        self, external_id: str, *, amount_kopeks: int | None = None
+    ) -> tuple[str, dict | None]:
+        """Переопределяет базовую реализацию, чтобы вернуть и статус, и сырое
+        тело ответа ОДНИМ запросом (не дублировать HTTP-вызов check_payment_status
+        выше — см. диалог 2026-09-01, сверка со статистикой Platega)."""
+        endpoint = f'/v2/transaction/{external_id}' if self.api_version == 'v2' else f'/transaction/{external_id}'
+        response = await self._request('GET', endpoint)
+        return _classify_status(str(response.get('status') or 'PENDING')), response
+
+    async def export_transactions(self, *, since: datetime, until: datetime) -> list[dict[str, Any]]:
+        """POST /transaction/export/json (см. диалог 2026-09-01, "решить вопрос
+        по транзакциям" — сверка нашего /admin/transactions со стороной Platega,
+        нашли эндпоинт по документации https://docs.platega.io/, не было в коде
+        раньше). Возвращает СЫРЫЕ записи Platega (recordId/createdAt/amount/
+        currencyCode/status/paymentMethod/description/payload) — сопоставление
+        recordId с нашим Payment.external_id делает вызывающий код
+        (app/cabinet/admin_routes.py), эта функция ничего не знает о нашей БД."""
+        endpoint = '/v2/transaction/export/json' if self.api_version == 'v2' else '/transaction/export/json'
+        body = {
+            'from': since.strftime('%Y-%m-%dT%H:%M:%S.000Z'),
+            'to': until.strftime('%Y-%m-%dT%H:%M:%S.000Z'),
+            'timeZoneId': 'UTC',
+        }
+        response = await self._request('POST', endpoint, json_data=body)
+        return response if isinstance(response, list) else []
 
     def parse_webhook_payload(self, payload: dict) -> tuple[str, str]:
         """(external_id, 'success'|'failed'|'pending') из тела вебхука. Поле id

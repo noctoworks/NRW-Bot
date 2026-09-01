@@ -142,6 +142,12 @@ class AdminTransactionListItem(AdminTransactionOut):
     telegram_id: int
     username: str | None
     full_name: str | None
+    # provider/external_id — НЕ у каждой Transaction есть Payment (топап
+    # админом/реферальный бонус ничего не платят провайдеру) — оба None в
+    # этом случае. Нужны фронту, чтобы сопоставить строку с записью Platega
+    # при сверке (см. GET /transactions/platega-reconcile ниже).
+    payment_provider: str | None
+    payment_external_id: str | None
 
 
 class TransactionListResponse(BaseModel):
