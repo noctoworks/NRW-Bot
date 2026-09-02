@@ -93,6 +93,25 @@ async def provision_or_extend_subscription(
             # VPN-доступ на панели. Баг найден при сведении параллельных модулей
             # (subscription.py уже делал enable_user, этот файл — нет).
             await client.enable_user(remnawave_uuid=user.remnawave_uuid)
+        else:
+            # Subscription в БД есть, а пользователя в Remnawave никогда не
+            # создавали (миграция со старого бота потеряла remnawave_uuid для
+            # части юзеров, либо более ранний баг) — раньше это ветвление молча
+            # пропускало Remnawave целиком: локальный end_date продлевался,
+            # реального VPN-доступа не было и не появлялось НИКОГДА, даже после
+            # настоящей оплаты (см. диалог 2026-09-02 — платящий юзер MyagDany
+            # с активной по БД подпиской, которого физически нет на панели).
+            # Чиним так же, как create-ветка ниже — create_user с нуля.
+            rw_user = await client.create_user(
+                telegram_id=user.telegram_id,
+                squad_uuids=squad_uuids,
+                traffic_limit_gb=traffic_limit_gb,
+                expire_at=new_end,
+                description=remnawave_user_description(user),
+            )
+            user.remnawave_uuid = rw_user.uuid
+            subscription.subscription_url = rw_user.subscription_url
+            subscription.short_uuid = rw_user.short_uuid
 
         subscription.end_date = new_end
         subscription.status = 'active'

@@ -275,18 +275,34 @@ async def purchase_or_renew_subscription(
             base = now
         new_end = base + timedelta(days=period_days)
 
-        assert db_user.remnawave_uuid is not None, 'Subscription существует, но remnawave_uuid отсутствует'
-        # traffic_limit_gb/squad_uuids — иначе при смене тарифа лимиты/сквад на
-        # самой панели остаются от прежнего, хотя subscription.tariff_id ниже уже
-        # меняется на новый (тот же класс бага, что и в subscription_provisioning.py,
-        # см. ревью).
-        rw_user = await client.extend_user_expiration(
-            remnawave_uuid=db_user.remnawave_uuid,
-            expire_at=new_end,
-            traffic_limit_gb=tariff.traffic_limit_gb,
-            squad_uuids=tariff.squad_uuids,
-        )
-        await client.enable_user(remnawave_uuid=db_user.remnawave_uuid)
+        if db_user.remnawave_uuid is None:
+            # Subscription в БД есть, а пользователя в Remnawave никогда не
+            # создавали (миграция со старого бота потеряла remnawave_uuid для
+            # части юзеров, либо более ранний баг создания) — раньше здесь стоял
+            # assert, то есть жёсткий краш ПОСЛЕ того, как деньги уже списаны/
+            # оплата уже помечена completed выше (см. диалог 2026-09-02, реальный
+            # платящий юзер без доступа). Тот же фикс, что в
+            # subscription_provisioning.py — создаём с нуля вместо падения.
+            rw_user = await client.create_user(
+                telegram_id=db_user.telegram_id,
+                squad_uuids=tariff.squad_uuids,
+                traffic_limit_gb=tariff.traffic_limit_gb,
+                expire_at=new_end,
+                description=remnawave_user_description(db_user),
+            )
+            db_user.remnawave_uuid = rw_user.uuid
+        else:
+            # traffic_limit_gb/squad_uuids — иначе при смене тарифа лимиты/сквад на
+            # самой панели остаются от прежнего, хотя subscription.tariff_id ниже уже
+            # меняется на новый (тот же класс бага, что и в subscription_provisioning.py,
+            # см. ревью).
+            rw_user = await client.extend_user_expiration(
+                remnawave_uuid=db_user.remnawave_uuid,
+                expire_at=new_end,
+                traffic_limit_gb=tariff.traffic_limit_gb,
+                squad_uuids=tariff.squad_uuids,
+            )
+            await client.enable_user(remnawave_uuid=db_user.remnawave_uuid)
 
         subscription.end_date = new_end
         subscription.status = 'active'
