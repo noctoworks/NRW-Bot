@@ -268,8 +268,12 @@ async def net_profit(db: AsyncSession = Depends(get_db), _admin: User = Depends(
     # в самой панели Remnawave — поэтому здесь оба переводим в рубли (float)
     # и вычитаем напрямую. Если это когда-то перестанет быть верным (расходы
     # в $/€), эта разница станет враньём — считать по-прежнему только рубли.
-    revenue_all_time = (await analytics_service.get_revenue_all_time(db)) / 100
-    revenue_this_month = (await analytics_service.get_revenue_this_month(db)) / 100
+    # float(...) обязателен: SUM(bigint) в Postgres возвращает NUMERIC, что
+    # приходит сюда как Decimal — Decimal-cost_all_time (float из Remnawave)
+    # падает с TypeError при вычитании (см. диалог 2026-09-02, "не вижу
+    # чистую прибыль" — карточка тихо не рендерилась из-за этого).
+    revenue_all_time = float(await analytics_service.get_revenue_all_time(db)) / 100
+    revenue_this_month = float(await analytics_service.get_revenue_this_month(db)) / 100
     billing = await get_remnawave_client().get_infra_billing()
     cost_all_time = billing['total_spent']
     cost_this_month = billing['current_month_payments']
