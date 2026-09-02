@@ -184,6 +184,23 @@ async def get_overview(db: AsyncSession) -> dict:
     ).scalar_one()
     conversion_percent = round(paying_users / total_users * 100, 1) if total_users else 0.0
 
+    # Продуктовая воронка для "Аналитики" (диалог 2026-09-02, "воронки продаж,
+    # конверсии" — не хватало наглядности одного числа conversion_percent):
+    # Регистрация → Триал → Оплата → Продление. trial_started_count берём из
+    # User.trial_used (не Subscription.is_trial — тот сбрасывается в False
+    # первой же реальной оплатой, см. комментарий у поля в models.py, то есть
+    # разучился бы отвечать на вопрос "начинал ли юзер вообще с триала").
+    trial_started_count = (
+        await db.execute(select(func.count(User.id)).where(User.trial_used.is_(True)))
+    ).scalar_one()
+    renewed_users_result = await db.execute(
+        select(Transaction.user_id)
+        .where(Transaction.type.in_(REVENUE_TYPES), Transaction.status == 'completed', _NOT_BALANCE_FUNDED)
+        .group_by(Transaction.user_id)
+        .having(func.count(Transaction.id) >= 2)
+    )
+    renewed_users_count = len(renewed_users_result.all())
+
     tx_count_30d = (
         await db.execute(
             select(func.count(Transaction.id)).where(
@@ -223,6 +240,9 @@ async def get_overview(db: AsyncSession) -> dict:
         'arr_kopeks': revenue_30d * 12,
         'churn_percent_30d': churn_percent_30d,
         'total_traffic_gb': round(total_traffic_gb, 1),
+        'trial_started_count': trial_started_count,
+        'paying_users_count': paying_users,
+        'renewed_users_count': renewed_users_count,
     }
 
 

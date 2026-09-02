@@ -25,6 +25,9 @@ class OverviewResponse(BaseModel):
     arr_kopeks: int
     churn_percent_30d: float
     total_traffic_gb: float
+    trial_started_count: int
+    paying_users_count: int
+    renewed_users_count: int
 
 
 class RevenuePointOut(BaseModel):
