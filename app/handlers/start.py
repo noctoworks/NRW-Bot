@@ -42,6 +42,9 @@ logger = logging.getLogger(__name__)
 
 router = Router(name='start')
 
+PRIVACY_POLICY_URL = 'https://telegra.ph/Politika-konfidencialnosti-servisa-NoctoVPN-09-11'
+TERMS_OF_SERVICE_URL = 'https://telegra.ph/Polzovatelskoe-soglashenie-servisa-NoctoVPN-09-11'
+
 
 TEXTS = {
     'ru': {
@@ -58,6 +61,8 @@ TEXTS = {
             'Здесь вы можете купить или продлить подписку, подарить её другу, '
             'приглашать друзей за бонусы и получать поддержку — всё через это меню.'
         ),
+        'privacy_policy': '📄 Политика конфиденциальности',
+        'terms_of_service': '📄 Пользовательское соглашение',
         'settings': 'Настройки. Текущий язык: {lang}. Выберите новый:',
         'settings_saved': 'Язык интерфейса обновлён.',
         'gift_success': '🎉 Подарочная подписка активирована! Загляните в «Моя подписка», чтобы увидеть детали.',
@@ -85,6 +90,8 @@ TEXTS = {
             'Here you can buy or renew a subscription, gift it to a friend, '
             'invite friends for bonuses and get support — all from this menu.'
         ),
+        'privacy_policy': '📄 Privacy Policy',
+        'terms_of_service': '📄 Terms of Service',
         'settings': 'Settings. Current language: {lang}. Choose a new one:',
         'settings_saved': 'Interface language updated.',
         'gift_success': '🎉 Gift subscription activated! Check "My subscription" for details.',
@@ -361,7 +368,13 @@ async def cb_accept_rules(callback: CallbackQuery, db: AsyncSession, state: FSMC
 @router.callback_query(F.data == CB_INFO_ABOUT)
 async def cb_info_about(callback: CallbackQuery, db_user: User | None) -> None:
     lang = db_user.language if db_user else 'ru'
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[[back_to_menu_button()]])
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=_t(lang, 'privacy_policy'), url=PRIVACY_POLICY_URL)],
+            [InlineKeyboardButton(text=_t(lang, 'terms_of_service'), url=TERMS_OF_SERVICE_URL)],
+            [back_to_menu_button()],
+        ]
+    )
     await _edit_or_answer(callback, _t(lang, 'about'), keyboard)
     await callback.answer()
 
