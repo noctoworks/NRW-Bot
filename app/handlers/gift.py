@@ -20,6 +20,7 @@ from app.handlers.subscription import PAYMENT_METHOD_ICONS, PAYMENT_METHOD_LABEL
 from app.keyboards.main_menu import CB_GIFT_MENU, back_to_menu_button
 from app.services.gift_service import create_gift_code
 from app.services.payment import get_payment_provider
+from app.services.payment.router import create_split_payment
 from app.services.pricing_service import apply_discount, get_discount_percent, get_period_price_kopeks
 from app.services.referral_service import credit_referral_earning
 from app.states import GiftStates
@@ -133,10 +134,19 @@ async def purchase_gift_subscription(
     amount_kopeks = await get_period_price_kopeks(db, tariff, period_days, db_user)
     description = f'Подарок подписки на {period_days} дн. ({tariff.name})'
 
-    provider = get_payment_provider(method)
-    created = await provider.create_payment(
-        user_id=db_user.id, amount_kopeks=amount_kopeks, description=description, bot=bot, telegram_id=db_user.telegram_id
-    )
+    if method == 'platega':
+        # Витрина "Карты и СБП" — реальный провайдер выбирается 50/50 между
+        # Platega и cisPay (см. app/services/payment/router.py и комментарий у
+        # PAYMENT_METHOD_LABELS в handlers/subscription.py).
+        actual_provider, created = await create_split_payment(
+            user_id=db_user.id, amount_kopeks=amount_kopeks, description=description, bot=bot, telegram_id=db_user.telegram_id
+        )
+    else:
+        actual_provider = method
+        provider = get_payment_provider(method)
+        created = await provider.create_payment(
+            user_id=db_user.id, amount_kopeks=amount_kopeks, description=description, bot=bot, telegram_id=db_user.telegram_id
+        )
 
     if created.status != 'success':
         # Реальный провайдер — платёж создан, но не подтверждён сразу. Сохраняем
@@ -152,7 +162,7 @@ async def purchase_gift_subscription(
             Payment(
                 user_id=db_user.id,
                 transaction_id=transaction.id,
-                provider=method,
+                provider=actual_provider,
                 external_id=created.external_id,
                 amount_kopeks=amount_kopeks,
                 status='pending',
@@ -177,7 +187,7 @@ async def purchase_gift_subscription(
     payment = Payment(
         user_id=db_user.id,
         transaction_id=transaction.id,
-        provider=method,
+        provider=actual_provider,
         external_id=created.external_id,
         amount_kopeks=amount_kopeks,
         status='success',

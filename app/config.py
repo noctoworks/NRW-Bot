@@ -75,6 +75,13 @@ class Settings(BaseSettings):
     # значение по умолчанию НЕ гарантированно подходит именно вашему мерчанту.
     PLATEGA_PAYMENT_METHOD_CODE: int = 2
 
+    # --- cisPay (СБП) — второй провайдер оплаты, см. app/services/payment/cispay.py.
+    # По решению владельца используется только SBP (payment_method фиксирован в коде
+    # провайдера, не настраивается через .env).
+    CISPAY_SHOP_ID: str = ''
+    CISPAY_API_KEY: str = ''
+    CISPAY_BASE_URL: str = 'https://api.cispay.app'
+
     # --- TON Connect (см. диалог 2026-08-21) — оплата переводом на кошелёк с
     # текстовым комментарием (уникальный id платежа), подтверждение поллингом
     # TON Center v3 (/transactions?account=...), без вебхука — у TON его в
@@ -151,6 +158,7 @@ class Settings(BaseSettings):
             raise ValueError('REMNAWAVE_MODE=real требует REMNAWAVE_BASE_URL и REMNAWAVE_API_KEY')
         if self.PAYMENTS_MODE == 'real' and not (
             (self.PLATEGA_MERCHANT_ID and self.PLATEGA_SECRET_KEY)
+            or (self.CISPAY_SHOP_ID and self.CISPAY_API_KEY)
             or self.TON_WALLET_ADDRESS
         ):
             raise ValueError('PAYMENTS_MODE=real требует ключей хотя бы одного провайдера')

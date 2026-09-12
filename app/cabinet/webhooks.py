@@ -229,3 +229,53 @@ async def platega_webhook(request: Request, db: AsyncSession = Depends(get_db)) 
         return JSONResponse({'status': 'error', 'reason': 'processing_failed'}, status_code=400)
 
     return JSONResponse({'status': 'ok'})
+
+
+@router.post('/cispay-webhook')
+async def cispay_webhook(request: Request, db: AsyncSession = Depends(get_db)) -> JSONResponse:
+    """См. app/services/payment/cispay.py — cisPay подписывает СЫРОЕ тело
+    HMAC-SHA256(X-Api-Key) в заголовке X-Signature, поэтому raw_body передаётся
+    в verify_webhook отдельным keyword-параметром (payload одного re-serialize
+    не даёт побайтовой гарантии совпадения)."""
+    raw_body = await request.body()
+    headers = {k.lower(): v for k, v in request.headers.items()}
+
+    provider = get_payment_provider('cispay')
+
+    try:
+        payload = json.loads(raw_body) if raw_body.strip() else {}
+    except json.JSONDecodeError:
+        logger.warning('cisPay webhook: невалидный JSON')
+        return JSONResponse({'status': 'error', 'reason': 'invalid_json'}, status_code=400)
+
+    if not await provider.verify_webhook(payload, headers, raw_body=raw_body):
+        logger.warning('cisPay webhook: не прошла проверка подписи X-Signature')
+        return JSONResponse({'status': 'error', 'reason': 'unauthorized'}, status_code=401)
+
+    external_id, webhook_status = provider.parse_webhook_payload(payload)
+    if not external_id:
+        logger.warning('cisPay webhook: нет id транзакции в payload, keys=%s', sorted(payload) if isinstance(payload, dict) else None)
+        return JSONResponse({'status': 'error', 'reason': 'no_transaction_id'}, status_code=400)
+
+    result = await db.execute(select(Payment).where(Payment.provider == 'cispay', Payment.external_id == external_id))
+    payment = result.scalar_one_or_none()
+    if payment is None:
+        logger.warning('cisPay webhook: Payment не найден для external_id=%s', external_id)
+        return JSONResponse({'status': 'error', 'reason': 'payment_not_found'}, status_code=400)
+
+    payment.provider_raw_response = payload
+    bot = request.app.state.bot
+
+    try:
+        if webhook_status == 'success':
+            await finalize_pending_payment(db, payment, bot)
+        elif webhook_status == 'failed':
+            await mark_payment_failed(db, payment)
+        else:
+            await db.commit()
+    except Exception:
+        logger.exception('cisPay webhook: сбой при обработке payment_id=%s', payment.id)
+        await db.rollback()
+        return JSONResponse({'status': 'error', 'reason': 'processing_failed'}, status_code=400)
+
+    return JSONResponse({'status': 'ok'})

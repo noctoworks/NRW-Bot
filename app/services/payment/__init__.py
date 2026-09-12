@@ -29,5 +29,9 @@ def get_payment_provider(name: str) -> PaymentProvider:
         from app.services.payment.ton import TonProvider
 
         return TonProvider()
+    if name == 'cispay':
+        from app.services.payment.cispay import CisPayProvider
+
+        return CisPayProvider()
 
     raise ValueError(f'Неизвестный платёжный провайдер: {name}')

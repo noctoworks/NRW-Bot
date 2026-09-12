@@ -53,6 +53,7 @@ from app.services.notification_service import notify_payment_success
 from app.services.payment import get_payment_provider
 from app.services.payment.base import CreatedPayment
 from app.services.payment.platega import AUTOPAY_PERIOD_DAYS
+from app.services.payment.router import create_split_payment
 from app.services.pricing_service import get_period_price_kopeks
 from app.services.referral_service import credit_referral_earning
 from app.states import PurchaseStates
@@ -61,10 +62,18 @@ logger = logging.getLogger(__name__)
 
 router = Router(name='subscription')
 
-# Порядок и состав — см. диалог/референс-скрин: Карты и СБП (Platega, основной
-# провайдер) -> TON -> Telegram Stars. "↗" в подписи — визуальная
-# параллель с референсом (там это настоящая внешняя ссылка на оплату; у нас
-# пока stub, ссылки может не быть, но паритет вида сохраняем).
+# Порядок и состав — см. диалог/референс-скрин: Карты и СБП -> TON -> Telegram
+# Stars. "↗" в подписи — визуальная параллель с референсом (там это настоящая
+# внешняя ссылка на оплату; у нас пока stub, ссылки может не быть, но паритет
+# вида сохраняем).
+#
+# ВАЖНО (см. диалог "cisPay как основной платёжкой"): публичный ключ 'platega'
+# больше не означает буквально Platega — это витрина "Карты и СБП", под которой
+# create_split_payment (app/services/payment/router.py) случайно выбирает
+# 50/50 между PlategaProvider и CisPayProvider, с автофоллбеком на второго при
+# сбое первого. Реальный выбранный провайдер попадает в Payment.provider (см.
+# purchase_or_renew_subscription/handlers/gift.py), а НЕ строка 'platega' —
+# отдельной видимой кнопки для cisPay больше нет.
 #
 # Единый источник label/иконки для способа оплаты — из них ниже собираются и
 # PAYMENT_METHODS (plain-текст, MiniApp API/сообщения), и сами кнопки
@@ -194,7 +203,15 @@ async def purchase_or_renew_subscription(
         # external_id обязан быть уникален в паре с provider (UniqueConstraint
         # на Payment) — тут нет настоящего внешнего id, генерируем свой.
         created = CreatedPayment(external_id=f'balance-{uuid.uuid4().hex}', payment_url=None, status='success')
+        actual_provider = method
+    elif method == 'platega':
+        # Витрина "Карты и СБП" — реальный провайдер выбирается 50/50 между
+        # Platega и cisPay (см. комментарий у PAYMENT_METHOD_LABELS выше).
+        actual_provider, created = await create_split_payment(
+            user_id=db_user.id, amount_kopeks=amount_kopeks, description=description, bot=bot, telegram_id=db_user.telegram_id
+        )
     else:
+        actual_provider = method
         provider = get_payment_provider(method)
         created = await provider.create_payment(
             user_id=db_user.id, amount_kopeks=amount_kopeks, description=description, bot=bot, telegram_id=db_user.telegram_id
@@ -215,7 +232,7 @@ async def purchase_or_renew_subscription(
     payment = Payment(
         user_id=db_user.id,
         transaction_id=transaction.id,
-        provider=method,
+        provider=actual_provider,
         external_id=created.external_id,
         amount_kopeks=amount_kopeks,
         status='success' if payment_success else 'pending',
