@@ -233,6 +233,7 @@ async def purchase_or_renew_subscription(
         # Platega и cisPay (см. комментарий у PAYMENT_METHOD_LABELS выше).
         # amount = provider_amount_kopeks (остаток ПОСЛЕ баланса), не полная цена.
         actual_provider, created = await create_split_payment(
+            db=db,
             user_id=db_user.id,
             amount_kopeks=provider_amount_kopeks,
             description=description,

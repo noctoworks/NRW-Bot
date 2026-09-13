@@ -21,6 +21,9 @@ import logging
 import random
 from typing import TYPE_CHECKING
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.services.payment import get_payment_provider
 from app.services.payment.base import CreatedPayment
 
@@ -35,19 +38,42 @@ logger = logging.getLogger(__name__)
 # отсюда, без изменений в вызывающем коде (create_split_payment с одним
 # элементом всегда выбирает его же, без фоллбека — см. ниже).
 #
-# cisPay временно выключен из ротации 2026-09-12 — их сторона не смогла
-# провести ни один реальный SBP-платёж (available_methods: [] даже у свежесозданной
-# тестовой транзакции, см. диалог), хотя /store/capabilities показывает SBP как
-# is_active. Ждём подтверждения от саппорта cisPay, что эквайринг реально
-# подключен, потом вернуть 'cispay' в кортеж обратно.
-SPLIT_PROVIDERS: tuple[str, ...] = ('platega',)
+# cisPay временно выключался из ротации 2026-09-12 (их сторона не проводила
+# реальные SBP-платежи) — 2026-09-13 владелец подтвердил, что платежи у cisPay
+# снова проходят, возвращён в ротацию.
+SPLIT_PROVIDERS: tuple[str, ...] = ('platega', 'cispay')
+
+
+async def _last_split_provider(db: AsyncSession, user_id: int) -> str | None:
+    """Провайдер последнего (по created_at) платежа этого юзера через сплит,
+    любого статуса. Используется, чтобы при повторной попытке оплаты (юзер
+    нажал «Оплатить» ещё раз — предыдущий платёж завис/не прошёл) не предлагать
+    того же провайдера снова, а сразу попробовать другого (см. диалог
+    2026-09-13)."""
+    from app.database.models import Payment
+
+    result = await db.execute(
+        select(Payment.provider)
+        .where(Payment.user_id == user_id, Payment.provider.in_(SPLIT_PROVIDERS))
+        .order_by(Payment.created_at.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
 
 
 async def create_split_payment(
-    *, user_id: int, amount_kopeks: int, description: str, bot: 'Bot | None' = None, telegram_id: int | None = None
+    *,
+    db: AsyncSession,
+    user_id: int,
+    amount_kopeks: int,
+    description: str,
+    bot: 'Bot | None' = None,
+    telegram_id: int | None = None,
 ) -> tuple[str, CreatedPayment]:
-    """(реальное_имя_провайдера, CreatedPayment). Пробует случайно выбранного
-    провайдера первым; при ЛЮБОЙ ошибке create_payment (сеть/5xx/невалидный
+    """(реальное_имя_провайдера, CreatedPayment). Первым пробует провайдера,
+    ОТЛИЧНОГО от того, что юзер получил в прошлый раз (см. _last_split_provider) —
+    случайно, если предыдущего платежа не было/он был через провайдера, которого
+    сейчас нет в ротации; при ЛЮБОЙ ошибке create_payment (сеть/5xx/невалидный
     ответ — всё, что PlategaProvider/CisPayProvider заворачивают в RuntimeError)
     — автоматически пробует следующего по списку, а не отдаёт ошибку сразу
     пользователю (см. диалог: сбой одного провайдера не должен блокировать
@@ -57,6 +83,14 @@ async def create_split_payment(
     вызывающему коду)."""
     providers = list(SPLIT_PROVIDERS)
     random.shuffle(providers)
+
+    if len(providers) > 1:
+        last_provider = await _last_split_provider(db, user_id)
+        if last_provider in providers:
+            # Отодвигаем в конец очереди — испытываем сначала другого,
+            # к прошлому провайдеру возвращаемся только если все остальные упали.
+            providers.remove(last_provider)
+            providers.append(last_provider)
 
     last_error: Exception | None = None
     for index, name in enumerate(providers):
