@@ -67,7 +67,19 @@ async def finalize_pending_payment(db: AsyncSession, payment: Payment, bot: Bot)
     else:
         gift_code = await create_gift_code(db, tariff=tariff, period_days=period_days, gifter=user)
 
+    # Отложенное частичное списание баланса (см. handlers/subscription.py::
+    # purchase_or_renew_subscription — при асинхронном провайдере баланс не
+    # трогается до этого момента, чтобы не списывать деньги за платёж, который
+    # потом мог провалиться/зависнуть). with_for_update — та же защита от
+    # гонки, что и в остальных местах, трогающих user.balance_kopeks.
+    balance_offset_kopeks = int(raw_payload.get('balance_offset_kopeks') or 0)
+    if balance_offset_kopeks > 0:
+        locked = await db.execute(select(User).where(User.id == user.id).with_for_update())
+        locked_user = locked.scalar_one()
+        locked_user.balance_kopeks -= min(balance_offset_kopeks, locked_user.balance_kopeks)
+
     payment.status = 'success'
+    transaction = None
     if payment.transaction_id is not None:
         transaction = await db.get(Transaction, payment.transaction_id)
         if transaction is not None:
@@ -76,8 +88,15 @@ async def finalize_pending_payment(db: AsyncSession, payment: Payment, bot: Bot)
     if kind == 'subscription':
         description = f'Подписка «{tariff.name}» на {period_days} дн.'
         try:
+            # transaction.amount_kopeks — полная цена подписки, а не
+            # payment.amount_kopeks (только то, что реально ушло провайдеру,
+            # могло быть частично покрыто балансом — см. balance_offset_kopeks
+            # выше), иначе юзер увидит в уведомлении заниженную сумму.
             await notify_payment_success(
-                bot, telegram_id=user.telegram_id, amount_kopeks=payment.amount_kopeks, description=description
+                bot,
+                telegram_id=user.telegram_id,
+                amount_kopeks=transaction.amount_kopeks if transaction else payment.amount_kopeks,
+                description=description,
             )
         except Exception:
             logger.exception('notify_payment_success упал (не блокирует выдачу подписки)')

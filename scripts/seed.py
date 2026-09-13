@@ -1,6 +1,6 @@
-"""Разовый сид: единый тариф "Онлайн" (активен) + "Семейный" сохранён неактивным
-на будущее (см. диалог: "оставим один единый тариф пока что, но прошлый сохраним")
-+ сквады из Remnawave (мок или реальный — не важно, интерфейс один).
+"""Разовый сид: тарифы "Онлайн" и "Семейный" (оба активны, см. диалог
+2026-09-13 — переход с одного тарифа на выбор из двух в Mini App) + сквады из
+Remnawave (мок или реальный — не важно, интерфейс один).
 
 Запуск: .venv\\Scripts\\python.exe scripts\\seed.py
 """
@@ -47,7 +47,7 @@ async def seed() -> None:
                     name='Онлайн',
                     period_prices_kopeks=ONLINE_PERIOD_PRICES_KOPEKS,
                     traffic_limit_gb=0,  # безлимит
-                    device_limit=5,
+                    device_limit=3,
                     squad_uuids=squad_uuids,
                     is_active=True,
                     # Новый пользователь сразу получает пробный период при
@@ -69,9 +69,9 @@ async def seed() -> None:
                     name='Семейный',
                     period_prices_kopeks=FAMILY_PERIOD_PRICES_KOPEKS,
                     traffic_limit_gb=0,
-                    device_limit=6,
+                    device_limit=8,
                     squad_uuids=squad_uuids,
-                    is_active=False,  # сохранён на будущее, сейчас единый тариф — только "Онлайн"
+                    is_active=True,
                 )
             )
             print(f'Создан (неактивный) тариф "Семейный": {FAMILY_PERIOD_PRICES_KOPEKS}')

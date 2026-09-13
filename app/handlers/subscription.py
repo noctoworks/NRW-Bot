@@ -184,12 +184,24 @@ async def purchase_or_renew_subscription(
 
     description = f'Подписка «{tariff.name}» на {period_days} дн.'
 
+    # Баланс автоматически гасит часть суммы при оплате внешним провайдером (см.
+    # диалог 2026-09-13 — Payment в Mini App показывает разбивку "спишем X с
+    # баланса, доплата Y провайдером"). Само списание — НЕ здесь: если провайдер
+    # асинхронный (PAYMENTS_MODE=real), платёж может провалиться/зависнуть, и
+    # списанный заранее баланс пришлось бы возвращать. Списываем либо сразу
+    # ниже (синхронный успех), либо в finalize_pending_payment при подтверждении
+    # (см. raw_payload['balance_offset_kopeks']) — Payment/Transaction ничего
+    # не трогают из user.balance_kopeks сами по себе.
+    balance_offset_kopeks = 0
+    provider_amount_kopeks = amount_kopeks
+    if method != 'balance' and db_user.balance_kopeks > 0:
+        balance_offset_kopeks = min(db_user.balance_kopeks, amount_kopeks)
+        provider_amount_kopeks = amount_kopeks - balance_offset_kopeks
+
     if method == 'balance':
         # Списание с внутреннего баланса (реферальные начисления, бонусы
-        # промокодов/кампаний, ручные начисления админом) — единственный способ
-        # оплаты без похода к внешнему провайдеру, срабатывает мгновенно. Только
-        # полное покрытие суммы (без частичной оплаты балансом+провайдером) —
-        # см. диалог. Проверка на достаточность баланса — здесь, а не в
+        # промокодов/кампаний, ручные начисления админом) — срабатывает
+        # мгновенно. Проверка на достаточность баланса — здесь, а не в
         # kb_payment_methods/cb_choose_method: тем экранам нельзя доверять
         # (баланс мог измениться между выбором способа и подтверждением).
         # with_for_update() — та же защита от двойного списания при гонке
@@ -204,20 +216,56 @@ async def purchase_or_renew_subscription(
         # на Payment) — тут нет настоящего внешнего id, генерируем свой.
         created = CreatedPayment(external_id=f'balance-{uuid.uuid4().hex}', payment_url=None, status='success')
         actual_provider = method
+        charged_amount_kopeks = amount_kopeks
+    elif provider_amount_kopeks == 0:
+        # Баланс полностью покрыл сумму, хотя юзер выбрал внешний способ —
+        # провайдеру нулевой платёж не отправить, ведём себя как метод 'balance'.
+        locked = await db.execute(select(User).where(User.id == db_user.id).with_for_update())
+        db_user = locked.scalar_one()
+        if db_user.balance_kopeks < amount_kopeks:
+            raise InsufficientBalanceError(amount_kopeks - db_user.balance_kopeks)
+        db_user.balance_kopeks -= amount_kopeks
+        created = CreatedPayment(external_id=f'balance-{uuid.uuid4().hex}', payment_url=None, status='success')
+        actual_provider = 'balance'
+        charged_amount_kopeks = amount_kopeks
     elif method == 'platega':
         # Витрина "Карты и СБП" — реальный провайдер выбирается 50/50 между
         # Platega и cisPay (см. комментарий у PAYMENT_METHOD_LABELS выше).
+        # amount = provider_amount_kopeks (остаток ПОСЛЕ баланса), не полная цена.
         actual_provider, created = await create_split_payment(
-            user_id=db_user.id, amount_kopeks=amount_kopeks, description=description, bot=bot, telegram_id=db_user.telegram_id
+            user_id=db_user.id,
+            amount_kopeks=provider_amount_kopeks,
+            description=description,
+            bot=bot,
+            telegram_id=db_user.telegram_id,
         )
+        charged_amount_kopeks = provider_amount_kopeks
     else:
         actual_provider = method
         provider = get_payment_provider(method)
         created = await provider.create_payment(
-            user_id=db_user.id, amount_kopeks=amount_kopeks, description=description, bot=bot, telegram_id=db_user.telegram_id
+            user_id=db_user.id,
+            amount_kopeks=provider_amount_kopeks,
+            description=description,
+            bot=bot,
+            telegram_id=db_user.telegram_id,
         )
+        charged_amount_kopeks = provider_amount_kopeks
 
     payment_success = created.status == 'success'
+
+    # Частичное покрытие с баланса при внешнем провайдере — списываем ТОЛЬКО
+    # если сам платёж уже подтверждён синхронно (stub-режим). Для асинхронного
+    # провайдера (payment_success=False ниже) списание отложено до
+    # finalize_pending_payment — см. комментарий про balance_offset_kopeks выше.
+    if payment_success and balance_offset_kopeks > 0 and actual_provider != 'balance':
+        locked = await db.execute(select(User).where(User.id == db_user.id).with_for_update())
+        db_user = locked.scalar_one()
+        # Баланс мог уменьшиться где-то параллельно между расчётом offset'а и
+        # этим моментом — редкий edge case, просто урезаем скидку до фактически
+        # доступного вместо падения (провайдер уже списал свою часть).
+        balance_offset_kopeks = min(balance_offset_kopeks, db_user.balance_kopeks)
+        db_user.balance_kopeks -= balance_offset_kopeks
 
     transaction = Transaction(
         user_id=db_user.id,
@@ -234,7 +282,7 @@ async def purchase_or_renew_subscription(
         transaction_id=transaction.id,
         provider=actual_provider,
         external_id=created.external_id,
-        amount_kopeks=amount_kopeks,
+        amount_kopeks=charged_amount_kopeks,
         status='success' if payment_success else 'pending',
         raw_payload={},
         provider_raw_response=created.raw_response,
@@ -247,11 +295,14 @@ async def purchase_or_renew_subscription(
         # Реальный провайдер создаёт платёж как pending — подписку не выдаём сразу,
         # сохраняем контекст в raw_payload, чтобы payment_poll_loop доделал выдачу
         # после подтверждения (см. app/services/payment_finalization.py).
+        # balance_offset_kopeks — ещё не списан (см. комментарий выше), спишется
+        # там же, атомарно с выдачей подписки.
         payment.raw_payload = {
             'kind': 'subscription',
             'tariff_id': tariff.id,
             'period_days': period_days,
             'payment_url': created.payment_url,
+            'balance_offset_kopeks': balance_offset_kopeks,
         }
         await db.flush()
         return None

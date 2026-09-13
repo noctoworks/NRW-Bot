@@ -23,6 +23,9 @@ class SubscriptionOut(BaseModel):
     traffic_used_gb: float
     device_limit: int
     subscription_url: str | None
+    tariff_id: int
+    tariff_name: str
+    is_trial: bool
 
 
 class DashboardResponse(BaseModel):
@@ -35,6 +38,9 @@ class PeriodOut(BaseModel):
     days: int
     label: str
     price_kopeks: int
+    # Цена без скидки — только если скидка сейчас применена (см.
+    # pricing_service.get_discount_percent), иначе None и фронт ничего не зачёркивает.
+    original_price_kopeks: int | None = None
 
 
 class PaymentMethodOut(BaseModel):
@@ -43,14 +49,41 @@ class PaymentMethodOut(BaseModel):
 
 
 class TariffResponse(BaseModel):
+    id: int
     name: str
+    device_limit: int
     periods: list[PeriodOut]
     payment_methods: list[PaymentMethodOut]
 
 
+class TariffsResponse(BaseModel):
+    tariffs: list[TariffResponse]
+    # Win-back скидка на первую покупку (см. pricing_service.get_trial_winback_discount) —
+    # 0/None, если сейчас не действует. discount_expires_at — дедлайн для баннера на фронте.
+    discount_percent: int = 0
+    discount_expires_at: datetime | None = None
+    # Баланс юзера — чтобы Payment мог посчитать разбивку "спишем с баланса +
+    # доплата провайдером" без отдельного похода на /cabinet/dashboard (см.
+    # handlers/subscription.py::purchase_or_renew_subscription — то же
+    # авто-покрытие балансом реализовано и на бэкенде при самой покупке).
+    balance_kopeks: int = 0
+
+
+
+
 class PurchaseRequest(BaseModel):
+    tariff_id: int
     period_days: int
     method: str
+
+
+class TariffChangePreviewResponse(BaseModel):
+    price_kopeks: int
+    remaining_days: int
+
+
+class TariffChangeRequest(BaseModel):
+    tariff_id: int
 
 
 class PurchaseResponse(BaseModel):

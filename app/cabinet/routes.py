@@ -35,25 +35,29 @@ from app.cabinet.schemas import (
     PurchaseResponse,
     ReferralResponse,
     SubscriptionOut,
+    TariffChangePreviewResponse,
+    TariffChangeRequest,
     TariffResponse,
+    TariffsResponse,
     TransactionOut,
 )
 from app.cabinet.security import InitDataError, create_access_token, verify_telegram_init_data
 from app.config import settings
-from app.database.models import Payment, ReferralEarning, Subscription, Transaction, User
+from app.database.models import Payment, ReferralEarning, Subscription, Tariff, Transaction, User
 from app.external.remnawave import get_remnawave_client
 from app.handlers.gift import PAYMENT_METHODS as GIFT_PAYMENT_METHODS, purchase_gift_subscription
 from app.handlers.subscription import (
     PAYMENT_METHODS,
     PERIOD_LABELS,
     InsufficientBalanceError,
-    get_active_tariff,
+    get_active_tariffs,
     get_user_subscription,
     purchase_or_renew_subscription,
 )
-from app.services.pricing_service import apply_discount, get_discount_percent
+from app.services.pricing_service import apply_discount, get_best_discount
 from app.services.promocode_service import PromoCodeError, activate_promocode
 from app.services.referral_service import REFERRAL_INVITE_BONUS_DAYS, generate_referral_code
+from app.services.tariff_change_service import apply_tariff_change, compute_change_price_kopeks, remaining_days
 
 router = APIRouter(prefix='/cabinet')
 
@@ -82,9 +86,13 @@ async def _generate_unique_referral_code(db: AsyncSession) -> str:
     raise RuntimeError('Не удалось сгенерировать уникальный referral_code за 10 попыток')
 
 
-def _subscription_out(subscription: Subscription | None) -> SubscriptionOut | None:
+async def _subscription_out(db: AsyncSession, subscription: Subscription | None) -> SubscriptionOut | None:
     if subscription is None:
         return None
+    # db.get, не subscription.tariff — лениво тронуть relationship в async-сессии
+    # без selectinload падает MissingGreenlet (тот же класс бага, что и
+    # известный User.subscription, см. pricing_service.get_discount_percent).
+    tariff = await db.get(Tariff, subscription.tariff_id)
     return SubscriptionOut(
         status=subscription.status,
         end_date=subscription.end_date,
@@ -92,6 +100,9 @@ def _subscription_out(subscription: Subscription | None) -> SubscriptionOut | No
         traffic_used_gb=subscription.traffic_used_gb,
         device_limit=subscription.device_limit,
         subscription_url=subscription.subscription_url,
+        tariff_id=subscription.tariff_id,
+        tariff_name=tariff.name if tariff else '',
+        is_trial=subscription.is_trial,
     )
 
 
@@ -129,35 +140,56 @@ async def dashboard(
 ) -> DashboardResponse:
     subscription = await get_user_subscription(db, user.id)
     return DashboardResponse(
-        balance_kopeks=user.balance_kopeks, subscription=_subscription_out(subscription), is_admin=user.is_admin
+        balance_kopeks=user.balance_kopeks, subscription=await _subscription_out(db, subscription), is_admin=user.is_admin
     )
 
 
-@router.get('/tariff', response_model=TariffResponse)
-async def tariff(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)) -> TariffResponse:
-    active_tariff = await get_active_tariff(db)
-    if active_tariff is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, 'Тариф временно недоступен')
-
-    discount_percent = await get_discount_percent(db, user)
-    periods = [
-        PeriodOut(
-            days=int(days_str),
-            label=PERIOD_LABELS.get(days_str, f'{days_str} дней'),
-            price_kopeks=apply_discount(int(price_kopeks), discount_percent),
-        )
-        for days_str, price_kopeks in sorted(active_tariff.period_prices_kopeks.items(), key=lambda kv: int(kv[0]))
-    ]
-    payment_methods = []
+def _build_payment_methods(user: User) -> list[PaymentMethodOut]:
+    methods = []
     if user.balance_kopeks > 0:
         # Показываем всегда, если баланс вообще не нулевой (а не только если
         # хватает на самый дешёвый период — periods тут несколько, а способ
         # оплаты один список на все сразу) — конкретную нехватку на выбранный
         # период отловит InsufficientBalanceError при попытке покупки.
-        payment_methods.append(PaymentMethodOut(id='balance', label=f'💰 Баланс ({user.balance_kopeks / 100:.0f} ₽)'))
-    payment_methods += [PaymentMethodOut(id=method_id, label=label) for method_id, label in PAYMENT_METHODS.items()]
+        methods.append(PaymentMethodOut(id='balance', label=f'💰 Баланс ({user.balance_kopeks / 100:.0f} ₽)'))
+    methods += [PaymentMethodOut(id=method_id, label=label) for method_id, label in PAYMENT_METHODS.items()]
+    return methods
 
-    return TariffResponse(name=active_tariff.name, periods=periods, payment_methods=payment_methods)
+
+def _tariff_out(tariff_row: Tariff, user: User, discount_percent: int) -> TariffResponse:
+    periods = [
+        PeriodOut(
+            days=int(days_str),
+            label=PERIOD_LABELS.get(days_str, f'{days_str} дней'),
+            price_kopeks=apply_discount(int(price_kopeks), discount_percent),
+            original_price_kopeks=int(price_kopeks) if discount_percent > 0 else None,
+        )
+        for days_str, price_kopeks in sorted(tariff_row.period_prices_kopeks.items(), key=lambda kv: int(kv[0]))
+    ]
+    return TariffResponse(
+        id=tariff_row.id,
+        name=tariff_row.name,
+        device_limit=tariff_row.device_limit,
+        periods=periods,
+        payment_methods=_build_payment_methods(user),
+    )
+
+
+@router.get('/tariffs', response_model=TariffsResponse)
+async def tariffs(db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)) -> TariffsResponse:
+    active_tariffs = await get_active_tariffs(db)
+    # Одна и та же скидка (промогруппа / win-back после триала / приз
+    # скретч-карты, см. pricing_service.get_best_discount) для всех тарифов в
+    # списке — считаем один раз, а не по разу на тариф.
+    discount_percent, discount_expires_at = await get_best_discount(db, user)
+    return TariffsResponse(
+        tariffs=[_tariff_out(t, user, discount_percent) for t in active_tariffs],
+        discount_percent=discount_percent,
+        discount_expires_at=discount_expires_at,
+        balance_kopeks=user.balance_kopeks,
+    )
+
+
 
 
 @router.post('/subscription/purchase', response_model=PurchaseResponse)
@@ -170,15 +202,16 @@ async def purchase(
     if payload.method != 'balance' and payload.method not in PAYMENT_METHODS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Неизвестный способ оплаты')
 
-    active_tariff = await get_active_tariff(db)
-    if active_tariff is None or str(payload.period_days) not in active_tariff.period_prices_kopeks:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Недоступный период подписки')
+    active_tariffs = await get_active_tariffs(db)
+    chosen_tariff = next((t for t in active_tariffs if t.id == payload.tariff_id), None)
+    if chosen_tariff is None or str(payload.period_days) not in chosen_tariff.period_prices_kopeks:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Недоступный тариф или период подписки')
 
     try:
         subscription = await purchase_or_renew_subscription(
             db,
             user,
-            active_tariff,
+            chosen_tariff,
             period_days=payload.period_days,
             method=payload.method,
             bot=request.app.state.bot,
@@ -203,7 +236,64 @@ async def purchase(
         payment_url = (payment.raw_payload or {}).get('payment_url') if payment else None
         return PurchaseResponse(status='pending', payment_url=payment_url)
 
-    return PurchaseResponse(status='success', subscription=_subscription_out(subscription))
+    return PurchaseResponse(status='success', subscription=await _subscription_out(db, subscription))
+
+
+async def _get_change_context(
+    db: AsyncSession, user: User, tariff_id: int
+) -> tuple[Subscription, Tariff, Tariff]:
+    """Общая проверка для preview/change: активная подписка + существующий/
+    отличный от текущего целевой тариф. Бросает HTTPException при несоответствии."""
+    subscription = await get_user_subscription(db, user.id)
+    if subscription is None or subscription.status != 'active':
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Смена тарифа доступна только при активной подписке')
+
+    active_tariffs = await get_active_tariffs(db)
+    new_tariff = next((t for t in active_tariffs if t.id == tariff_id), None)
+    if new_tariff is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Тариф недоступен')
+
+    current_tariff = await db.get(Tariff, subscription.tariff_id)
+    if current_tariff is None:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, 'Текущий тариф не найден')
+    if new_tariff.id == current_tariff.id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Это уже ваш текущий тариф')
+
+    return subscription, current_tariff, new_tariff
+
+
+@router.get('/tariff/change-preview', response_model=TariffChangePreviewResponse)
+async def tariff_change_preview(
+    tariff_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+) -> TariffChangePreviewResponse:
+    subscription, current_tariff, new_tariff = await _get_change_context(db, user, tariff_id)
+    price_kopeks = await compute_change_price_kopeks(
+        db, subscription=subscription, current_tariff=current_tariff, new_tariff=new_tariff, user=user
+    )
+    return TariffChangePreviewResponse(price_kopeks=price_kopeks, remaining_days=remaining_days(subscription))
+
+
+@router.post('/tariff/change', response_model=DashboardResponse)
+async def tariff_change(
+    payload: TariffChangeRequest, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+) -> DashboardResponse:
+    subscription, current_tariff, new_tariff = await _get_change_context(db, user, payload.tariff_id)
+    price_kopeks = await compute_change_price_kopeks(
+        db, subscription=subscription, current_tariff=current_tariff, new_tariff=new_tariff, user=user
+    )
+    try:
+        await apply_tariff_change(db, user=user, subscription=subscription, new_tariff=new_tariff, price_kopeks=price_kopeks)
+    except InsufficientBalanceError as error:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, f'Недостаточно средств на балансе — не хватает {error.missing_kopeks / 100:.2f} ₽'
+        ) from error
+    except Exception as error:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, 'Не удалось сменить тариф, попробуйте позже') from error
+
+    await db.commit()
+    return DashboardResponse(
+        balance_kopeks=user.balance_kopeks, subscription=await _subscription_out(db, subscription), is_admin=user.is_admin
+    )
 
 
 @router.get('/connect-apps', response_model=ConnectAppsResponse)
@@ -400,7 +490,11 @@ async def gift_purchase(
     if payload.method not in GIFT_PAYMENT_METHOD_IDS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Неизвестный способ оплаты')
 
-    active_tariff = await get_active_tariff(db)
+    # Подарок пока не даёт выбрать тариф на фронте — берём первый активный
+    # (см. handlers/subscription.py::get_active_tariff, то же поведение,
+    # что и в боте; смена тарифа для подарков вне скоупа этой итерации).
+    active_tariffs = await get_active_tariffs(db)
+    active_tariff = active_tariffs[0] if active_tariffs else None
     if active_tariff is None or str(payload.period_days) not in active_tariff.period_prices_kopeks:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Недоступный период подписки')
 
