@@ -86,7 +86,14 @@ class CisPayProvider(PaymentProvider):
             raise RuntimeError(f'cisPay вернула не-JSON ответ: {response.text[:200]}') from error
 
     async def create_payment(
-        self, *, user_id: int, amount_kopeks: int, description: str, bot=None, telegram_id: int | None = None
+        self,
+        *,
+        user_id: int,
+        amount_kopeks: int,
+        description: str,
+        bot=None,
+        telegram_id: int | None = None,
+        username: str | None = None,
     ) -> CreatedPayment:
         # customer_id обязателен для SBP (см. докстринг модуля) — используем
         # telegram_id, а не user_id из своей БД, чтобы совпадало с тем, что

@@ -23,7 +23,7 @@ class StarsProvider(PaymentProvider):
     provider_name = 'stars'
 
     async def create_payment(
-        self, *, user_id: int, amount_kopeks: int, description: str, bot=None, telegram_id=None
+        self, *, user_id: int, amount_kopeks: int, description: str, bot=None, telegram_id=None, username=None
     ) -> CreatedPayment:
         if bot is None or telegram_id is None:
             raise RuntimeError('StarsProvider.create_payment требует bot и telegram_id')

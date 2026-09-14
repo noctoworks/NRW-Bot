@@ -139,13 +139,24 @@ async def purchase_gift_subscription(
         # Platega и cisPay (см. app/services/payment/router.py и комментарий у
         # PAYMENT_METHOD_LABELS в handlers/subscription.py).
         actual_provider, created = await create_split_payment(
-            db=db, user_id=db_user.id, amount_kopeks=amount_kopeks, description=description, bot=bot, telegram_id=db_user.telegram_id
+            db=db,
+            user_id=db_user.id,
+            amount_kopeks=amount_kopeks,
+            description=description,
+            bot=bot,
+            telegram_id=db_user.telegram_id,
+            username=db_user.username or db_user.full_name,
         )
     else:
         actual_provider = method
         provider = get_payment_provider(method)
         created = await provider.create_payment(
-            user_id=db_user.id, amount_kopeks=amount_kopeks, description=description, bot=bot, telegram_id=db_user.telegram_id
+            user_id=db_user.id,
+            amount_kopeks=amount_kopeks,
+            description=description,
+            bot=bot,
+            telegram_id=db_user.telegram_id,
+            username=db_user.username or db_user.full_name,
         )
 
     if created.status != 'success':

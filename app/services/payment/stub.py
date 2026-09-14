@@ -17,7 +17,7 @@ class StubPaymentProvider(PaymentProvider):
         self.provider_name = provider_name
 
     async def create_payment(
-        self, *, user_id: int, amount_kopeks: int, description: str, bot=None, telegram_id=None
+        self, *, user_id: int, amount_kopeks: int, description: str, bot=None, telegram_id=None, username=None
     ) -> CreatedPayment:
         return CreatedPayment(
             external_id=f'stub-{uuid.uuid4().hex[:12]}',

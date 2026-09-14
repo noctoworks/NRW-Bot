@@ -50,7 +50,7 @@ class TonProvider(PaymentProvider):
     provider_name = 'ton'
 
     async def create_payment(
-        self, *, user_id: int, amount_kopeks: int, description: str, bot=None, telegram_id=None
+        self, *, user_id: int, amount_kopeks: int, description: str, bot=None, telegram_id=None, username=None
     ) -> CreatedPayment:
         # Комментарий — единственный способ сматчить конкретный перевод с
         # конкретным Payment (TON не поддерживает произвольные метаданные

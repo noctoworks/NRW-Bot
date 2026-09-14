@@ -31,10 +31,13 @@ class PaymentProvider(ABC):
         description: str,
         bot: 'Bot | None' = None,
         telegram_id: int | None = None,
+        username: str | None = None,
     ) -> CreatedPayment:
         """bot/telegram_id — только для StarsProvider (шлёт инвойс сам через
         Bot.send_invoice, у Stars нет ни payment_url, ни отдельного API для
-        создания счёта). Остальные провайдеры эти два параметра игнорируют."""
+        создания счёта). username — только для PlategaProvider (metadata.userName,
+        требование антифрода Platega, см. диалог 2026-09-14). Остальные
+        провайдеры эти параметры игнорируют."""
 
     @abstractmethod
     async def verify_webhook(self, payload: dict, headers: dict) -> bool:

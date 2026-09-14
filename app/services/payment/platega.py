@@ -125,8 +125,19 @@ class PlategaProvider(PaymentProvider):
             raise RuntimeError(f'Platega вернула не-JSON ответ: {response.text[:200]}') from error
 
     async def create_payment(
-        self, *, user_id: int, amount_kopeks: int, description: str, bot=None, telegram_id=None
+        self, *, user_id: int, amount_kopeks: int, description: str, bot=None, telegram_id=None, username=None
     ) -> CreatedPayment:
+        # metadata.userId/userName обязательны у Platega (см. диалог 2026-09-14,
+        # требование их support: "передача только одного из двух — некорректна",
+        # антифрод-проверка, при несоблюдении провайдер грозит отключением).
+        # userId — telegram_id, а не user_id из своей БД (тот же принцип, что и
+        # у CisPayProvider.create_payment/customer_id — Platega должна видеть
+        # именно того, кто реально платит в Telegram). userName обязателен даже
+        # без @username у юзера — fallback на full_name, а как крайний случай на
+        # сам telegram_id, чтобы поле никогда не ушло пустым.
+        if telegram_id is None:
+            raise RuntimeError('Platega требует telegram_id для metadata.userId, получено None')
+
         endpoint = '/v2/transaction/process' if self.api_version == 'v2' else '/transaction/process'
         body = {
             'paymentMethod': settings.PLATEGA_PAYMENT_METHOD_CODE,
@@ -135,6 +146,10 @@ class PlategaProvider(PaymentProvider):
                 'currency': 'RUB',
             },
             'description': _sanitize_description(description),
+            'metadata': {
+                'userId': str(telegram_id),
+                'userName': username or str(telegram_id),
+            },
         }
 
         response = await self._request('POST', endpoint, json_data=body)
@@ -245,7 +260,9 @@ class PlategaProvider(PaymentProvider):
             'subscription_alive': (status_raw in _SUBSCRIPTION_ACTIVE_STATUSES) if is_status_event else None,
         }
 
-    async def create_subscription(self, *, amount_kopeks: int, description: str) -> CreatedSubscription:
+    async def create_subscription(
+        self, *, amount_kopeks: int, description: str, telegram_id: int, username: str | None = None
+    ) -> CreatedSubscription:
         """Автосписание раз в месяц (interval=3 — см. диалог 2026-08-21: у Platega
         интервал фиксируется один раз при создании подписки и не совпадает с
         произвольными периодами тарифа 30/90/180/360 дней, поэтому автоплатёж
@@ -253,7 +270,10 @@ class PlategaProvider(PaymentProvider):
         период юзер покупал изначально). Возвращает confirm_url — пользователь
         должен его открыть и подтвердить привязку счёта в банк-приложении (окно
         30 минут), сама подписка станет активной только после этого (см. вебхук
-        SUBSCRIPTION_ACTIVATED, не сразу после этого запроса)."""
+        SUBSCRIPTION_ACTIVATED, не сразу после этого запроса).
+
+        telegram_id/username — то же требование metadata.userId/userName, что и
+        у create_payment выше (см. диалог 2026-09-14)."""
         body = {
             'paymentMethod': _SUBSCRIPTION_PAYMENT_METHOD,
             'paymentDetails': {
@@ -262,6 +282,10 @@ class PlategaProvider(PaymentProvider):
                 'interval': '3',
             },
             'description': _sanitize_description(description),
+            'metadata': {
+                'userId': str(telegram_id),
+                'userName': username or str(telegram_id),
+            },
         }
         response = await self._request('POST', '/transaction/process', json_data=body)
 

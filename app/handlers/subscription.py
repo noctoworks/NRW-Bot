@@ -239,6 +239,7 @@ async def purchase_or_renew_subscription(
             description=description,
             bot=bot,
             telegram_id=db_user.telegram_id,
+            username=db_user.username or db_user.full_name,
         )
         charged_amount_kopeks = provider_amount_kopeks
     else:
@@ -250,6 +251,7 @@ async def purchase_or_renew_subscription(
             description=description,
             bot=bot,
             telegram_id=db_user.telegram_id,
+            username=db_user.username or db_user.full_name,
         )
         charged_amount_kopeks = provider_amount_kopeks
 
@@ -730,7 +732,10 @@ async def cb_autopay_toggle(callback: CallbackQuery, db: AsyncSession, db_user: 
 
         try:
             created = await provider.create_subscription(
-                amount_kopeks=amount_kopeks, description=f'Автоплатёж — «{subscription.tariff.name}»'
+                amount_kopeks=amount_kopeks,
+                description=f'Автоплатёж — «{subscription.tariff.name}»',
+                telegram_id=db_user.telegram_id,
+                username=db_user.username or db_user.full_name,
             )
         except Exception:
             logger.exception('create_subscription упал для user_id=%s', db_user.id)

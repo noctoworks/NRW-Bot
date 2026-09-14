@@ -69,6 +69,7 @@ async def create_split_payment(
     description: str,
     bot: 'Bot | None' = None,
     telegram_id: int | None = None,
+    username: str | None = None,
 ) -> tuple[str, CreatedPayment]:
     """(реальное_имя_провайдера, CreatedPayment). Первым пробует провайдера,
     ОТЛИЧНОГО от того, что юзер получил в прошлый раз (см. _last_split_provider) —
@@ -97,7 +98,12 @@ async def create_split_payment(
         try:
             provider = get_payment_provider(name)
             created = await provider.create_payment(
-                user_id=user_id, amount_kopeks=amount_kopeks, description=description, bot=bot, telegram_id=telegram_id
+                user_id=user_id,
+                amount_kopeks=amount_kopeks,
+                description=description,
+                bot=bot,
+                telegram_id=telegram_id,
+                username=username,
             )
             return name, created
         except Exception as error:
