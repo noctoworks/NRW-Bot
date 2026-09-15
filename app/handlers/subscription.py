@@ -67,13 +67,15 @@ router = Router(name='subscription')
 # внешняя ссылка на оплату; у нас пока stub, ссылки может не быть, но паритет
 # вида сохраняем).
 #
-# ВАЖНО (см. диалог "cisPay как основной платёжкой"): публичный ключ 'platega'
-# больше не означает буквально Platega — это витрина "Карты и СБП", под которой
-# create_split_payment (app/services/payment/router.py) случайно выбирает
-# 50/50 между PlategaProvider и CisPayProvider, с автофоллбеком на второго при
-# сбое первого. Реальный выбранный провайдер попадает в Payment.provider (см.
-# purchase_or_renew_subscription/handlers/gift.py), а НЕ строка 'platega' —
-# отдельной видимой кнопки для cisPay больше нет.
+# ВАЖНО (см. диалог "cisPay как единственный провайдер разовых платежей"):
+# публичный ключ 'platega' больше не означает буквально Platega — это витрина
+# "Карты и СБП", под которой create_split_payment (app/services/payment/router.py)
+# резолвит реального провайдера через SPLIT_PROVIDERS (сейчас — только cisPay,
+# без фоллбека на Platega). Реальный выбранный провайдер попадает в
+# Payment.provider (см. purchase_or_renew_subscription/handlers/gift.py), а НЕ
+# строка 'platega' — отдельной видимой кнопки для cisPay больше нет. Platega
+# остаётся отдельно для автосписаний (AUTOPAY, см. ниже) — этот код её вообще
+# не вызывает.
 #
 # Единый источник label/иконки для способа оплаты — из них ниже собираются и
 # PAYMENT_METHODS (plain-текст, MiniApp API/сообщения), и сами кнопки
@@ -229,8 +231,8 @@ async def purchase_or_renew_subscription(
         actual_provider = 'balance'
         charged_amount_kopeks = amount_kopeks
     elif method == 'platega':
-        # Витрина "Карты и СБП" — реальный провайдер выбирается 50/50 между
-        # Platega и cisPay (см. комментарий у PAYMENT_METHOD_LABELS выше).
+        # Витрина "Карты и СБП" — реальный провайдер резолвится через
+        # SPLIT_PROVIDERS (см. комментарий у PAYMENT_METHOD_LABELS выше).
         # amount = provider_amount_kopeks (остаток ПОСЛЕ баланса), не полная цена.
         actual_provider, created = await create_split_payment(
             db=db,

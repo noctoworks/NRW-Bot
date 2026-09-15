@@ -135,8 +135,8 @@ async def purchase_gift_subscription(
     description = f'Подарок подписки на {period_days} дн. ({tariff.name})'
 
     if method == 'platega':
-        # Витрина "Карты и СБП" — реальный провайдер выбирается 50/50 между
-        # Platega и cisPay (см. app/services/payment/router.py и комментарий у
+        # Витрина "Карты и СБП" — реальный провайдер резолвится через
+        # SPLIT_PROVIDERS (см. app/services/payment/router.py и комментарий у
         # PAYMENT_METHOD_LABELS в handlers/subscription.py).
         actual_provider, created = await create_split_payment(
             db=db,
