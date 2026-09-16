@@ -54,7 +54,7 @@ from app.services.payment import get_payment_provider
 from app.services.payment.base import CreatedPayment
 from app.services.payment.platega import AUTOPAY_PERIOD_DAYS
 from app.services.payment.router import create_split_payment
-from app.services.pricing_service import get_period_price_kopeks
+from app.services.pricing_service import apply_discount, get_best_discount, get_period_price_kopeks
 from app.services.referral_service import credit_referral_earning
 from app.states import PurchaseStates
 
@@ -133,6 +133,28 @@ def _format_price(amount_kopeks: int, method: str) -> str:
         ton = amount_kopeks / settings.TON_RATE_KOPEKS
         return f'{ton:.2f} TON'
     return f'{amount_kopeks / 100:.0f} ₽'
+
+
+MSK = timezone(timedelta(hours=3))
+
+
+async def _discount_line(db: AsyncSession, tariff: Tariff, period_days: int, user: User) -> str:
+    """Текстовая строка со скидкой (зачёркнутая цена + новая, в ₽ — тот же
+    вид, что в Mini App, см. PeriodCard.tsx/диалог "давай сделаем так же
+    в боте") для экранов покупки. '' — если сейчас нет ни промогруппы, ни
+    win-back, ни сайтовой акции (см. pricing_service.get_best_discount).
+    Дедлайн показываем как абсолютную дату/время по МСК, а не таймер —
+    статичное сообщение бота не тикает само по себе, в отличие от Mini App."""
+    discount_percent, deadline = await get_best_discount(db, user)
+    if discount_percent <= 0:
+        return ''
+    base_kopeks = int(tariff.period_prices_kopeks[str(period_days)])
+    price_kopeks = apply_discount(base_kopeks, discount_percent)
+    deadline_text = f' до {deadline.astimezone(MSK).strftime("%d.%m %H:%M МСК")}' if deadline else ''
+    return (
+        f'💚 Скидка {discount_percent}%{deadline_text}: '
+        f'<s>{base_kopeks / 100:.0f} ₽</s> <b>{price_kopeks / 100:.0f} ₽</b>\n\n'
+    )
 
 
 # === Бизнес-логика (тестируется без Update/CallbackQuery) ===================
@@ -891,11 +913,12 @@ async def cb_choose_period(callback: CallbackQuery, db: AsyncSession, db_user: U
         await state.clear()
         return
     amount_kopeks = await get_period_price_kopeks(db, tariff, int(days), db_user)
+    discount_line = await _discount_line(db, tariff, int(days), db_user)
 
     await state.set_state(PurchaseStates.choosing_payment_method)
     label = PERIOD_LABELS.get(days, f'{days} дней')
     await callback.message.edit_text(
-        f'📦 <b>{tariff.name} · {label}</b>\n\nВыберите удобный способ оплаты:',
+        f'📦 <b>{tariff.name} · {label}</b>\n\n{discount_line}Выберите удобный способ оплаты:',
         reply_markup=kb_payment_methods(amount_kopeks, db_user.balance_kopeks),
     )
     await callback.answer()
@@ -914,15 +937,24 @@ async def cb_choose_method(callback: CallbackQuery, db: AsyncSession, db_user: U
 
     period_days = data['period_days']
     price_kopeks = await get_period_price_kopeks(db, tariff, period_days, db_user)
+    discount_percent, _ = await get_best_discount(db, db_user)
     await state.set_state(PurchaseStates.confirming)
 
     label = PERIOD_LABELS.get(str(period_days), f'{period_days} дней')
+    if discount_percent > 0:
+        base_kopeks = int(tariff.period_prices_kopeks[str(period_days)])
+        # В валюте способа оплаты (₽/★/TON), а не всегда в ₽ — иначе на
+        # экране Stars/TON зачёркнутая цена в рублях смотрелась бы странно
+        # рядом с итоговой суммой в другой валюте.
+        amount_line = f'<s>{_format_price(base_kopeks, method)}</s> {_format_price(price_kopeks, method)} (-{discount_percent}%)'
+    else:
+        amount_line = _format_price(price_kopeks, method)
     text = (
         f'<b>Подтверждение оплаты</b>\n\n'
         f'Тариф: {tariff.name}\n'
         f'Период: {label}\n'
         f'Способ оплаты: {PAYMENT_METHODS_RICH.get(method, method)}\n'
-        f'Сумма: {_format_price(price_kopeks, method)}'
+        f'Сумма: {amount_line}'
     )
     await callback.message.edit_text(text, reply_markup=kb_confirm())
     await callback.answer()

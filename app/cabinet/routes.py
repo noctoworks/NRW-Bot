@@ -170,6 +170,7 @@ def _tariff_out(tariff_row: Tariff, user: User, discount_percent: int) -> Tariff
         id=tariff_row.id,
         name=tariff_row.name,
         device_limit=tariff_row.device_limit,
+        traffic_limit_gb=tariff_row.traffic_limit_gb,
         periods=periods,
         payment_methods=_build_payment_methods(user),
     )

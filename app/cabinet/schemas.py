@@ -52,6 +52,9 @@ class TariffResponse(BaseModel):
     id: int
     name: str
     device_limit: int
+    # 0 = безлимит (см. Tariff.traffic_limit_gb в models.py) — фронт сам решает,
+    # как подписать 0 ("безлимитный трафик"), тут просто число как в БД.
+    traffic_limit_gb: int
     periods: list[PeriodOut]
     payment_methods: list[PaymentMethodOut]
 
