@@ -50,17 +50,42 @@ _NOT_BALANCE_FUNDED = ~(
     select(Payment.id).where(Payment.transaction_id == Transaction.id, Payment.provider == 'balance').exists()
 )
 
+# Найдено вживую 2026-09-16 (диалог: "в cisPay оборот 4368, а в админке 6879
+# доход за сегодня, хотя ни звёзд, ни TON не было"): Transaction.amount_kopeks —
+# ВСЕГДА полная цена тарифа, даже когда часть суммы списана с баланса (см.
+# handlers/subscription.py::purchase_or_renew_subscription, balance_offset_kopeks).
+# Баланс — уже когда-то начисленные бонусы/рефералка, не новые деньги (та же
+# причина, что у _NOT_BALANCE_FUNDED выше) — значит суммировать Transaction.
+# amount_kopeks для "выручки" систематически завышает её на сумму любого
+# частичного покрытия балансом. Payment.amount_kopeks — то, что реально ушло
+# провайдеру (charged_amount_kopeks = amount_kopeks - balance_offset_kopeks,
+# см. purchase_or_renew_subscription) — именно эту колонку и нужно суммировать
+# для "денег, реально пришедших в бизнес", проверено сведением с суммой cisPay
+# за тот день до копейки. Функции ниже, которые считают ВЫРУЧКУ (не просто
+# считают строки/юзеров), джойнят Payment и суммируют Payment.amount_kopeks —
+# счётчики (paying_users, renewed_users_count, tx_count_30d и т.п.) это не
+# затрагивает, им сумма не нужна, там _NOT_BALANCE_FUNDED остаётся как есть.
+def _revenue_query(*extra_where):
+    return (
+        select(func.coalesce(func.sum(Payment.amount_kopeks), 0))
+        .select_from(Transaction)
+        .join(Payment, Payment.transaction_id == Transaction.id)
+        .where(
+            Transaction.type.in_(REVENUE_TYPES),
+            Transaction.status == 'completed',
+            Payment.provider != 'balance',
+            *extra_where,
+        )
+    )
+
 
 def _as_utc(dt: datetime) -> datetime:
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 
 async def _revenue_sum(db: AsyncSession, *, since: datetime | None = None) -> int:
-    stmt = select(func.coalesce(func.sum(Transaction.amount_kopeks), 0)).where(
-        Transaction.type.in_(REVENUE_TYPES), Transaction.status == 'completed', _NOT_BALANCE_FUNDED
-    )
-    if since is not None:
-        stmt = stmt.where(Transaction.created_at >= since)
+    extra_where = (Transaction.created_at >= since,) if since is not None else ()
+    stmt = _revenue_query(*extra_where)
     return (await db.execute(stmt)).scalar_one()
 
 
@@ -263,11 +288,14 @@ async def _churn_percent(db: AsyncSession, *, since: datetime, until: datetime) 
 async def get_revenue_timeseries(db: AsyncSession, *, days: int = 30) -> list[dict]:
     since = datetime.now(timezone.utc) - timedelta(days=days)
     result = await db.execute(
-        select(Transaction.created_at, Transaction.amount_kopeks).where(
+        select(Transaction.created_at, Payment.amount_kopeks)
+        .select_from(Transaction)
+        .join(Payment, Payment.transaction_id == Transaction.id)
+        .where(
             Transaction.type.in_(REVENUE_TYPES),
             Transaction.status == 'completed',
             Transaction.created_at >= since,
-            _NOT_BALANCE_FUNDED,
+            Payment.provider != 'balance',
         )
     )
     buckets: dict[date, dict] = defaultdict(lambda: {'revenue_kopeks': 0, 'count': 0})
@@ -287,8 +315,10 @@ async def get_revenue_timeseries(db: AsyncSession, *, days: int = 30) -> list[di
 
 async def get_ltv(db: AsyncSession) -> dict:
     result = await db.execute(
-        select(Transaction.user_id, func.sum(Transaction.amount_kopeks))
-        .where(Transaction.type.in_(REVENUE_TYPES), Transaction.status == 'completed', _NOT_BALANCE_FUNDED)
+        select(Transaction.user_id, func.sum(Payment.amount_kopeks))
+        .select_from(Transaction)
+        .join(Payment, Payment.transaction_id == Transaction.id)
+        .where(Transaction.type.in_(REVENUE_TYPES), Transaction.status == 'completed', Payment.provider != 'balance')
         .group_by(Transaction.user_id)
     )
     per_user: dict[int, int] = {user_id: total for user_id, total in result.all()}
@@ -346,9 +376,10 @@ async def get_cohorts(db: AsyncSession, *, max_months: int = 6) -> dict:
         cohort_sizes[cohort] += 1
 
     tx_result = await db.execute(
-        select(Transaction.user_id, Transaction.created_at, Transaction.amount_kopeks).where(
-            Transaction.type.in_(REVENUE_TYPES), Transaction.status == 'completed', _NOT_BALANCE_FUNDED
-        )
+        select(Transaction.user_id, Transaction.created_at, Payment.amount_kopeks)
+        .select_from(Transaction)
+        .join(Payment, Payment.transaction_id == Transaction.id)
+        .where(Transaction.type.in_(REVENUE_TYPES), Transaction.status == 'completed', Payment.provider != 'balance')
     )
     revenue_by_cohort_offset: dict[tuple[int, int], dict[int, int]] = defaultdict(lambda: defaultdict(int))
     for user_id, created_at, amount_kopeks in tx_result.all():
@@ -439,20 +470,22 @@ async def get_recent_payments(db: AsyncSession, *, limit: int = 10) -> list[dict
     _revenue_sum выше (REVENUE_TYPES, status='completed', НЕ оплата балансом),
     просто последние N штук вместо суммы."""
     result = await db.execute(
-        select(Transaction)
-        .where(Transaction.type.in_(REVENUE_TYPES), Transaction.status == 'completed', _NOT_BALANCE_FUNDED)
+        select(Transaction, Payment.amount_kopeks)
+        .select_from(Transaction)
+        .join(Payment, Payment.transaction_id == Transaction.id)
+        .where(Transaction.type.in_(REVENUE_TYPES), Transaction.status == 'completed', Payment.provider != 'balance')
         .order_by(Transaction.created_at.desc())
         .limit(limit)
     )
-    transactions = list(result.scalars())
-    if not transactions:
+    rows = result.all()
+    if not rows:
         return []
 
-    users_result = await db.execute(select(User).where(User.id.in_([t.user_id for t in transactions])))
+    users_result = await db.execute(select(User).where(User.id.in_([t.user_id for t, _ in rows])))
     users_by_id = {u.id: u for u in users_result.scalars().all()}
 
     payments = []
-    for t in transactions:
+    for t, payment_amount_kopeks in rows:
         user = users_by_id.get(t.user_id)
         if user is None:
             continue
@@ -462,7 +495,7 @@ async def get_recent_payments(db: AsyncSession, *, limit: int = 10) -> list[dict
                 'telegram_id': user.telegram_id,
                 'username': user.username,
                 'full_name': user.full_name,
-                'amount_kopeks': t.amount_kopeks,
+                'amount_kopeks': payment_amount_kopeks,
                 'type': t.type,
                 'created_at': t.created_at,
             }
@@ -479,12 +512,14 @@ async def get_revenue_by_type(db: AsyncSession, *, days: int = 30) -> list[dict]
     так и должно быть, не баг диаграммы."""
     since = datetime.now(timezone.utc) - timedelta(days=days)
     result = await db.execute(
-        select(Transaction.type, func.coalesce(func.sum(Transaction.amount_kopeks), 0))
+        select(Transaction.type, func.coalesce(func.sum(Payment.amount_kopeks), 0))
+        .select_from(Transaction)
+        .join(Payment, Payment.transaction_id == Transaction.id)
         .where(
             Transaction.type.in_(REVENUE_TYPES),
             Transaction.status == 'completed',
             Transaction.created_at >= since,
-            _NOT_BALANCE_FUNDED,
+            Payment.provider != 'balance',
         )
         .group_by(Transaction.type)
     )
@@ -499,7 +534,7 @@ async def get_revenue_by_provider(db: AsyncSession, *, days: int = 30) -> list[d
     бонусов/рефералки."""
     since = datetime.now(timezone.utc) - timedelta(days=days)
     result = await db.execute(
-        select(Payment.provider, func.coalesce(func.sum(Transaction.amount_kopeks), 0))
+        select(Payment.provider, func.coalesce(func.sum(Payment.amount_kopeks), 0))
         .join(Transaction, Transaction.id == Payment.transaction_id)
         .where(
             Transaction.type.in_(REVENUE_TYPES),
@@ -508,7 +543,7 @@ async def get_revenue_by_provider(db: AsyncSession, *, days: int = 30) -> list[d
             Payment.provider != 'balance',
         )
         .group_by(Payment.provider)
-        .order_by(func.sum(Transaction.amount_kopeks).desc())
+        .order_by(func.sum(Payment.amount_kopeks).desc())
     )
     return [{'provider': provider, 'revenue_kopeks': revenue} for provider, revenue in result.all()]
 
@@ -523,7 +558,7 @@ async def get_revenue_by_provider_timeseries(db: AsyncSession, *, days: int = 30
     категориям не будет — не тот случай, что get_revenue_by_type."""
     since = datetime.now(timezone.utc) - timedelta(days=days)
     result = await db.execute(
-        select(Transaction.created_at, Payment.provider, Transaction.amount_kopeks)
+        select(Transaction.created_at, Payment.provider, Payment.amount_kopeks)
         .join(Transaction, Transaction.id == Payment.transaction_id)
         .where(
             Transaction.type.in_(REVENUE_TYPES),
@@ -558,11 +593,14 @@ async def get_revenue_by_weekday(db: AsyncSession, *, days: int = 90) -> list[di
     быть шумом одной случайной недели."""
     since = datetime.now(timezone.utc) - timedelta(days=days)
     result = await db.execute(
-        select(Transaction.created_at, Transaction.amount_kopeks).where(
+        select(Transaction.created_at, Payment.amount_kopeks)
+        .select_from(Transaction)
+        .join(Payment, Payment.transaction_id == Transaction.id)
+        .where(
             Transaction.type.in_(REVENUE_TYPES),
             Transaction.status == 'completed',
             Transaction.created_at >= since,
-            _NOT_BALANCE_FUNDED,
+            Payment.provider != 'balance',
         )
     )
     buckets = [0] * 7  # datetime.weekday(): 0=понедельник .. 6=воскресенье
