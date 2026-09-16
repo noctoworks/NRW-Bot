@@ -133,6 +133,7 @@ class RealRemnawaveClient(RemnawaveClient):
             traffic_limit_gb=traffic_limit_bytes // 1024**3,
             expire_at=_parse_dt(data.get('expireAt')),
             is_enabled=data.get('status') == 'ACTIVE',
+            device_limit=data.get('hwidDeviceLimit'),
         )
 
     def _parse_device(self, data: dict[str, Any]) -> RemnawaveDevice:

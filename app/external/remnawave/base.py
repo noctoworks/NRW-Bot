@@ -21,6 +21,12 @@ class RemnawaveUser:
     traffic_limit_gb: int = 0
     expire_at: datetime | None = None
     is_enabled: bool = True
+    # hwidDeviceLimit на панели — None у подавляющего большинства юзеров (нет
+    # ручного оверрайда, действует лимит тарифа из нашей БД). Не None — админ
+    # вручную поставил другое значение прямо в Remnawave (см. диалог: "поставил
+    # 8 устройств, а в личном кабинете всё еще 3") — синхронизация из панели
+    # (sync_from_panel) должна подтянуть именно это значение поверх тарифного.
+    device_limit: int | None = None
 
 
 @dataclass

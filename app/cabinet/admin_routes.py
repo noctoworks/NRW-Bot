@@ -1029,6 +1029,13 @@ async def sync_from_panel(
     if remote.expire_at is not None:
         sub.end_date = remote.expire_at
     sub.status = 'active' if remote.is_enabled else 'disabled'
+    # hwidDeviceLimit на панели — None у большинства (нет ручного оверрайда,
+    # действует лимит тарифа) — трогаем sub.device_limit ТОЛЬКО когда админ
+    # явно поставил своё значение прямо в Remnawave (см. диалог: "поставил 8
+    # устройств, а в личном кабинете всё еще 3"), не перетираем тарифный
+    # лимит нулём/None на обычных юзерах без оверрайда.
+    if remote.device_limit is not None:
+        sub.device_limit = remote.device_limit
     await db.commit()
 
     return {
