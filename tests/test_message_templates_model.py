@@ -30,7 +30,7 @@ def _load_migration():
 def _schema(engine, table: str) -> dict:
     inspector = sa.inspect(engine)
     return {
-        'columns': {c['name']: (str(c['type']).upper(), c['nullable']) for c in inspector.get_columns(table)},
+        'columns': {c['name']: (str(c['type']).upper(), c['nullable'], str(c['default']) if c['default'] is not None else None) for c in inspector.get_columns(table)},
         'indexes': {i['name']: (tuple(i['column_names']), bool(i['unique'])) for i in inspector.get_indexes(table)},
         'pk': inspector.get_pk_constraint(table)['constrained_columns'],
     }
