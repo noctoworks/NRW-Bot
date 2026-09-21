@@ -224,6 +224,8 @@ async def _deliver(bot: Bot, *, telegram_id: int, text: str, reply_markup) -> No
         await asyncio.sleep(error.retry_after + 1)
         try:
             await bot.send_message(chat_id=telegram_id, text=text, reply_markup=reply_markup)
+        except TelegramBadRequest:
+            raise
         except Exception:
             logger.warning('Не удалось отправить уведомление telegram_id=%s (после ретрая)', telegram_id, exc_info=True)
     except Exception:

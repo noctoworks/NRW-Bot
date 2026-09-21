@@ -26,6 +26,6 @@ def render_template(template: str, variables: Mapping[str, object]) -> str:
         name = match.group(1)
         if name not in variables:
             return match.group(0)
-        return html.escape(str(variables[name]), quote=False)
+        return html.escape(str(variables[name]), quote=True)
 
     return PLACEHOLDER_RE.sub(replace, template)

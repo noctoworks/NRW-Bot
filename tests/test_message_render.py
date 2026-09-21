@@ -12,7 +12,13 @@ def test_substitutes_placeholders():
 def test_values_are_html_escaped_but_template_markup_is_kept():
     result = render_template('<b>Привет, {who}</b>', {'who': '<script>&"x"'})
 
-    assert result == '<b>Привет, &lt;script&gt;&amp;"x"</b>'
+    assert result == '<b>Привет, &lt;script&gt;&amp;&quot;x&quot;</b>'
+
+
+def test_quote_in_value_is_escaped_inside_attribute():
+    result = render_template('<a href="https://x/?u={who}">ссылка</a>', {'who': 'a"b'})
+
+    assert result == '<a href="https://x/?u=a&quot;b">ссылка</a>'
 
 
 def test_unknown_placeholder_is_left_untouched():

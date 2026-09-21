@@ -341,6 +341,28 @@ def test_flood_control_is_retried_once(monkeypatch):
     assert bot.send_message.await_count == 2 and slept == [4]
 
 
+def test_bad_request_after_flood_retry_still_falls_back(session_factory, monkeypatch):
+    async def fake_sleep(delay):
+        pass
+
+    monkeypatch.setattr(service.asyncio, 'sleep', fake_sleep)
+    bot = AsyncMock()
+    bot.send_message.side_effect = [
+        TelegramRetryAfter(method=SendMessage(chat_id=CHAT, text='x'), message='flood', retry_after=3),
+        bad_request("Bad Request: can't parse entities: unsupported start tag"),
+        None,
+    ]
+
+    async def scenario():
+        await _set(session_factory, 'subscription_expired', template='<b>сломано')
+        await send_templated(bot, telegram_id=CHAT, key='subscription_expired')
+
+    asyncio.run(scenario())
+
+    assert bot.send_message.await_count == 3
+    assert bot.send_message.await_args_list[2].kwargs['text'] == '❌ Ваша подписка истекла. Продлите её в главном меню.'
+
+
 def test_custom_button_label_is_used_in_the_keyboard(session_factory, monkeypatch):
     monkeypatch.setattr(settings, 'MINIAPP_URL', 'https://mini.example')
     bot = AsyncMock()
