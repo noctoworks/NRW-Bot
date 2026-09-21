@@ -181,21 +181,41 @@ def test_failed_notification_does_not_cancel_the_commission(session_factory):
     asyncio.run(scenario())
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason='Известный пробел: credit_referral_earning не идемпотентна — повторный вызов для того же '
-    'payment начисляет комиссию снова. Сейчас защита только на вызывающей стороне (finalize_pending_payment '
-    'проверяет status==pending). Уберите xfail, когда добавите проверку существующего ReferralEarning.',
-)
 def test_repeated_call_for_same_payment_does_not_double_pay(session_factory):
+    """Идемпотентность: повтор для того же платежа не начисляет, не дублирует
+    запись/транзакцию и не шлёт второе уведомление."""
+
     async def scenario():
         referrer_id, buyer_id = await _pair(session_factory)
         payment_id = await _payment(session_factory, buyer_id)
+        bot = AsyncMock()
 
-        await _credit(session_factory, payment_id)
-        await _credit(session_factory, payment_id)
+        await _credit(session_factory, payment_id, bot=bot)
+        await _credit(session_factory, payment_id, bot=bot)
+        await _credit(session_factory, payment_id, bot=bot)
 
-        assert (await _referrer_state(session_factory, referrer_id))[0] == 2500
+        balance, earnings, rewards = await _referrer_state(session_factory, referrer_id)
+        assert balance == 2500 and len(earnings) == 1 and len(rewards) == 1
+        assert bot.send_message.await_count == 1
+
+    asyncio.run(scenario())
+
+
+def test_each_new_payment_of_the_same_buyer_is_paid_separately(session_factory):
+    """Защита от дублей — по платежу, а не по покупателю: каждая новая оплата
+    приносит комиссию."""
+
+    async def scenario():
+        referrer_id, buyer_id = await _pair(session_factory)
+        first = await _payment(session_factory, buyer_id, amount=10000)
+        second = await _payment(session_factory, buyer_id, amount=20000)
+
+        await _credit(session_factory, first)
+        await _credit(session_factory, second)
+        await _credit(session_factory, first)  # повтор старого — без эффекта
+
+        balance, earnings, _ = await _referrer_state(session_factory, referrer_id)
+        assert balance == 2500 + 5000 and len(earnings) == 2
 
     asyncio.run(scenario())
 

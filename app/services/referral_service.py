@@ -60,6 +60,16 @@ async def credit_referral_earning(db: AsyncSession, payment: Payment, bot: Bot |
             # бизнес никогда реально не получал.
             return
 
+        # Идемпотентность: комиссия за один платёж платится один раз, сколько бы раз
+        # ни вызвали функцию (повторный колбэк провайдера, ручной перезапуск
+        # поллинга, скрипт сверки). Сейчас вызывающие стороны сами защищены
+        # (finalize_pending_payment проверяет status=='pending' под блокировкой),
+        # но не должны быть единственной защитой от двойной выплаты денег.
+        already_paid = await db.execute(select(ReferralEarning.id).where(ReferralEarning.payment_id == payment.id).limit(1))
+        if already_paid.scalar_one_or_none() is not None:
+            logger.info('credit_referral_earning: комиссия за payment_id=%s уже начислена, пропускаю', payment.id)
+            return
+
         result = await db.execute(select(User).where(User.id == payment.user_id))
         buyer = result.scalar_one_or_none()
         if buyer is None or buyer.referred_by_id is None:
