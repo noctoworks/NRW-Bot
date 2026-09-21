@@ -145,6 +145,7 @@ def _root_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text='📊 Статистика', callback_data=CB_STATS_MENU),
                 InlineKeyboardButton(text='📢 Рассылка', callback_data=CB_ADMIN_BROADCAST),
             ],
+            [InlineKeyboardButton(text='✉️ Сообщения', callback_data='tpl:root')],
             # Разделы ниже уходят через _back_button() на CB_ADMIN_ROOT (сюда же),
             # но сам корневой экран раньше был тупиком — обратно в обычное меню
             # можно было попасть только новым /start (см. диалог "нужно добавить

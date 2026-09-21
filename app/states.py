@@ -62,3 +62,11 @@ class AdminUserStates(StatesGroup):
 
 class AdminEmojiStates(StatesGroup):
     awaiting_message = State()
+
+
+class AdminTemplateStates(StatesGroup):
+    """Редактор автоматических сообщений: ввод текста -> подтверждение; ввод подписи кнопки."""
+
+    entering_text = State()
+    confirming = State()
+    entering_button = State()
