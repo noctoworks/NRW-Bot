@@ -207,6 +207,13 @@ add('POST', '/cabinet/admin/campaigns', 'Создать кампанию', 'Бо
 add('PATCH', '/cabinet/admin/campaigns/{campaign_id}', 'Изменить кампанию', 'Меняются только переданные поля.')
 add('DELETE', '/cabinet/admin/campaigns/{campaign_id}', 'Удалить кампанию', 'Удаляет кампанию.')
 add('GET', '/cabinet/admin/campaigns/{campaign_id}/stats', 'Статистика кампании', 'Регистрации, платящие, конверсия, выручка.')
+# --- админка: уведомления бота
+add('GET', '/cabinet/admin/notifications/templates', 'Автоматические сообщения бота', 'Все 15 событий с текущим текстом, заводским текстом, переменными, признаками `is_customized`/`enabled`, подписью кнопки (если есть) и автором последней правки.')
+add('PUT', '/cabinet/admin/notifications/templates/{key}', 'Изменить сообщение', 'Частичное обновление: применяются только переданные поля. `template` — текст в HTML Telegram (разрешённые теги, переменные `{имя}` из списка события; кастомные эмодзи — `<tg-emoji emoji-id="…">`); `template: null` возвращает заводской текст; `enabled: false` отключает отправку; `button_text` — подпись кнопки (у событий с кнопкой). Изменения действуют сразу. Ошибки проверок — `422` со списком сообщений.')
+add('DELETE', '/cabinet/admin/notifications/templates/{key}', 'Сбросить сообщение к заводскому', 'Удаляет правку целиком (текст, кнопку, флаг «включено»). Повторный вызов безопасен.')
+add('POST', '/cabinet/admin/notifications/templates/{key}/preview', 'Предпросмотр', 'Рендерит текст с примерами переменных без сохранения; возвращает длину видимого текста и предупреждения (например, про кастомные эмодзи). Пустое тело — предпросмотр текущего текста.')
+add('POST', '/cabinet/admin/notifications/templates/{key}/test', 'Отправить тест мне', 'Отправляет предпросмотр вызвавшему админу в Telegram (с настоящей кнопкой, если она есть). `502` с текстом причины, если Telegram отклонил сообщение (например, недопустимое кастомное эмодзи).')
+add('GET', '/cabinet/admin/notifications/emoji', 'Кастомные эмодзи', 'Кастомные эмодзи из `app/emoji.py` с заданным ID — для вставки в текст.')
 # --- система
 add('GET', '/health', 'Проверка живости', 'Всегда `{"status": "ok"}`; базу данных и внешние сервисы не проверяет.')
 add('GET', '/platega-webhook', 'Проверка адреса вебхука Platega', 'Platega обращается к адресу при сохранении вебхука в кабинете — без `200` сохранить его нельзя.')
@@ -228,6 +235,7 @@ GROUPS_ADMIN = [
     ('Подписки и транзакции', ['/cabinet/admin/subscriptions', '/cabinet/admin/transactions', '/cabinet/admin/transactions/platega-reconcile', '/cabinet/admin/transactions/{transaction_id}']),
     ('Поддержка', ['/cabinet/admin/support/threads', '/cabinet/admin/support/threads/{ticket_id}', '/cabinet/admin/support/threads/{ticket_id}/reply', '/cabinet/admin/support/threads/{ticket_id}/close', '/cabinet/admin/support/threads/{ticket_id}/reopen']),
     ('Скидки, промокоды, кампании', ['/cabinet/admin/promo-groups', '/cabinet/admin/promo-groups/{group_id}', '/cabinet/admin/promo-codes', '/cabinet/admin/promo-codes/{code_id}', '/cabinet/admin/campaigns', '/cabinet/admin/campaigns/{campaign_id}', '/cabinet/admin/campaigns/{campaign_id}/stats']),
+    ('Уведомления бота', ['/cabinet/admin/notifications/templates', '/cabinet/admin/notifications/templates/{key}', '/cabinet/admin/notifications/templates/{key}/preview', '/cabinet/admin/notifications/templates/{key}/test', '/cabinet/admin/notifications/emoji']),
 ]
 GROUPS_SYSTEM = [('Служебные', ['/health', '/platega-webhook', '/cispay-webhook'])]
 

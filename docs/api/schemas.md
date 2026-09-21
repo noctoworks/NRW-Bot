@@ -31,6 +31,7 @@
 - [ConnectPlatformOut](#schema-connectplatformout)
 - [DashboardResponse](#schema-dashboardresponse)
 - [DeviceOut](#schema-deviceout)
+- [EmojiOut](#schema-emojiout)
 - [GiftPurchaseRequest](#schema-giftpurchaserequest)
 - [GiftPurchaseResponse](#schema-giftpurchaseresponse)
 - [HTTPValidationError](#schema-httpvalidationerror)
@@ -53,6 +54,8 @@
 - [PanelStatsOut](#schema-panelstatsout)
 - [PaymentMethodOut](#schema-paymentmethodout)
 - [PeriodOut](#schema-periodout)
+- [PreviewRequest](#schema-previewrequest)
+- [PreviewResponse](#schema-previewresponse)
 - [ProfileResponse](#schema-profileresponse)
 - [PromoCodeCreateRequest](#schema-promocodecreaterequest)
 - [PromoCodeOut](#schema-promocodeout)
@@ -89,12 +92,15 @@
 - [TariffChangeRequest](#schema-tariffchangerequest)
 - [TariffResponse](#schema-tariffresponse)
 - [TariffsResponse](#schema-tariffsresponse)
+- [TemplateOut](#schema-templateout)
+- [TemplateUpdateRequest](#schema-templateupdaterequest)
 - [TopPayerOut](#schema-toppayerout)
 - [TopReferrerOut](#schema-topreferrerout)
 - [TransactionListResponse](#schema-transactionlistresponse)
 - [TransactionOut](#schema-transactionout)
 - [UserNodeTrafficOut](#schema-usernodetrafficout)
 - [ValidationError](#schema-validationerror)
+- [VariableDocOut](#schema-variabledocout)
 - [app__cabinet__admin_schemas__PaginatedTransactionsResponse](#schema-app-cabinet-admin-schemas-paginatedtransactionsresponse)
 - [app__cabinet__schemas__PaginatedTransactionsResponse](#schema-app-cabinet-schemas-paginatedtransactionsresponse)
 
@@ -421,6 +427,15 @@ analytics_service.get_overview::total_traffic_gb).
 | `device_model` | string | да |  |
 | `created_at` | string (date-time) \| null | да |  |
 
+## EmojiOut
+<a id="schema-emojiout"></a>
+
+| Поле | Тип | Обязательное | Примечание |
+|---|---|---|---|
+| `name` | string | да |  |
+| `fallback` | string | да |  |
+| `custom_id` | string | да |  |
+
 ## GiftPurchaseRequest
 <a id="schema-giftpurchaserequest"></a>
 
@@ -659,6 +674,24 @@ analytics_service.get_overview::total_traffic_gb).
 | `label` | string | да |  |
 | `price_kopeks` | integer | да |  |
 | `original_price_kopeks` | integer \| null | нет |  |
+
+## PreviewRequest
+<a id="schema-previewrequest"></a>
+
+| Поле | Тип | Обязательное | Примечание |
+|---|---|---|---|
+| `template` | string \| null | нет |  |
+| `button_text` | string \| null | нет |  |
+
+## PreviewResponse
+<a id="schema-previewresponse"></a>
+
+| Поле | Тип | Обязательное | Примечание |
+|---|---|---|---|
+| `html` | string | да |  |
+| `visible_length` | integer | да |  |
+| `warnings` | string[] | да |  |
+| `button_text` | string \| null | нет |  |
 
 ## ProfileResponse
 <a id="schema-profileresponse"></a>
@@ -1006,6 +1039,39 @@ analytics_service.get_overview::total_traffic_gb).
 | `discount_expires_at` | string (date-time) \| null | нет |  |
 | `balance_kopeks` | integer | нет | по умолчанию `0` |
 
+## TemplateOut
+<a id="schema-templateout"></a>
+
+| Поле | Тип | Обязательное | Примечание |
+|---|---|---|---|
+| `key` | string | да |  |
+| `group` | string | да |  |
+| `title` | string | да |  |
+| `trigger` | string | да |  |
+| `template` | string | да |  |
+| `variables` | string[] | да |  |
+| `default_template` | string | да |  |
+| `is_customized` | boolean | да |  |
+| `enabled` | boolean | да |  |
+| `button_text` | string \| null | нет |  |
+| `default_button_text` | string \| null | нет |  |
+| `variable_docs` | [VariableDocOut](#schema-variabledocout)[] | да |  |
+| `required_variables` | string[] | да |  |
+| `updated_at` | string (date-time) \| null | нет |  |
+| `updated_by` | string \| null | нет |  |
+
+## TemplateUpdateRequest
+<a id="schema-templateupdaterequest"></a>
+
+Частичное обновление: применяются только переданные поля. `template: null` возвращает заводской текст,
+`button_text: null` — заводскую подпись кнопки.
+
+| Поле | Тип | Обязательное | Примечание |
+|---|---|---|---|
+| `template` | string \| null | нет |  |
+| `button_text` | string \| null | нет |  |
+| `enabled` | boolean \| null | нет |  |
+
 ## TopPayerOut
 <a id="schema-toppayerout"></a>
 
@@ -1069,6 +1135,15 @@ analytics_service.get_overview::total_traffic_gb).
 | `loc` | string \| integer[] | да |  |
 | `msg` | string | да |  |
 | `type` | string | да |  |
+
+## VariableDocOut
+<a id="schema-variabledocout"></a>
+
+| Поле | Тип | Обязательное | Примечание |
+|---|---|---|---|
+| `name` | string | да |  |
+| `description` | string | да |  |
+| `example` | string | да |  |
 
 ## app__cabinet__admin_schemas__PaginatedTransactionsResponse
 <a id="schema-app-cabinet-admin-schemas-paginatedtransactionsresponse"></a>

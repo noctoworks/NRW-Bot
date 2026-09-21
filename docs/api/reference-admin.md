@@ -67,6 +67,13 @@
   - [PATCH `/cabinet/admin/campaigns/{campaign_id}`](#patch-cabinet-admin-campaigns-campaign-id) — Изменить кампанию
   - [DELETE `/cabinet/admin/campaigns/{campaign_id}`](#delete-cabinet-admin-campaigns-campaign-id) — Удалить кампанию
   - [GET `/cabinet/admin/campaigns/{campaign_id}/stats`](#get-cabinet-admin-campaigns-campaign-id-stats) — Статистика кампании
+- **Уведомления бота**
+  - [GET `/cabinet/admin/notifications/templates`](#get-cabinet-admin-notifications-templates) — Автоматические сообщения бота
+  - [PUT `/cabinet/admin/notifications/templates/{key}`](#put-cabinet-admin-notifications-templates-key) — Изменить сообщение
+  - [DELETE `/cabinet/admin/notifications/templates/{key}`](#delete-cabinet-admin-notifications-templates-key) — Сбросить сообщение к заводскому
+  - [POST `/cabinet/admin/notifications/templates/{key}/preview`](#post-cabinet-admin-notifications-templates-key-preview) — Предпросмотр
+  - [POST `/cabinet/admin/notifications/templates/{key}/test`](#post-cabinet-admin-notifications-templates-key-test) — Отправить тест мне
+  - [GET `/cabinet/admin/notifications/emoji`](#get-cabinet-admin-notifications-emoji) — Кастомные эмодзи
 
 ## Аналитика
 
@@ -1616,5 +1623,165 @@ Deep-link кампании с бонусом для новых пользова�
 | 403 | Требуются права администратора / пользователь заблокирован |
 | 404 | Кампания не найдена |
 | 422 | Ошибка валидации параметров или тела запроса |
+
+---
+
+## Уведомления бота
+
+### GET `/cabinet/admin/notifications/templates` — Автоматические сообщения бота
+<a id="get-cabinet-admin-notifications-templates"></a>
+
+Все 15 событий с текущим текстом, заводским текстом, переменными, признаками `is_customized`/`enabled`, подписью кнопки (если есть) и автором последней правки.
+
+**Доступ:** администратор (`Authorization: Bearer`)
+
+**Ответ 200:** [TemplateOut](schemas.md#schema-templateout)[]
+
+**Ошибки**
+
+| Код | Когда |
+|---|---|
+| 401 | Требуется авторизация / невалидный или истёкший токен |
+| 403 | Требуются права администратора / пользователь заблокирован |
+
+---
+
+### PUT `/cabinet/admin/notifications/templates/{key}` — Изменить сообщение
+<a id="put-cabinet-admin-notifications-templates-key"></a>
+
+Частичное обновление: применяются только переданные поля. `template` — текст в HTML Telegram (разрешённые теги, переменные `{имя}` из списка события; кастомные эмодзи — `<tg-emoji emoji-id="…">`); `template: null` возвращает заводской текст; `enabled: false` отключает отправку; `button_text` — подпись кнопки (у событий с кнопкой). Изменения действуют сразу. Ошибки проверок — `422` со списком сообщений.
+
+**Доступ:** администратор (`Authorization: Bearer`)
+
+**Параметры**
+
+| Имя | Где | Тип | Обязательный | Примечание |
+|---|---|---|---|---|
+| `key` | path | string | да |  |
+
+**Тело запроса** (JSON): [TemplateUpdateRequest](schemas.md#schema-templateupdaterequest)
+
+| Поле | Тип | Обязательное | Примечание |
+|---|---|---|---|
+| `template` | string \| null | нет |  |
+| `button_text` | string \| null | нет |  |
+| `enabled` | boolean \| null | нет |  |
+
+**Ответ 200:** [TemplateOut](schemas.md#schema-templateout)
+
+**Ошибки**
+
+| Код | Когда |
+|---|---|
+| 401 | Требуется авторизация / невалидный или истёкший токен |
+| 403 | Требуются права администратора / пользователь заблокирован |
+| 422 | Ошибка валидации параметров или тела запроса |
+
+---
+
+### DELETE `/cabinet/admin/notifications/templates/{key}` — Сбросить сообщение к заводскому
+<a id="delete-cabinet-admin-notifications-templates-key"></a>
+
+Удаляет правку целиком (текст, кнопку, флаг «включено»). Повторный вызов безопасен.
+
+**Доступ:** администратор (`Authorization: Bearer`)
+
+**Параметры**
+
+| Имя | Где | Тип | Обязательный | Примечание |
+|---|---|---|---|---|
+| `key` | path | string | да |  |
+
+**Ответ 200:** object
+
+**Ошибки**
+
+| Код | Когда |
+|---|---|
+| 401 | Требуется авторизация / невалидный или истёкший токен |
+| 403 | Требуются права администратора / пользователь заблокирован |
+| 422 | Ошибка валидации параметров или тела запроса |
+
+---
+
+### POST `/cabinet/admin/notifications/templates/{key}/preview` — Предпросмотр
+<a id="post-cabinet-admin-notifications-templates-key-preview"></a>
+
+Рендерит текст с примерами переменных без сохранения; возвращает длину видимого текста и предупреждения (например, про кастомные эмодзи). Пустое тело — предпросмотр текущего текста.
+
+**Доступ:** администратор (`Authorization: Bearer`)
+
+**Параметры**
+
+| Имя | Где | Тип | Обязательный | Примечание |
+|---|---|---|---|---|
+| `key` | path | string | да |  |
+
+**Тело запроса** (JSON): [PreviewRequest](schemas.md#schema-previewrequest)
+
+| Поле | Тип | Обязательное | Примечание |
+|---|---|---|---|
+| `template` | string \| null | нет |  |
+| `button_text` | string \| null | нет |  |
+
+**Ответ 200:** [PreviewResponse](schemas.md#schema-previewresponse)
+
+**Ошибки**
+
+| Код | Когда |
+|---|---|
+| 401 | Требуется авторизация / невалидный или истёкший токен |
+| 403 | Требуются права администратора / пользователь заблокирован |
+| 422 | Ошибка валидации параметров или тела запроса |
+
+---
+
+### POST `/cabinet/admin/notifications/templates/{key}/test` — Отправить тест мне
+<a id="post-cabinet-admin-notifications-templates-key-test"></a>
+
+Отправляет предпросмотр вызвавшему админу в Telegram (с настоящей кнопкой, если она есть). `502` с текстом причины, если Telegram отклонил сообщение (например, недопустимое кастомное эмодзи).
+
+**Доступ:** администратор (`Authorization: Bearer`)
+
+**Параметры**
+
+| Имя | Где | Тип | Обязательный | Примечание |
+|---|---|---|---|---|
+| `key` | path | string | да |  |
+
+**Тело запроса** (JSON): [PreviewRequest](schemas.md#schema-previewrequest)
+
+| Поле | Тип | Обязательное | Примечание |
+|---|---|---|---|
+| `template` | string \| null | нет |  |
+| `button_text` | string \| null | нет |  |
+
+**Ответ 200:** object
+
+**Ошибки**
+
+| Код | Когда |
+|---|---|
+| 401 | Требуется авторизация / невалидный или истёкший токен |
+| 403 | Требуются права администратора / пользователь заблокирован |
+| 422 | Ошибка валидации параметров или тела запроса |
+
+---
+
+### GET `/cabinet/admin/notifications/emoji` — Кастомные эмодзи
+<a id="get-cabinet-admin-notifications-emoji"></a>
+
+Кастомные эмодзи из `app/emoji.py` с заданным ID — для вставки в текст.
+
+**Доступ:** администратор (`Authorization: Bearer`)
+
+**Ответ 200:** [EmojiOut](schemas.md#schema-emojiout)[]
+
+**Ошибки**
+
+| Код | Когда |
+|---|---|
+| 401 | Требуется авторизация / невалидный или истёкший токен |
+| 403 | Требуются права администратора / пользователь заблокирован |
 
 ---

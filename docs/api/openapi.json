@@ -1209,6 +1209,29 @@
         "title": "DeviceOut",
         "type": "object"
       },
+      "EmojiOut": {
+        "properties": {
+          "custom_id": {
+            "title": "Custom Id",
+            "type": "string"
+          },
+          "fallback": {
+            "title": "Fallback",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "fallback",
+          "custom_id"
+        ],
+        "title": "EmojiOut",
+        "type": "object"
+      },
       "GiftPurchaseRequest": {
         "properties": {
           "method": {
@@ -2051,6 +2074,71 @@
           "price_kopeks"
         ],
         "title": "PeriodOut",
+        "type": "object"
+      },
+      "PreviewRequest": {
+        "properties": {
+          "button_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Button Text"
+          },
+          "template": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template"
+          }
+        },
+        "title": "PreviewRequest",
+        "type": "object"
+      },
+      "PreviewResponse": {
+        "properties": {
+          "button_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Button Text"
+          },
+          "html": {
+            "title": "Html",
+            "type": "string"
+          },
+          "visible_length": {
+            "title": "Visible Length",
+            "type": "integer"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "html",
+          "visible_length",
+          "warnings"
+        ],
+        "title": "PreviewResponse",
         "type": "object"
       },
       "ProfileResponse": {
@@ -3191,6 +3279,163 @@
         "title": "TariffsResponse",
         "type": "object"
       },
+      "TemplateOut": {
+        "properties": {
+          "button_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Button Text"
+          },
+          "default_button_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Button Text"
+          },
+          "default_template": {
+            "title": "Default Template",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "group": {
+            "title": "Group",
+            "type": "string"
+          },
+          "is_customized": {
+            "title": "Is Customized",
+            "type": "boolean"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "required_variables": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Required Variables",
+            "type": "array"
+          },
+          "template": {
+            "title": "Template",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "trigger": {
+            "title": "Trigger",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "updated_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By"
+          },
+          "variable_docs": {
+            "items": {
+              "$ref": "#/components/schemas/VariableDocOut"
+            },
+            "title": "Variable Docs",
+            "type": "array"
+          },
+          "variables": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Variables",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "group",
+          "title",
+          "trigger",
+          "template",
+          "variables",
+          "default_template",
+          "is_customized",
+          "enabled",
+          "variable_docs",
+          "required_variables"
+        ],
+        "title": "TemplateOut",
+        "type": "object"
+      },
+      "TemplateUpdateRequest": {
+        "description": "Частичное обновление: применяются только переданные поля. `template: null` возвращает заводской текст,\n`button_text: null` — заводскую подпись кнопки.",
+        "properties": {
+          "button_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Button Text"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "template": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template"
+          }
+        },
+        "title": "TemplateUpdateRequest",
+        "type": "object"
+      },
       "TopPayerOut": {
         "properties": {
           "full_name": {
@@ -3426,6 +3671,29 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "VariableDocOut": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "example": {
+            "title": "Example",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "example"
+        ],
+        "title": "VariableDocOut",
         "type": "object"
       },
       "app__cabinet__admin_schemas__PaginatedTransactionsResponse": {
@@ -4062,6 +4330,270 @@
           }
         ],
         "summary": "Restart Node"
+      }
+    },
+    "/cabinet/admin/notifications/emoji": {
+      "get": {
+        "description": "Кастомные эмодзи из app/emoji.py с заданным custom_id — для вставки в текст через <tg-emoji emoji-id=\"…\">.",
+        "operationId": "list_emoji_cabinet_admin_notifications_emoji_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EmojiOut"
+                  },
+                  "title": "Response List Emoji Cabinet Admin Notifications Emoji Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Emoji"
+      }
+    },
+    "/cabinet/admin/notifications/templates": {
+      "get": {
+        "operationId": "list_templates_cabinet_admin_notifications_templates_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TemplateOut"
+                  },
+                  "title": "Response List Templates Cabinet Admin Notifications Templates Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Templates"
+      }
+    },
+    "/cabinet/admin/notifications/templates/{key}": {
+      "delete": {
+        "operationId": "delete_template_cabinet_admin_notifications_templates__key__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Delete Template Cabinet Admin Notifications Templates  Key  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Template"
+      },
+      "put": {
+        "operationId": "put_template_cabinet_admin_notifications_templates__key__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplateUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Put Template"
+      }
+    },
+    "/cabinet/admin/notifications/templates/{key}/preview": {
+      "post": {
+        "operationId": "preview_template_cabinet_admin_notifications_templates__key__preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Preview Template"
+      }
+    },
+    "/cabinet/admin/notifications/templates/{key}/test": {
+      "post": {
+        "description": "Отправляет предпросмотр (с примерами переменных) вызвавшему админу в Telegram.",
+        "operationId": "test_template_cabinet_admin_notifications_templates__key__test_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Test Template Cabinet Admin Notifications Templates  Key  Test Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Test Template"
       }
     },
     "/cabinet/admin/overview": {
