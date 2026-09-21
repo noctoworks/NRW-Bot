@@ -12,6 +12,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from app.config import settings
 from app.handlers import register_all_handlers
 from app.middlewares.auth import AuthMiddleware
+from app.middlewares.logging import LoggingMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,8 @@ async def setup_bot() -> tuple[Bot, Dispatcher]:
 
     dp = Dispatcher(storage=storage)
 
+    # Первым: контекст (update_id, telegram_id) и время обработки для всех логов ниже.
+    dp.update.outer_middleware(LoggingMiddleware())
     dp.update.middleware(AuthMiddleware())
 
     register_all_handlers(dp)

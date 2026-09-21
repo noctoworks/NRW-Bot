@@ -3,13 +3,14 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.cabinet.security import decode_access_token
 from app.database.database import AsyncSessionLocal
 from app.database.models import User
+from app.logging_setup import bind_context
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -20,6 +21,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
     db: AsyncSession = Depends(get_db),
 ) -> User:
@@ -37,4 +39,6 @@ async def get_current_user(
     if user.is_blocked:
         raise HTTPException(status.HTTP_403_FORBIDDEN, 'Пользователь заблокирован')
 
+    request.state.user_id = user.id  # для access-лога в HTTP-middleware (контекст endpoint-задачи наружу не виден)
+    bind_context(user_id=user.id)
     return user

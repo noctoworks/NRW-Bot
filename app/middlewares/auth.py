@@ -23,6 +23,7 @@ from aiogram.types import TelegramObject, Update
 from app.config import settings
 from app.database.database import AsyncSessionLocal
 from app.database.models import User
+from app.logging_setup import bind_context
 from sqlalchemy import select
 
 
@@ -53,6 +54,8 @@ class AuthMiddleware(BaseMiddleware):
                 if db_user.blocked_bot:
                     db_user.blocked_bot = False
 
+            if db_user is not None:
+                bind_context(user_id=db_user.id)
             data['db'] = session
             data['db_user'] = db_user
 

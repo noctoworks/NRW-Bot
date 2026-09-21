@@ -50,7 +50,7 @@ async def apply_tariff_change(
     """Списывает price_kopeks с баланса (если > 0) и переключает подписку на
     new_tariff, сохраняя end_date — вызывающий обязан сам await db.commit()."""
     if price_kopeks > 0:
-        await debit_balance(db, user, price_kopeks)
+        await debit_balance(db, user, price_kopeks, reason='tariff_change')
         db.add(
             Transaction(
                 user_id=user.id,

@@ -19,8 +19,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import Subscription, Tariff, User
 from app.external.remnawave import get_remnawave_client, remnawave_user_description
+from app.logging_setup import get_logger
 
 logger = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 
 async def provision_or_extend_subscription(
@@ -130,6 +132,14 @@ async def provision_or_extend_subscription(
         # раза и не пришлёт письмо повторно.
         subscription.winback_sent = False
         await db.flush()
+        log.info(
+            'subscription_extended',
+            user_id=user.id,
+            tariff=tariff.name,
+            period_days=period_days,
+            end_date=new_end.isoformat(),
+            is_trial=subscription.is_trial,
+        )
         return subscription
 
     new_end = now + timedelta(days=period_days)
@@ -155,4 +165,12 @@ async def provision_or_extend_subscription(
     )
     db.add(subscription)
     await db.flush()
+    log.info(
+        'subscription_created',
+        user_id=user.id,
+        tariff=tariff.name,
+        period_days=period_days,
+        end_date=new_end.isoformat(),
+        is_trial=bool(is_trial),
+    )
     return subscription

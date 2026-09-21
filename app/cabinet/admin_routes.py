@@ -519,7 +519,7 @@ async def adjust_balance(
     # Реально применённая сумма ПОСЛЕ клэмпа — не запрошенная kopeks. Иначе
     # списание больше, чем есть на балансе, пишет в Transaction и в уведомление
     # юзеру завышенную сумму, хотя баланс упал только до 0 (см. ревью).
-    applied_kopeks = await adjust_balance_clamped(db, target, kopeks)
+    applied_kopeks = await adjust_balance_clamped(db, target, kopeks, reason='admin_adjustment')
     if applied_kopeks == 0:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Баланс уже равен 0 — списывать нечего')
 

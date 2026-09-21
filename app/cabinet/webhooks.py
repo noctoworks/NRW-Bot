@@ -38,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.cabinet.deps import get_db
 from app.config import settings
+from app.logging_setup import bind_context, get_logger
 from app.database.models import Payment, Subscription, Transaction
 from app.services.notification_service import (
     notify_autopay_activated,
@@ -52,6 +53,13 @@ from app.services.referral_service import credit_referral_earning
 from app.services.subscription_provisioning import provision_or_extend_subscription
 
 logger = logging.getLogger(__name__)
+log = get_logger(__name__)
+
+
+def _client_ip(request: Request) -> str:
+    """За реверс-прокси (Caddy) реальный адрес приходит в X-Forwarded-For."""
+    forwarded = request.headers.get('x-forwarded-for', '')
+    return forwarded.split(',')[0].strip() or (request.client.host if request.client else '')
 
 router = APIRouter()
 
@@ -198,6 +206,7 @@ async def platega_webhook(request: Request, db: AsyncSession = Depends(get_db)) 
 
     raw_body = await request.body()
     headers = {k.lower(): v for k, v in request.headers.items()}
+    bind_context(provider='platega', ip=_client_ip(request))
 
     # Verification ping: Platega при первом сохранении URL шлёт запрос без
     # авторизационных заголовков и без тела — это не подделка колбэка, а
@@ -217,7 +226,7 @@ async def platega_webhook(request: Request, db: AsyncSession = Depends(get_db)) 
         return JSONResponse({'status': 'error', 'reason': 'invalid_json'}, status_code=400)
 
     if not await provider.verify_webhook(payload, headers):
-        logger.warning('Platega webhook: не прошёл проверку заголовков (X-MerchantId/X-Secret)')
+        log.warning('webhook_rejected', reason='bad_credentials')
         return JSONResponse({'status': 'error', 'reason': 'unauthorized'}, status_code=401)
 
     # is_subscription_webhook/parse_subscription_webhook — методы только у
@@ -281,6 +290,7 @@ async def cispay_webhook(request: Request, db: AsyncSession = Depends(get_db)) -
 
     raw_body = await request.body()
     headers = {k.lower(): v for k, v in request.headers.items()}
+    bind_context(provider='cispay', ip=_client_ip(request))
 
     provider = get_payment_provider('cispay')
 
@@ -291,7 +301,7 @@ async def cispay_webhook(request: Request, db: AsyncSession = Depends(get_db)) -
         return JSONResponse({'status': 'error', 'reason': 'invalid_json'}, status_code=400)
 
     if not await provider.verify_webhook(payload, headers, raw_body=raw_body):
-        logger.warning('cisPay webhook: не прошла проверка подписи X-Signature')
+        log.warning('webhook_rejected', reason='bad_signature')
         return JSONResponse({'status': 'error', 'reason': 'unauthorized'}, status_code=401)
 
     external_id, webhook_status = provider.parse_webhook_payload(payload)

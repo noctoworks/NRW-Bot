@@ -33,7 +33,7 @@ async def apply_campaign_bonus(db: AsyncSession, *, campaign: Campaign, user: Us
         db.add(CampaignRegistration(campaign_id=campaign.id, user_id=user.id))
 
         if campaign.bonus_type == 'balance' and campaign.balance_bonus_kopeks > 0:
-            await credit_balance(db, user, campaign.balance_bonus_kopeks)
+            await credit_balance(db, user, campaign.balance_bonus_kopeks, reason='campaign_bonus')
             db.add(
                 Transaction(
                     user_id=user.id,

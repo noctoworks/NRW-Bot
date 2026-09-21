@@ -707,7 +707,7 @@ async def on_admin_balance_input(message: Message, db: AsyncSession, db_user: Us
 
     # Реально применённая сумма ПОСЛЕ клэмпа — не запрошенная kopeks, см. тот же
     # фикс в cabinet/admin_routes.py::adjust_balance (ревью).
-    applied_kopeks = await adjust_balance_clamped(db, target, kopeks)
+    applied_kopeks = await adjust_balance_clamped(db, target, kopeks, reason='admin_adjustment')
     if applied_kopeks == 0:
         await message.answer('Баланс уже равен 0 — списывать нечего.')
         await state.clear()

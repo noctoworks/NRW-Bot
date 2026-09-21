@@ -119,3 +119,21 @@ Postgres — см. `scripts/migrate_from_old_bot.py` (докстринг фай�
 Полный список с комментариями — `.env.example`. Коротко по разделам:
 Telegram, Database, Redis (опционально), Cabinet/Mini App, Remnawave, Платежи
 (Platega), реферальная программа, тариф по умолчанию для сид-скрипта.
+
+## Логирование
+
+Все логи (бот, Cabinet API, фоновые задачи, библиотеки) идут через `structlog`
+(`app/logging_setup.py`) в stdout. Настройка — в `.env`:
+
+- `LOG_LEVEL` — `DEBUG` / `INFO` (по умолчанию) / `WARNING` / `ERROR`.
+- `LOG_FORMAT` — `console` (читаемый, цвета только в терминале; по умолчанию) или
+  `json` (одна строка на событие — для Loki/ELK/Datadog).
+
+В каждую строку внутри обработки автоматически попадает контекст: для апдейтов
+Telegram — `update_id`, `telegram_id`, `user_id`; для HTTP — `request_id`
+(он же в заголовке ответа `X-Request-ID`), `method`, `path`, `user_id`. Ключевые
+события бизнес-логики: `payment_finalized`, `payment_failed`, `balance_changed`
+(с `reason`), `subscription_created` / `subscription_extended`,
+`promocode_activated`, `gift_redeemed`, `webhook_rejected`, `payment_poll`.
+Токены, ключи из настроек и пароли в URL маскируются (`***`) до вывода; текст
+обычных сообщений пользователей не логируется.

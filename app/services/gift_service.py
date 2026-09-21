@@ -15,9 +15,11 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import GiftCode, Subscription, Tariff, User
+from app.logging_setup import get_logger
 from app.services.subscription_provisioning import provision_or_extend_subscription
 
 logger = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 # Разумный дефолт срока жизни неактивированного подарочного кода (не в архитектурном
 # документе явно — решение агента: если код никто не активировал за месяц, он протухает).
@@ -128,4 +130,5 @@ async def redeem_gift_code(
         except Exception:
             logger.exception('notify_gift_redeemed_to_gifter failed for gift_code_id=%s', gift_code.id)
 
+    log.info('gift_redeemed', recipient_id=recipient.id, gifter_id=gift_code.gifter_user_id, code=gift_code.code)
     return subscription

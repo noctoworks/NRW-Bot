@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database.models import Payment, Tariff, Transaction, User
+from app.logging_setup import get_logger
 from app.services.balance_service import adjust_balance_clamped
 from app.services.gift_service import create_gift_code
 from app.services.notification_service import notify_gift_code_ready, notify_payment_success
@@ -22,6 +23,7 @@ from app.services.referral_service import credit_referral_earning
 from app.services.subscription_provisioning import provision_or_extend_subscription
 
 logger = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 
 async def finalize_pending_payment(db: AsyncSession, payment: Payment, bot: Bot) -> None:
@@ -35,6 +37,7 @@ async def finalize_pending_payment(db: AsyncSession, payment: Payment, bot: Bot)
     locked = await db.execute(select(Payment).where(Payment.id == payment.id).with_for_update())
     payment = locked.scalar_one_or_none()
     if payment is None or payment.status != 'pending':
+        log.info('payment_already_processed', payment_id=getattr(payment, 'id', None), status=getattr(payment, 'status', None))
         return
 
     raw_payload = payment.raw_payload or {}
@@ -75,7 +78,7 @@ async def finalize_pending_payment(db: AsyncSession, payment: Payment, bot: Bot)
     # гонки, что и в остальных местах, трогающих user.balance_kopeks.
     balance_offset_kopeks = int(raw_payload.get('balance_offset_kopeks') or 0)
     if balance_offset_kopeks > 0:
-        await adjust_balance_clamped(db, user, -balance_offset_kopeks)
+        await adjust_balance_clamped(db, user, -balance_offset_kopeks, reason='payment_balance_offset')
 
     payment.status = 'success'
     transaction = None
@@ -113,6 +116,16 @@ async def finalize_pending_payment(db: AsyncSession, payment: Payment, bot: Bot)
         logger.exception('credit_referral_earning упал (не блокирует подтверждение платежа)')
 
     await db.commit()
+    log.info(
+        'payment_finalized',
+        payment_id=payment.id,
+        user_id=user.id,
+        provider=payment.provider,
+        kind=kind,
+        tariff=tariff.name,
+        period_days=period_days,
+        amount_kopeks=payment.amount_kopeks,
+    )
 
 
 async def mark_payment_failed(db: AsyncSession, payment: Payment) -> None:
@@ -125,6 +138,7 @@ async def mark_payment_failed(db: AsyncSession, payment: Payment) -> None:
     if payment is None or payment.status != 'pending':
         return
 
+    log.warning('payment_failed', payment_id=payment.id, user_id=payment.user_id, provider=payment.provider)
     payment.status = 'failed'
     if payment.transaction_id is not None:
         transaction = await db.get(Transaction, payment.transaction_id)

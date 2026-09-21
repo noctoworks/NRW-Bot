@@ -27,6 +27,7 @@ from sqlalchemy import select
 from app.database.database import AsyncSessionLocal
 from app.database.models import Payment, Subscription, User
 from app.external.remnawave import get_remnawave_client
+from app.logging_setup import get_logger
 from app.services.notification_service import (
     notify_abandoned_payment,
     notify_subscription_expired,
@@ -36,6 +37,7 @@ from app.services.notification_service import (
 )
 
 logger = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 # Задержки для автоматических триггеров (см. диалог 2026-08-21 "рассылки по
 # событиям/напоминалки") — подобраны как разумные дефолты, не результат A/B-теста,
@@ -112,6 +114,7 @@ async def run_expiry_check_once(bot: Bot) -> None:
                         )
                     continue
             sub.status = 'expired'
+            log.info('subscription_expired', user_id=user.id, subscription_id=sub.id)
             await notify_subscription_expired(bot, telegram_id=user.telegram_id)
 
         # 2) напоминание за 3 дня
@@ -234,6 +237,13 @@ async def run_payment_poll_once(bot: Bot, *, include_stale: bool = True) -> None
                     return None
 
         checks = await asyncio.gather(*(check(payment) for payment in pending_payments))
+        if pending_payments:
+            log.info(
+                'payment_poll',
+                pending=len(pending_payments),
+                unreachable=sum(1 for result in checks if result is None),
+                include_stale=include_stale,
+            )
         if len(checks) >= REMNAWAVE_MAX_CONSECUTIVE_FAILURES and all(result is None for result in checks):
             logger.error('payment_poll_loop: ни один из %s опросов не удался — провайдер недоступен?', len(checks))
 

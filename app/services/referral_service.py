@@ -90,7 +90,7 @@ async def credit_referral_earning(db: AsyncSession, payment: Payment, bot: Bot |
             if transaction is not None and transaction.type != 'topup':
                 source = 'purchase'
 
-        await credit_balance(db, referrer, amount_kopeks)
+        await credit_balance(db, referrer, amount_kopeks, reason='referral_reward')
         db.add(
             ReferralEarning(
                 user_id=referrer.id,

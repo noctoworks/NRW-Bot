@@ -17,6 +17,9 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import User
+from app.logging_setup import get_logger
+
+log = get_logger(__name__)
 
 
 class InsufficientBalanceError(Exception):
@@ -29,7 +32,7 @@ class InsufficientBalanceError(Exception):
         super().__init__(f'insufficient balance, missing {missing_kopeks} kopeks')
 
 
-async def credit_balance(db: AsyncSession, user: User, amount_kopeks: int) -> None:
+async def credit_balance(db: AsyncSession, user: User, amount_kopeks: int, *, reason: str = '') -> None:
     """Атомарно начисляет amount_kopeks (>= 0)."""
     if amount_kopeks < 0:
         raise ValueError('credit_balance: сумма не может быть отрицательной')
@@ -40,9 +43,10 @@ async def credit_balance(db: AsyncSession, user: User, amount_kopeks: int) -> No
         .execution_options(synchronize_session=False)
     )
     await db.refresh(user, ['balance_kopeks'])
+    log.info('balance_changed', user_id=user.id, delta_kopeks=amount_kopeks, balance_kopeks=user.balance_kopeks, reason=reason)
 
 
-async def debit_balance(db: AsyncSession, user: User, amount_kopeks: int) -> None:
+async def debit_balance(db: AsyncSession, user: User, amount_kopeks: int, *, reason: str = '') -> None:
     """Атомарно списывает amount_kopeks ровно или бросает InsufficientBalanceError
     (баланс при этом не меняется). Проверка достаточности — в самом UPDATE, а не
     отдельным SELECT, поэтому гонка между проверкой и списанием невозможна."""
@@ -58,10 +62,14 @@ async def debit_balance(db: AsyncSession, user: User, amount_kopeks: int) -> Non
     )
     await db.refresh(user, ['balance_kopeks'])
     if result.rowcount == 0:
+        log.warning(
+            'balance_insufficient', user_id=user.id, need_kopeks=amount_kopeks, balance_kopeks=user.balance_kopeks, reason=reason
+        )
         raise InsufficientBalanceError(amount_kopeks - user.balance_kopeks)
+    log.info('balance_changed', user_id=user.id, delta_kopeks=-amount_kopeks, balance_kopeks=user.balance_kopeks, reason=reason)
 
 
-async def adjust_balance_clamped(db: AsyncSession, user: User, delta_kopeks: int) -> int:
+async def adjust_balance_clamped(db: AsyncSession, user: User, delta_kopeks: int, *, reason: str = '') -> int:
     """Меняет баланс на delta (может быть отрицательной), не опуская ниже 0.
     Возвращает реально применённую дельту (после клэмпа). Строка блокируется
     FOR UPDATE, потому что нужна и старая величина (для applied), и новая."""
@@ -75,4 +83,13 @@ async def adjust_balance_clamped(db: AsyncSession, user: User, delta_kopeks: int
             .execution_options(synchronize_session=False)
         )
     await db.refresh(user, ['balance_kopeks'])
+    if applied != 0:
+        log.info(
+            'balance_changed',
+            user_id=user.id,
+            delta_kopeks=applied,
+            requested_kopeks=delta_kopeks,
+            balance_kopeks=user.balance_kopeks,
+            reason=reason,
+        )
     return applied

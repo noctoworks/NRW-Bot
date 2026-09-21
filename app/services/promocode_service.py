@@ -16,8 +16,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import PromoCode, PromoCodeUse, Tariff, User
+from app.logging_setup import get_logger
 from app.services.balance_service import credit_balance
 from app.services.subscription_provisioning import provision_or_extend_subscription
+
+
+log = get_logger(__name__)
 
 
 class PromoCodeError(Exception):
@@ -109,9 +113,17 @@ async def activate_promocode(db: AsyncSession, *, code: str, user: User) -> Prom
         raise PromoCodeError('Вы уже использовали этот промокод') from None
 
     if promocode.type == 'balance':
-        await credit_balance(db, user, promocode.value)
+        await credit_balance(db, user, promocode.value, reason='promocode')
     else:
         await provision_or_extend_subscription(db, user=user, tariff=tariff, period_days=promocode.value)
 
     await db.refresh(promocode, ['activations_count'])
+    log.info(
+        'promocode_activated',
+        user_id=user.id,
+        code=promocode.code,
+        type=promocode.type,
+        value=promocode.value,
+        activations=f'{promocode.activations_count}/{promocode.max_activations}',
+    )
     return PromoCodeResult(type=promocode.type, value=promocode.value)

@@ -136,6 +136,11 @@ class Settings(BaseSettings):
     # пересмотрены под разовый большой объём накопленных юзеров.
     BULK_NOTIFICATIONS_ENABLED: bool = True
 
+    # --- Логирование (см. app/logging_setup.py). LOG_FORMAT: console (читаемый,
+    # цвета только в терминале) или json (одна строка на событие, для Loki/ELK). ---
+    LOG_LEVEL: str = 'INFO'
+    LOG_FORMAT: str = 'console'
+
     # --- Telegram-прокси (MTProto/FakeTLS через mtg, см. диалог 2026-08-22) —
     # разгоняет/разблокирует сам Telegram (не весь трафик, для этого есть VPN-
     # подписка). Секрет ОБЩИЙ на всех пользователей — как в любом публичном

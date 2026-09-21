@@ -10,9 +10,11 @@ from app.bot import setup_bot
 from app.config import settings
 from app.database.database import AsyncSessionLocal, engine, init_sqlite_pragmas
 from app.external.http import close_http_client
+from app.logging_setup import get_logger, setup_logging
 from app.runtime import cancel_and_wait, supervise
 
 logger = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 
 async def _warn_if_no_active_tariff() -> None:
@@ -36,7 +38,17 @@ async def _warn_if_no_active_tariff() -> None:
 
 
 async def main() -> None:
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
+    setup_logging(level=settings.LOG_LEVEL, fmt=settings.LOG_FORMAT)
+    log.info(
+        'startup',
+        payments_mode=settings.PAYMENTS_MODE,
+        remnawave_mode=settings.REMNAWAVE_MODE,
+        cabinet_enabled=settings.CABINET_ENABLED,
+        database='sqlite' if settings.is_sqlite() else 'postgres',
+        redis=bool(settings.REDIS_URL),
+        bulk_notifications=settings.BULK_NOTIFICATIONS_ENABLED,
+        log_format=settings.LOG_FORMAT,
+    )
 
     await init_sqlite_pragmas()
     await _warn_if_no_active_tariff()
@@ -71,7 +83,14 @@ async def main() -> None:
         from app.cabinet.app import create_app
 
         cabinet_server = uvicorn.Server(
-            uvicorn.Config(create_app(bot), host='0.0.0.0', port=settings.CABINET_PORT, log_level='warning')
+            uvicorn.Config(
+                create_app(bot),
+                host='0.0.0.0',
+                port=settings.CABINET_PORT,
+                log_config=None,  # логи uvicorn идут через наш structlog-конвейер
+                access_log=False,  # запросы логирует HTTP-middleware кабинета
+                log_level='warning',
+            )
         )
         background_tasks['cabinet'] = asyncio.create_task(cabinet_server.serve(), name='cabinet')
         logger.info('Cabinet API запущен на порту %s', settings.CABINET_PORT)
@@ -93,6 +112,7 @@ async def main() -> None:
         tasks = [*background_tasks.values()]
         if polling is not None:
             tasks.append(polling)
+        log.info('shutdown')
         await cancel_and_wait(tasks)
         await close_http_client()
         await bot.session.close()

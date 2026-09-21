@@ -223,7 +223,7 @@ async def purchase_or_renew_subscription(
         # with_for_update() — та же защита от двойного списания при гонке
         # (двойной тап/параллельный запрос из бота и Mini App), что и у
         # gift_service.py/promocode_service.py на своих чувствительных строках.
-        await debit_balance(db, db_user, amount_kopeks)
+        await debit_balance(db, db_user, amount_kopeks, reason='subscription_purchase')
         # external_id обязан быть уникален в паре с provider (UniqueConstraint
         # на Payment) — тут нет настоящего внешнего id, генерируем свой.
         created = CreatedPayment(external_id=f'balance-{uuid.uuid4().hex}', payment_url=None, status='success')
@@ -232,7 +232,7 @@ async def purchase_or_renew_subscription(
     elif provider_amount_kopeks == 0:
         # Баланс полностью покрыл сумму, хотя юзер выбрал внешний способ —
         # провайдеру нулевой платёж не отправить, ведём себя как метод 'balance'.
-        await debit_balance(db, db_user, amount_kopeks)
+        await debit_balance(db, db_user, amount_kopeks, reason='subscription_purchase')
         created = CreatedPayment(external_id=f'balance-{uuid.uuid4().hex}', payment_url=None, status='success')
         actual_provider = 'balance'
         charged_amount_kopeks = amount_kopeks
@@ -273,7 +273,7 @@ async def purchase_or_renew_subscription(
         # Баланс мог уменьшиться где-то параллельно между расчётом offset'а и
         # этим моментом — редкий edge case, просто урезаем скидку до фактически
         # доступного вместо падения (провайдер уже списал свою часть).
-        balance_offset_kopeks = -await adjust_balance_clamped(db, db_user, -balance_offset_kopeks)
+        balance_offset_kopeks = -await adjust_balance_clamped(db, db_user, -balance_offset_kopeks, reason='subscription_purchase_partial')
 
     transaction = Transaction(
         user_id=db_user.id,
