@@ -40,3 +40,13 @@ def isolated_mock_remnawave(monkeypatch):
 
     monkeypatch.setattr(mock, '_save_state', lambda state: None)
     monkeypatch.setattr(mock.MockRemnawaveClient, '_state', mock._State())
+
+
+@pytest.fixture(autouse=True)
+def no_template_overrides(monkeypatch):
+    """Автоуведомления по умолчанию шлют заводские тексты: кэш правок «пуст навсегда», БД не трогаем.
+    Тесты шаблонов сбрасывают кэш сами (invalidate_cache) и работают с настоящей таблицей."""
+    from app.services.message_templates import service
+
+    monkeypatch.setattr(service, '_cache', {})
+    monkeypatch.setattr(service, '_loaded_at', float('inf'))
