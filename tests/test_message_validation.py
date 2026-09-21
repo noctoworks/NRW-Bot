@@ -112,6 +112,34 @@ def test_length_uses_example_values_of_variables():
     assert result.visible_length == len('249.00') + len('Подписка «Онлайн» на 30 дн.')
 
 
+def test_escaped_angle_brackets_and_ampersand_are_valid():
+    """Test that properly escaped entities are accepted and counted as single characters."""
+    result1 = validate_template(EXPIRED, 'a &lt; b &gt; c')
+    result2 = validate_template(EXPIRED, 'Tom &amp; Jerry')
+    result3 = validate_template(EXPIRED, 'a &#60; b')
+    result4 = validate_template(EXPIRED, '&amp;lt;')
+
+    assert result1.ok, result1.errors
+    assert result2.ok, result2.errors
+    assert result3.ok, result3.errors
+    assert result4.ok, result4.errors
+    # Visible text should be 'a < b > c' = 9 characters
+    assert result1.visible_length == len('a < b > c')
+    # Visible text should be 'Tom & Jerry' = 11 characters
+    assert result2.visible_length == len('Tom & Jerry')
+    # Visible text should be 'a < b' = 5 characters
+    assert result3.visible_length == len('a < b')
+    # Visible text should be '&lt;' = 4 characters
+    assert result4.visible_length == len('&lt;')
+
+
+def test_entity_encoded_javascript_href_is_still_rejected():
+    """Test that entity-encoded JavaScript URLs in href attributes are still rejected."""
+    # &#106; is 'j', so &#106;avascript: decodes to javascript:
+    result = validate_template(EXPIRED, '<a href="&#106;avascript:alert(1)">x</a>')
+    assert result.errors
+
+
 def test_button_text_rules():
     winback = get_event('winback')
 

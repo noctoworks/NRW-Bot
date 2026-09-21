@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 
@@ -30,11 +31,12 @@ class ValidationResult:
 
 class _MarkupChecker(HTMLParser):
     def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
+        super().__init__(convert_charrefs=False)
         self.stack: list[str] = []
         self.errors: list[str] = []
         self.text: list[str] = []
         self.has_emoji = False
+        self.stray_lt = False
 
     def _error(self, message: str) -> None:
         if message not in self.errors:
@@ -76,7 +78,22 @@ class _MarkupChecker(HTMLParser):
             self.stack.pop()
 
     def handle_data(self, data: str) -> None:
+        if '<' in data:
+            self.stray_lt = True
         self.text.append(data)
+
+    def handle_entityref(self, name: str) -> None:
+        """Handle named entities like &lt; &gt; &amp; etc."""
+        unescaped = html.unescape(f'&{name};')
+        if unescaped == f'&{name};':  # Unknown entity, keep as literal
+            self.text.append(f'&{name};')
+        else:  # Known entity, append the unescaped form
+            self.text.append(unescaped)
+
+    def handle_charref(self, name: str) -> None:
+        """Handle numeric character references like &#60; or &#x3c;"""
+        unescaped = html.unescape(f'&#{name};')
+        self.text.append(unescaped)
 
     def finish(self) -> None:
         self.close()
@@ -114,7 +131,7 @@ def validate_template(event: EventDef, template: str) -> ValidationResult:
 
     visible = ''.join(checker.text)
     result.visible_length = len(visible)
-    if '<' in visible:
+    if checker.stray_lt:
         result.errors.append('Символ < в обычном тексте нужно писать как &lt; (и > как &gt;).')
     if not visible.strip():
         result.errors.append('Текст не может быть пустым.')
