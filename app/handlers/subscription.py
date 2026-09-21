@@ -49,6 +49,7 @@ from app.database.models import Payment, Subscription, Tariff, Transaction, User
 from app.emoji import CHART, EXPIRED, GLOBE, HOURGLASS, MONEY, SBP, STARS, SUCCESS, TON, Emoji, icon_button
 from app.external.remnawave import get_remnawave_client, remnawave_user_description
 from app.keyboards.main_menu import CB_SUBSCRIPTION_MY, CB_SUBSCRIPTION_RENEW, back_to_menu_button
+from app.services.balance_service import InsufficientBalanceError, adjust_balance_clamped, debit_balance
 from app.services.notification_service import notify_payment_success
 from app.services.payment import get_payment_provider
 from app.services.payment.base import CreatedPayment
@@ -101,15 +102,6 @@ PAYMENT_METHODS_RICH: dict[str, str] = {
     name: f'{PAYMENT_METHOD_ICONS[name]} {label}' for name, label in PAYMENT_METHOD_LABELS.items()
 } | {'balance': '💰 Баланс'}
 
-
-class InsufficientBalanceError(Exception):
-    """method='balance', но db_user.balance_kopeks < цены — отдельный тип,
-    чтобы cb_confirm_purchase мог показать дружелюбное "не хватает N ₽"
-    вместо общего "не удалось оформить подписку"."""
-
-    def __init__(self, missing_kopeks: int) -> None:
-        self.missing_kopeks = missing_kopeks
-        super().__init__(f'insufficient balance, missing {missing_kopeks} kopeks')
 
 # Период хранится в БД как количество дней (30/90/180/360), но отображается
 # пользователю в месяцах — см. референс ("1 месяц"/"3 месяца"/...). 24-месячного
@@ -231,11 +223,7 @@ async def purchase_or_renew_subscription(
         # with_for_update() — та же защита от двойного списания при гонке
         # (двойной тап/параллельный запрос из бота и Mini App), что и у
         # gift_service.py/promocode_service.py на своих чувствительных строках.
-        locked = await db.execute(select(User).where(User.id == db_user.id).with_for_update())
-        db_user = locked.scalar_one()
-        if db_user.balance_kopeks < amount_kopeks:
-            raise InsufficientBalanceError(amount_kopeks - db_user.balance_kopeks)
-        db_user.balance_kopeks -= amount_kopeks
+        await debit_balance(db, db_user, amount_kopeks)
         # external_id обязан быть уникален в паре с provider (UniqueConstraint
         # на Payment) — тут нет настоящего внешнего id, генерируем свой.
         created = CreatedPayment(external_id=f'balance-{uuid.uuid4().hex}', payment_url=None, status='success')
@@ -244,11 +232,7 @@ async def purchase_or_renew_subscription(
     elif provider_amount_kopeks == 0:
         # Баланс полностью покрыл сумму, хотя юзер выбрал внешний способ —
         # провайдеру нулевой платёж не отправить, ведём себя как метод 'balance'.
-        locked = await db.execute(select(User).where(User.id == db_user.id).with_for_update())
-        db_user = locked.scalar_one()
-        if db_user.balance_kopeks < amount_kopeks:
-            raise InsufficientBalanceError(amount_kopeks - db_user.balance_kopeks)
-        db_user.balance_kopeks -= amount_kopeks
+        await debit_balance(db, db_user, amount_kopeks)
         created = CreatedPayment(external_id=f'balance-{uuid.uuid4().hex}', payment_url=None, status='success')
         actual_provider = 'balance'
         charged_amount_kopeks = amount_kopeks
@@ -286,13 +270,10 @@ async def purchase_or_renew_subscription(
     # провайдера (payment_success=False ниже) списание отложено до
     # finalize_pending_payment — см. комментарий про balance_offset_kopeks выше.
     if payment_success and balance_offset_kopeks > 0 and actual_provider != 'balance':
-        locked = await db.execute(select(User).where(User.id == db_user.id).with_for_update())
-        db_user = locked.scalar_one()
         # Баланс мог уменьшиться где-то параллельно между расчётом offset'а и
         # этим моментом — редкий edge case, просто урезаем скидку до фактически
         # доступного вместо падения (провайдер уже списал свою часть).
-        balance_offset_kopeks = min(balance_offset_kopeks, db_user.balance_kopeks)
-        db_user.balance_kopeks -= balance_offset_kopeks
+        balance_offset_kopeks = -await adjust_balance_clamped(db, db_user, -balance_offset_kopeks)
 
     transaction = Transaction(
         user_id=db_user.id,

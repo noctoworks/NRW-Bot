@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database.models import Payment, ReferralEarning, Transaction, User
+from app.services.balance_service import credit_balance
 from app.services.notification_service import notify_referral_bonus
 from app.services.subscription_provisioning import provision_or_extend_subscription
 
@@ -89,7 +90,7 @@ async def credit_referral_earning(db: AsyncSession, payment: Payment, bot: Bot |
             if transaction is not None and transaction.type != 'topup':
                 source = 'purchase'
 
-        referrer.balance_kopeks += amount_kopeks
+        await credit_balance(db, referrer, amount_kopeks)
         db.add(
             ReferralEarning(
                 user_id=referrer.id,

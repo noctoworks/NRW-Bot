@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import Campaign, CampaignRegistration, Tariff, Transaction, User
+from app.services.balance_service import credit_balance
 from app.services.analytics_service import REVENUE_TYPES
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,7 @@ async def apply_campaign_bonus(db: AsyncSession, *, campaign: Campaign, user: Us
         db.add(CampaignRegistration(campaign_id=campaign.id, user_id=user.id))
 
         if campaign.bonus_type == 'balance' and campaign.balance_bonus_kopeks > 0:
-            user.balance_kopeks += campaign.balance_bonus_kopeks
+            await credit_balance(db, user, campaign.balance_bonus_kopeks)
             db.add(
                 Transaction(
                     user_id=user.id,

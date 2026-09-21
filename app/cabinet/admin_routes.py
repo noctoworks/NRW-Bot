@@ -85,6 +85,7 @@ from app.database.models import (
 )
 from app.external.remnawave import get_remnawave_client
 from app.services import analytics_service, campaign_service
+from app.services.balance_service import adjust_balance_clamped
 from app.services.notification_service import notify_balance_changed
 from app.services.payment import get_payment_provider
 from app.services.subscription_provisioning import provision_or_extend_subscription
@@ -515,15 +516,13 @@ async def adjust_balance(
     if kopeks == 0:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Сумма не может быть нулевой')
 
-    new_balance = max(0, target.balance_kopeks + kopeks)
     # Реально применённая сумма ПОСЛЕ клэмпа — не запрошенная kopeks. Иначе
     # списание больше, чем есть на балансе, пишет в Transaction и в уведомление
     # юзеру завышенную сумму, хотя баланс упал только до 0 (см. ревью).
-    applied_kopeks = new_balance - target.balance_kopeks
+    applied_kopeks = await adjust_balance_clamped(db, target, kopeks)
     if applied_kopeks == 0:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, 'Баланс уже равен 0 — списывать нечего')
 
-    target.balance_kopeks = new_balance
     db.add(
         Transaction(
             user_id=target.id,

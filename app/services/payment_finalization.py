@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database.models import Payment, Tariff, Transaction, User
+from app.services.balance_service import adjust_balance_clamped
 from app.services.gift_service import create_gift_code
 from app.services.notification_service import notify_gift_code_ready, notify_payment_success
 from app.services.referral_service import credit_referral_earning
@@ -74,9 +75,7 @@ async def finalize_pending_payment(db: AsyncSession, payment: Payment, bot: Bot)
     # гонки, что и в остальных местах, трогающих user.balance_kopeks.
     balance_offset_kopeks = int(raw_payload.get('balance_offset_kopeks') or 0)
     if balance_offset_kopeks > 0:
-        locked = await db.execute(select(User).where(User.id == user.id).with_for_update())
-        locked_user = locked.scalar_one()
-        locked_user.balance_kopeks -= min(balance_offset_kopeks, locked_user.balance_kopeks)
+        await adjust_balance_clamped(db, user, -balance_offset_kopeks)
 
     payment.status = 'success'
     transaction = None

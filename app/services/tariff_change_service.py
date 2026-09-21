@@ -17,12 +17,11 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import Subscription, Tariff, Transaction, User
 from app.external.remnawave import get_remnawave_client
-from app.handlers.subscription import InsufficientBalanceError
+from app.services.balance_service import debit_balance
 from app.services.pricing_service import get_daily_price_kopeks
 
 
@@ -51,11 +50,7 @@ async def apply_tariff_change(
     """Списывает price_kopeks с баланса (если > 0) и переключает подписку на
     new_tariff, сохраняя end_date — вызывающий обязан сам await db.commit()."""
     if price_kopeks > 0:
-        locked = await db.execute(select(User).where(User.id == user.id).with_for_update())
-        db_user = locked.scalar_one()
-        if db_user.balance_kopeks < price_kopeks:
-            raise InsufficientBalanceError(price_kopeks - db_user.balance_kopeks)
-        db_user.balance_kopeks -= price_kopeks
+        await debit_balance(db, user, price_kopeks)
         db.add(
             Transaction(
                 user_id=user.id,

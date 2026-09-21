@@ -54,6 +54,7 @@ from app.keyboards.main_menu import (
     CB_SUPPORT_MENU,
     back_to_menu_button,
 )
+from app.services.balance_service import adjust_balance_clamped
 from app.services.notification_service import notify_balance_changed
 from app.services.time_utils import business_day_start_utc
 from app.states import AdminBroadcastStates, AdminEmojiStates, AdminPromoCodeStates, AdminTariffStates, AdminUserStates
@@ -704,16 +705,14 @@ async def on_admin_balance_input(message: Message, db: AsyncSession, db_user: Us
         await message.answer('Некорректная сумма. Введите ненулевое число, например 100 или -50.')
         return
 
-    new_balance = max(0, target.balance_kopeks + kopeks)
     # Реально применённая сумма ПОСЛЕ клэмпа — не запрошенная kopeks, см. тот же
     # фикс в cabinet/admin_routes.py::adjust_balance (ревью).
-    applied_kopeks = new_balance - target.balance_kopeks
+    applied_kopeks = await adjust_balance_clamped(db, target, kopeks)
     if applied_kopeks == 0:
         await message.answer('Баланс уже равен 0 — списывать нечего.')
         await state.clear()
         return
 
-    target.balance_kopeks = new_balance
     db.add(
         Transaction(
             user_id=target.id,

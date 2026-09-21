@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import PromoCode, PromoCodeUse, Tariff, User
+from app.services.balance_service import credit_balance
 from app.services.subscription_provisioning import provision_or_extend_subscription
 
 
@@ -66,7 +67,7 @@ async def activate_promocode(db: AsyncSession, *, code: str, user: User) -> Prom
         raise PromoCodeError('Лимит активаций промокода исчерпан')
 
     if promocode.type == 'balance':
-        user.balance_kopeks += promocode.value
+        await credit_balance(db, user, promocode.value)
     elif promocode.type == 'days':
         tariff_result = await db.execute(
             select(Tariff).where(Tariff.is_active.is_(True)).order_by(Tariff.id).limit(1)
