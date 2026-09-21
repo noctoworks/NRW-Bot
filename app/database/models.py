@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, true
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -376,3 +376,18 @@ class BroadcastHistory(Base):
     admin_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class MessageTemplate(Base):
+    """Правки владельца к автоматическим сообщениям бота. Строки создаются только при правке;
+    заводские тексты живут в коде (app/services/message_templates/registry.py). template = NULL —
+    «использовать заводской текст» (строка нужна, чтобы выключить событие или сменить подпись кнопки)."""
+
+    __tablename__ = 'message_templates'
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    template: Mapped[str | None] = mapped_column(Text, nullable=True)
+    button_text: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_by_user_id: Mapped[int | None] = mapped_column(ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
