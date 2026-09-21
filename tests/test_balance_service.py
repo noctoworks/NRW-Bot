@@ -8,28 +8,13 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
-from app.database.models import Base, User
+from app.database.models import User
 from app.services.balance_service import (
     InsufficientBalanceError,
     adjust_balance_clamped,
     credit_balance,
     debit_balance,
 )
-
-
-@pytest.fixture
-def session_factory(tmp_path):
-    engine = create_async_engine(f'sqlite+aiosqlite:///{tmp_path / "test.db"}', connect_args={'timeout': 30})
-
-    async def setup():
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-
-    asyncio.run(setup())
-    yield async_sessionmaker(engine, expire_on_commit=False)
-    asyncio.run(engine.dispose())
 
 
 async def _make_user(factory, balance: int = 0) -> int:
