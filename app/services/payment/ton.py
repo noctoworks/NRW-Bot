@@ -33,9 +33,12 @@ from urllib.parse import quote
 import httpx
 
 from app.config import settings
+from app.external.http import send_with_retry
 from app.services.payment.base import CreatedPayment, PaymentProvider
 
 logger = logging.getLogger(__name__)
+
+_REQUEST_TIMEOUT = httpx.Timeout(15.0, connect=5.0)
 
 TONCENTER_BASE_URL = 'https://toncenter.com/api/v3'
 _TRANSACTIONS_LIMIT = 50
@@ -91,8 +94,9 @@ class TonProvider(PaymentProvider):
             headers['X-API-Key'] = settings.TONCENTER_API_KEY
 
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.get(f'{TONCENTER_BASE_URL}/transactions', params=params, headers=headers)
+            response = await send_with_retry(
+                'GET', f'{TONCENTER_BASE_URL}/transactions', params=params, headers=headers, timeout=_REQUEST_TIMEOUT
+            )
         except httpx.HTTPError as error:
             logger.warning('TON Center запрос не удался: %s', error)
             return 'pending'

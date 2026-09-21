@@ -34,6 +34,7 @@ from typing import Any
 
 import httpx
 
+from app.external.http import send_with_retry
 from app.external.remnawave.base import (
     RemnawaveClient,
     RemnawaveDevice,
@@ -46,6 +47,8 @@ from app.external.remnawave.base import (
 )
 
 logger = logging.getLogger(__name__)
+
+_REQUEST_TIMEOUT = httpx.Timeout(30.0, connect=5.0)
 
 # Конфиг Subpage Builder одинаков для всех пользователей и меняется редко
 # (админ правит его в самой панели) — кэшируем на уровне модуля (не инстанса:
@@ -102,8 +105,9 @@ class RealRemnawaveClient(RemnawaveClient):
             key, value = self._panel_secret_param
             params = {**(params or {}), key: value}
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.request(method, url, json=json_data, params=params, headers=self._headers())
+            response = await send_with_retry(
+                method, url, json=json_data, params=params, headers=self._headers(), timeout=_REQUEST_TIMEOUT
+            )
         except httpx.HTTPError as error:
             logger.error('Remnawave request failed: %s %s — %s', method, path, error)
             raise RuntimeError(f'Remnawave недоступна: {error}') from error

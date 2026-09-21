@@ -19,9 +19,12 @@ from typing import Any
 import httpx
 
 from app.config import settings
+from app.external.http import send_with_retry
 from app.services.payment.base import CreatedPayment, PaymentProvider
 
 logger = logging.getLogger(__name__)
+
+_REQUEST_TIMEOUT = httpx.Timeout(30.0, connect=5.0)
 
 _SUCCESS_STATUSES = {'CONFIRMED'}
 _FAILED_STATUSES = {'FAILED', 'CANCELED', 'EXPIRED'}
@@ -107,8 +110,9 @@ class PlategaProvider(PaymentProvider):
     async def _request(self, method: str, endpoint: str, *, json_data: dict[str, Any] | None = None) -> dict[str, Any]:
         url = f'{self.base_url}{endpoint}'
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.request(method, url, json=json_data, headers=self._headers())
+            response = await send_with_retry(
+                method, url, json=json_data, headers=self._headers(), timeout=_REQUEST_TIMEOUT
+            )
         except httpx.HTTPError as error:
             logger.error('Platega request failed: %s %s — %s', method, endpoint, error)
             raise RuntimeError(f'Platega недоступна: {error}') from error

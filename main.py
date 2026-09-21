@@ -8,7 +8,9 @@ import logging
 
 from app.bot import setup_bot
 from app.config import settings
-from app.database.database import AsyncSessionLocal, init_sqlite_pragmas
+from app.database.database import AsyncSessionLocal, engine, init_sqlite_pragmas
+from app.external.http import close_http_client
+from app.runtime import cancel_and_wait, supervise
 
 logger = logging.getLogger(__name__)
 
@@ -50,18 +52,19 @@ async def main() -> None:
         winback_loop,
     )
 
-    background_tasks: list[asyncio.Task] = [
-        asyncio.create_task(expiry_checker_loop(bot)),
-        asyncio.create_task(traffic_sync_loop()),
-        asyncio.create_task(payment_poll_loop(bot)),
-    ]
+    background_tasks: dict[str, asyncio.Task] = {
+        'expiry_checker': asyncio.create_task(expiry_checker_loop(bot), name='expiry_checker'),
+        'traffic_sync': asyncio.create_task(traffic_sync_loop(), name='traffic_sync'),
+        'payment_poll': asyncio.create_task(payment_poll_loop(bot), name='payment_poll'),
+    }
     if settings.BULK_NOTIFICATIONS_ENABLED:
-        background_tasks.append(asyncio.create_task(winback_loop(bot)))
-        background_tasks.append(asyncio.create_task(welcome_nudge_loop(bot)))
+        background_tasks['winback'] = asyncio.create_task(winback_loop(bot), name='winback')
+        background_tasks['welcome_nudge'] = asyncio.create_task(welcome_nudge_loop(bot), name='welcome_nudge')
     else:
         logger.warning('BULK_NOTIFICATIONS_ENABLED=false — winback_loop/welcome_nudge_loop не запущены')
     # === END BACKGROUND TASKS ===
 
+    cabinet_server = None
     if settings.CABINET_ENABLED:
         import uvicorn
 
@@ -70,19 +73,30 @@ async def main() -> None:
         cabinet_server = uvicorn.Server(
             uvicorn.Config(create_app(bot), host='0.0.0.0', port=settings.CABINET_PORT, log_level='warning')
         )
-        background_tasks.append(asyncio.create_task(cabinet_server.serve()))
+        background_tasks['cabinet'] = asyncio.create_task(cabinet_server.serve(), name='cabinet')
         logger.info('Cabinet API запущен на порту %s', settings.CABINET_PORT)
 
+    polling: asyncio.Task | None = None
     try:
         # Обязательно перед polling: если на этом BOT_TOKEN ранее был выставлен
         # Telegram-вебхук (см. переезд со старого бота, admin.nocto.online/webhook*
         # в его Caddy-конфиге), getUpdates будет молча возвращать пусто, пока
         # вебхук не снят явно — Telegram не отдаёт апдейты через оба канала сразу.
         await bot.delete_webhook(drop_pending_updates=False)
-        await dp.start_polling(bot, skip_updates=False)
+        # polling — тоже под надзором: падение uvicorn/фонового цикла роняет
+        # процесс (контейнер перезапустится), а не оставляет бота "наполовину живым".
+        polling = asyncio.create_task(dp.start_polling(bot, skip_updates=False), name='polling')
+        await supervise({'polling': polling, **background_tasks})
     finally:
-        for task in background_tasks:
-            task.cancel()
+        if cabinet_server is not None:
+            cabinet_server.should_exit = True
+        tasks = [*background_tasks.values()]
+        if polling is not None:
+            tasks.append(polling)
+        await cancel_and_wait(tasks)
+        await close_http_client()
+        await bot.session.close()
+        await engine.dispose()
 
 
 if __name__ == '__main__':

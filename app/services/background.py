@@ -52,6 +52,18 @@ ABANDONED_PAYMENT_DELAY = timedelta(hours=1)
 # пауза не страховка от него, а профилактика, чтобы триггерить его пореже.
 BULK_SEND_DELAY_SECONDS = 0.05
 
+# Поллинг pending-платежей (см. run_payment_poll_once). Без этих границ брошенные
+# платежи оставались pending навсегда и опрашивались каждые 10 минут вечно.
+PAYMENT_POLL_CONCURRENCY = 5  # параллельных запросов к провайдерам за раз
+PAYMENT_CHECK_TIMEOUT_SECONDS = 20.0  # потолок на один опрос, поверх таймаутов httpx
+STALE_PAYMENT_AGE = timedelta(hours=24)  # старше — опрашиваем реже (см. STALE_POLL_EVERY_N)
+STALE_POLL_EVERY_N = 6  # "старые" платежи — каждая 6-я итерация (~раз в час)
+PAYMENT_MAX_AGE = timedelta(days=7)  # старше и всё ещё pending — считаем неоплаченным
+
+# Circuit breaker для циклов, которые ходят в Remnawave по одному пользователю:
+# если панель лежит, N подряд неудач прерывают итерацию вместо N * таймаут ожидания.
+REMNAWAVE_MAX_CONSECUTIVE_FAILURES = 5
+
 
 def _aware(dt: datetime) -> datetime:
     """SQLite (дефолтный DATABASE_URL для локальной разработки, см.
@@ -73,15 +85,33 @@ async def run_expiry_check_once(bot: Bot) -> None:
             select(Subscription).where(Subscription.status == 'active', Subscription.end_date <= now)
         )
         expired_subs = list(result.scalars())
+        consecutive_failures = 0
         for sub in expired_subs:
-            sub.status = 'expired'
             await db.refresh(sub, attribute_names=['user'])
             user = sub.user
             if user.remnawave_uuid:
+                if consecutive_failures >= REMNAWAVE_MAX_CONSECUTIVE_FAILURES:
+                    continue  # панель недоступна — не ждём таймаут на каждом; повторим на следующей итерации
                 try:
                     await get_remnawave_client().disable_user(remnawave_uuid=user.remnawave_uuid)
+                    consecutive_failures = 0
                 except Exception:
-                    logger.warning('Не удалось отключить пользователя %s в Remnawave', user.remnawave_uuid, exc_info=True)
+                    consecutive_failures += 1
+                    # Подписку НЕ помечаем expired и не уведомляем: иначе отключение в
+                    # Remnawave больше никто бы не повторил (запрос выше берёт только
+                    # status='active'), и пользователь остался бы включённым навсегда.
+                    logger.warning(
+                        'Не удалось отключить пользователя %s в Remnawave — повторим на следующей итерации',
+                        user.remnawave_uuid,
+                        exc_info=True,
+                    )
+                    if consecutive_failures == REMNAWAVE_MAX_CONSECUTIVE_FAILURES:
+                        logger.error(
+                            'expiry_check: %s ошибок Remnawave подряд — пропускаем остальных до следующей итерации',
+                            consecutive_failures,
+                        )
+                    continue
+            sub.status = 'expired'
             await notify_subscription_expired(bot, telegram_id=user.telegram_id)
 
         # 2) напоминание за 3 дня
@@ -121,6 +151,7 @@ async def run_traffic_sync_once() -> None:
         result = await db.execute(select(Subscription).where(Subscription.status == 'active'))
         subs = list(result.scalars())
         client = get_remnawave_client()
+        consecutive_failures = 0
         for sub in subs:
             await db.refresh(sub, attribute_names=['user'])
             user = sub.user
@@ -129,8 +160,16 @@ async def run_traffic_sync_once() -> None:
             try:
                 info = await client.get_subscription_info(remnawave_uuid=user.remnawave_uuid)
             except Exception:
+                consecutive_failures += 1
                 logger.warning('Не удалось получить traffic для %s из Remnawave', user.remnawave_uuid, exc_info=True)
+                if consecutive_failures >= REMNAWAVE_MAX_CONSECUTIVE_FAILURES:
+                    logger.error(
+                        'traffic_sync: %s ошибок Remnawave подряд — прерываем итерацию (панель недоступна?)',
+                        consecutive_failures,
+                    )
+                    break
                 continue
+            consecutive_failures = 0
             sub.traffic_used_gb = info.traffic_used_gb
 
         await db.commit()
@@ -154,29 +193,54 @@ async def traffic_sync_loop(interval_seconds: int = 900) -> None:
         await asyncio.sleep(interval_seconds)
 
 
-async def run_payment_poll_once(bot: Bot) -> None:
+async def run_payment_poll_once(bot: Bot, *, include_stale: bool = True) -> None:
     """Одна итерация опроса pending-платежей (PAYMENTS_MODE=real, см. §12 и
     app/services/payment_finalization.py). С 2026-08-20 не единственный путь
     подтверждения — есть ещё вебхук (app/cabinet/webhooks.py, мгновенный,
     основной), этот поллинг — страховка на случай, если конкретный вебхук
     не долетел (сеть, наш сервер лежал в момент колбэка и т.п.), либо
-    CABINET_ENABLED=false и вебхука вовсе нет."""
+    CABINET_ENABLED=false и вебхука вовсе нет.
+
+    Опросы провайдеров идут параллельно (не больше PAYMENT_POLL_CONCURRENCY) и
+    каждый ограничен PAYMENT_CHECK_TIMEOUT_SECONDS — один зависший провайдер не
+    растягивает итерацию на N * таймаут. Платежи старше STALE_PAYMENT_AGE
+    опрашиваются только при include_stale=True (payment_poll_loop ставит его
+    раз в STALE_POLL_EVERY_N итераций), а старше PAYMENT_MAX_AGE и всё ещё
+    pending — помечаются failed."""
     from app.services.payment import get_payment_provider
     from app.services.payment_finalization import finalize_pending_payment, mark_payment_failed
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(select(Payment).where(Payment.status == 'pending'))
-        pending_payments = list(result.scalars())
+        now = datetime.now(timezone.utc)
+        pending_payments = [
+            payment
+            for payment in result.scalars()
+            if include_stale or now - _aware(payment.created_at) <= STALE_PAYMENT_AGE
+        ]
 
-        for payment in pending_payments:
-            try:
-                provider = get_payment_provider(payment.provider)
-                status, raw_response = await provider.check_payment_status_detailed(
-                    payment.external_id, amount_kopeks=payment.amount_kopeks
-                )
-            except Exception:
-                logger.warning('payment_poll_loop: не удалось опросить payment_id=%s', payment.id, exc_info=True)
+        semaphore = asyncio.Semaphore(PAYMENT_POLL_CONCURRENCY)
+
+        async def check(payment: Payment) -> tuple[str, dict | None] | None:
+            async with semaphore:
+                try:
+                    provider = get_payment_provider(payment.provider)
+                    return await asyncio.wait_for(
+                        provider.check_payment_status_detailed(payment.external_id, amount_kopeks=payment.amount_kopeks),
+                        timeout=PAYMENT_CHECK_TIMEOUT_SECONDS,
+                    )
+                except Exception:
+                    logger.warning('payment_poll_loop: не удалось опросить payment_id=%s', payment.id, exc_info=True)
+                    return None
+
+        checks = await asyncio.gather(*(check(payment) for payment in pending_payments))
+        if len(checks) >= REMNAWAVE_MAX_CONSECUTIVE_FAILURES and all(result is None for result in checks):
+            logger.error('payment_poll_loop: ни один из %s опросов не удался — провайдер недоступен?', len(checks))
+
+        for payment, checked in zip(pending_payments, checks):
+            if checked is None:
                 continue
+            status, raw_response = checked
 
             # Сохраняем свежий сырой ответ провайдера ДО финализации — тот же
             # identity-mapped объект Payment переиспользуется finalize_pending_payment/
@@ -189,6 +253,11 @@ async def run_payment_poll_once(bot: Bot) -> None:
                 if status == 'success':
                     await finalize_pending_payment(db, payment, bot)
                 elif status == 'failed':
+                    await mark_payment_failed(db, payment)
+                elif now - _aware(payment.created_at) > PAYMENT_MAX_AGE:
+                    logger.warning(
+                        'payment_poll_loop: payment_id=%s pending дольше %s — помечаю failed', payment.id, PAYMENT_MAX_AGE
+                    )
                     await mark_payment_failed(db, payment)
                 elif (
                     not payment.abandoned_reminder_sent
@@ -225,13 +294,15 @@ async def payment_poll_loop(bot: Bot, interval_seconds: int = 600) -> None:
     возвращает success, зачисление происходит синхронно в момент оплаты."""
     from app.config import settings
 
+    iteration = 0
     while True:
         try:
             if settings.PAYMENTS_MODE == 'real':
-                await run_payment_poll_once(bot)
+                await run_payment_poll_once(bot, include_stale=iteration % STALE_POLL_EVERY_N == 0)
             # stub-режим: намеренно no-op.
         except Exception:
             logger.exception('payment_poll_loop: сбой на итерации, продолжаем')
+        iteration += 1
         await asyncio.sleep(interval_seconds)
 
 

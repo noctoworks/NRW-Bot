@@ -27,9 +27,12 @@ from typing import Any
 import httpx
 
 from app.config import settings
+from app.external.http import send_with_retry
 from app.services.payment.base import CreatedPayment, PaymentProvider
 
 logger = logging.getLogger(__name__)
+
+_REQUEST_TIMEOUT = httpx.Timeout(30.0, connect=5.0)
 
 _SUCCESS_STATUSES = {'PAID'}
 _FAILED_STATUSES = {'FAILED', 'EXPIRED', 'REFUNDED'}
@@ -68,8 +71,9 @@ class CisPayProvider(PaymentProvider):
     ) -> dict[str, Any]:
         url = f'{self.base_url}{endpoint}'
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.request(method, url, json=json_data, params=params, headers=self._headers())
+            response = await send_with_retry(
+                method, url, json=json_data, params=params, headers=self._headers(), timeout=_REQUEST_TIMEOUT
+            )
         except httpx.HTTPError as error:
             logger.error('cisPay request failed: %s %s — %s', method, endpoint, error)
             raise RuntimeError(f'cisPay недоступна: {error}') from error
