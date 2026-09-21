@@ -11,7 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import PromoCode, PromoCodeUse, Tariff, User
@@ -35,14 +36,15 @@ async def activate_promocode(db: AsyncSession, *, code: str, user: User) -> Prom
     если подписки ещё нет — создать через create_user, как при обычной покупке).
     Бросает PromoCodeError с человекочитаемым текстом при любой невалидности."""
     normalized = code.strip().upper()
-    # with_for_update() блокирует строку промокода до конца транзакции (реально
-    # работает на Postgres в проде; SQLite это условие молча игнорирует) — без
-    # этого два одновременных активатора могут оба пройти проверку
-    # activations_count >= max_activations до того, как первый закоммитит,
-    # и превысить заявленный лимит активаций.
-    result = await db.execute(
-        select(PromoCode).where(func.upper(PromoCode.code) == normalized).with_for_update()
-    )
+    # Проверки ниже — только ради понятных сообщений; настоящую защиту от гонки
+    # даёт атомарный "захват" слота (UPDATE ... WHERE activations_count <
+    # max_activations) чуть дальше. Он работает одинаково на Postgres и SQLite,
+    # в отличие от SELECT ... FOR UPDATE, который SQLite молча игнорирует.
+    #
+    # ВАЖНО: обработчики бота ловят PromoCodeError и возвращаются как обычно, а
+    # AuthMiddleware после этого коммитит сессию — поэтому PromoCodeError бросаем
+    # только ДО каких-либо изменений (либо после rollback).
+    result = await db.execute(select(PromoCode).where(func.upper(PromoCode.code) == normalized))
     promocode = result.scalar_one_or_none()
 
     if promocode is None:
@@ -66,21 +68,50 @@ async def activate_promocode(db: AsyncSession, *, code: str, user: User) -> Prom
     if promocode.activations_count >= promocode.max_activations:
         raise PromoCodeError('Лимит активаций промокода исчерпан')
 
-    if promocode.type == 'balance':
-        await credit_balance(db, user, promocode.value)
-    elif promocode.type == 'days':
+    tariff = None
+    if promocode.type == 'days':
         tariff_result = await db.execute(
             select(Tariff).where(Tariff.is_active.is_(True)).order_by(Tariff.id).limit(1)
         )
         tariff = tariff_result.scalar_one_or_none()
         if tariff is None:
             raise PromoCodeError('Нет доступного тарифа для начисления дней подписки')
-        await provision_or_extend_subscription(db, user=user, tariff=tariff, period_days=promocode.value)
-    else:
+    elif promocode.type != 'balance':
         raise PromoCodeError(f'Неизвестный тип промокода: {promocode.type}')
 
-    promocode.activations_count += 1
-    db.add(PromoCodeUse(promocode_id=promocode.id, user_id=user.id))
-    await db.flush()
+    # Атомарный захват слота: два одновременных активатора последней активации не
+    # пройдут оба — второй UPDATE не затронет ни одной строки. Ничего не изменено
+    # (rowcount == 0), поэтому просто бросаем ошибку.
+    claim = await db.execute(
+        update(PromoCode)
+        .where(
+            PromoCode.id == promocode.id,
+            PromoCode.is_active.is_(True),
+            PromoCode.activations_count < PromoCode.max_activations,
+        )
+        .values(activations_count=PromoCode.activations_count + 1)
+        .execution_options(synchronize_session=False)
+    )
+    if claim.rowcount == 0:
+        await db.refresh(promocode)
+        if not promocode.is_active:
+            raise PromoCodeError('Промокод больше не активен')
+        raise PromoCodeError('Лимит активаций промокода исчерпан')
 
+    # Тот же пользователь дважды параллельно: оба прошли проверку выше, второй
+    # упрётся в uq_promocode_user. Откатываем транзакцию целиком (вместе с
+    # захваченным слотом), иначе AuthMiddleware закоммитил бы лишнюю активацию.
+    db.add(PromoCodeUse(promocode_id=promocode.id, user_id=user.id))
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        raise PromoCodeError('Вы уже использовали этот промокод') from None
+
+    if promocode.type == 'balance':
+        await credit_balance(db, user, promocode.value)
+    else:
+        await provision_or_extend_subscription(db, user=user, tariff=tariff, period_days=promocode.value)
+
+    await db.refresh(promocode, ['activations_count'])
     return PromoCodeResult(type=promocode.type, value=promocode.value)

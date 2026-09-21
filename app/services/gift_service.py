@@ -11,7 +11,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import GiftCode, Subscription, Tariff, User
@@ -73,13 +73,14 @@ async def redeem_gift_code(
     уведомление просто не отправляется.
     """
     normalized = code.strip().upper()
-    # with_for_update() блокирует строку до конца транзакции (на Postgres в проде;
-    # SQLite это условие молча игнорирует — см. диалог, там однопроцессный dev-сценарий)
-    # — без этого два одновременных redeem одного кода оба проходят проверку
-    # redeemed_at is None до того, как первый закоммитит, и оба получают подписку.
-    result = await db.execute(
-        select(GiftCode).where(func.upper(GiftCode.code) == normalized).with_for_update()
-    )
+    # Проверки ниже — ради понятных сообщений; от гонки защищает атомарный захват
+    # кода (UPDATE ... WHERE redeemed_at IS NULL) перед выдачей подписки: два
+    # одновременных redeem одного кода не получат подписку оба, и это работает на
+    # SQLite так же, как на Postgres (FOR UPDATE SQLite игнорирует).
+    #
+    # GiftCodeError ловится обработчиком, после чего AuthMiddleware коммитит
+    # сессию — поэтому бросаем его только ДО каких-либо изменений.
+    result = await db.execute(select(GiftCode).where(func.upper(GiftCode.code) == normalized))
     gift_code = result.scalar_one_or_none()
 
     if gift_code is None:
@@ -98,13 +99,21 @@ async def redeem_gift_code(
     if tariff is None:
         raise GiftCodeError('Тариф подарка недоступен')
 
+    claim = await db.execute(
+        update(GiftCode)
+        .where(GiftCode.id == gift_code.id, GiftCode.redeemed_at.is_(None))
+        .values(redeemed_by_user_id=recipient.id, redeemed_at=datetime.now(timezone.utc))
+        .execution_options(synchronize_session=False)
+    )
+    if claim.rowcount == 0:
+        raise GiftCodeError('Код уже использован')
+    await db.refresh(gift_code)
+
+    # Если выдача упадёт (Remnawave и т.п.), исключение уйдёт наружу без коммита —
+    # захват кода откатится вместе с сессией и код можно будет погасить снова.
     subscription = await provision_or_extend_subscription(
         db, user=recipient, tariff=tariff, period_days=gift_code.period_days
     )
-
-    gift_code.redeemed_by_user_id = recipient.id
-    gift_code.redeemed_at = datetime.now(timezone.utc)
-    await db.flush()
 
     if bot is not None:
         try:
