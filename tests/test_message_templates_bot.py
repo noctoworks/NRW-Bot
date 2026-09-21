@@ -306,3 +306,21 @@ def test_unknown_event_in_callback_is_handled(session_factory):
         callback.answer.assert_awaited()
 
     asyncio.run(scenario())
+
+
+def test_card_strips_tg_emoji_wrapper_from_current_text(session_factory):
+    async def scenario():
+        admin = await make_user(session_factory, telegram_id=ADMIN_TG, is_admin=True)
+        async with session_factory() as db:
+            db.add(MessageTemplate(key='subscription_expired', template='<tg-emoji emoji-id="1">🏦</tg-emoji> x'))
+            await db.commit()
+        invalidate_cache()
+        callback = _callback(f'{h.CB_CARD}subscription_expired')
+
+        await _run(session_factory, h.cb_card, callback, None, _admin(admin), _state())
+
+        text, _ = _shown(callback)
+        assert '<tg-emoji' not in text  # в карточке — только символ
+        assert '🏦' in text
+
+    asyncio.run(scenario())
