@@ -173,6 +173,11 @@ class PlategaProvider(PaymentProvider):
         # (риск нулевой), а просто чтобы не городить == для двух строк отдельно.
         merchant_id = headers.get('x-merchantid', '')
         secret = headers.get('x-secret', '')
+        # Пустые настройки (провайдер не сконфигурирован, например в .env заполнен
+        # только CisPay) не должны совпадать с пустыми заголовками: '' == '' —
+        # это не аутентификация.
+        if not settings.PLATEGA_MERCHANT_ID or not settings.PLATEGA_SECRET_KEY:
+            return False
         return bool(
             hmac.compare_digest(merchant_id, settings.PLATEGA_MERCHANT_ID)
             and hmac.compare_digest(secret, settings.PLATEGA_SECRET_KEY)

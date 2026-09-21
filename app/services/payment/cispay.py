@@ -134,7 +134,7 @@ class CisPayProvider(PaymentProvider):
         PaymentProvider.verify_webhook (payload, headers), вызывается только
         из cispay_webhook (app/cabinet/webhooks.py), которому есть откуда его взять."""
         signature = headers.get('x-signature', '')
-        if not signature or raw_body is None:
+        if not settings.CISPAY_API_KEY or not signature or raw_body is None:
             return False
         expected = hmac.new(settings.CISPAY_API_KEY.encode('utf-8'), raw_body, hashlib.sha256).hexdigest()
         return hmac.compare_digest(expected, signature)

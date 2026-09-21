@@ -37,6 +37,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.cabinet.deps import get_db
+from app.config import settings
 from app.database.models import Payment, Subscription, Transaction
 from app.services.notification_service import (
     notify_autopay_activated,
@@ -53,6 +54,36 @@ from app.services.subscription_provisioning import provision_or_extend_subscript
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _webhooks_disabled_response() -> JSONResponse | None:
+    """В PAYMENTS_MODE=stub get_payment_provider() отдаёт заглушку, у которой
+    verify_webhook всегда True — открытый вебхук позволил бы кому угодно
+    "оплатить" любой pending-платёж. Вне real-режима вебхуки не принимаем."""
+    if settings.PAYMENTS_MODE != 'real':
+        return JSONResponse({'status': 'error', 'reason': 'webhooks_disabled'}, status_code=503)
+    return None
+
+
+async def _authoritative_status(provider, payment: Payment, claimed: str) -> str | None:
+    """Статус из тела вебхука — только повод проверить платёж: реальный статус
+    (и сумму, если провайдер её сверяет) берём у самого провайдера. Так утечка
+    секрета вебхука не даёт подтвердить неоплаченный платёж. None — провайдер
+    недоступен, вызывающий отвечает 400 (провайдер повторит, а страховочный
+    payment_poll_loop подхватит платёж в любом случае)."""
+    if claimed == 'pending':
+        return claimed
+    try:
+        actual = await provider.check_payment_status(payment.external_id, amount_kopeks=payment.amount_kopeks)
+    except Exception:
+        logger.warning('Webhook: не удалось подтвердить статус payment_id=%s у провайдера', payment.id, exc_info=True)
+        return None
+    if actual != claimed:
+        logger.warning(
+            'Webhook: статус в теле (%s) не совпал со статусом у провайдера (%s), payment_id=%s',
+            claimed, actual, payment.id,
+        )
+    return actual
 
 
 async def _handle_subscription_webhook(db: AsyncSession, bot, provider, payload: dict) -> JSONResponse:
@@ -162,6 +193,9 @@ async def platega_health() -> JSONResponse:
 
 @router.post('/platega-webhook')
 async def platega_webhook(request: Request, db: AsyncSession = Depends(get_db)) -> JSONResponse:
+    if (disabled := _webhooks_disabled_response()) is not None:
+        return disabled
+
     raw_body = await request.body()
     headers = {k.lower(): v for k, v in request.headers.items()}
 
@@ -212,6 +246,11 @@ async def platega_webhook(request: Request, db: AsyncSession = Depends(get_db)) 
     payment.provider_raw_response = payload
     bot = request.app.state.bot
 
+    webhook_status = await _authoritative_status(provider, payment, webhook_status)
+    if webhook_status is None:
+        await db.commit()  # сохраняем provider_raw_response
+        return JSONResponse({'status': 'error', 'reason': 'verification_failed'}, status_code=400)
+
     try:
         if webhook_status == 'success':
             await finalize_pending_payment(db, payment, bot)
@@ -237,6 +276,9 @@ async def cispay_webhook(request: Request, db: AsyncSession = Depends(get_db)) -
     HMAC-SHA256(X-Api-Key) в заголовке X-Signature, поэтому raw_body передаётся
     в verify_webhook отдельным keyword-параметром (payload одного re-serialize
     не даёт побайтовой гарантии совпадения)."""
+    if (disabled := _webhooks_disabled_response()) is not None:
+        return disabled
+
     raw_body = await request.body()
     headers = {k.lower(): v for k, v in request.headers.items()}
 
@@ -265,6 +307,11 @@ async def cispay_webhook(request: Request, db: AsyncSession = Depends(get_db)) -
 
     payment.provider_raw_response = payload
     bot = request.app.state.bot
+
+    webhook_status = await _authoritative_status(provider, payment, webhook_status)
+    if webhook_status is None:
+        await db.commit()  # сохраняем provider_raw_response
+        return JSONResponse({'status': 'error', 'reason': 'verification_failed'}, status_code=400)
 
     try:
         if webhook_status == 'success':
