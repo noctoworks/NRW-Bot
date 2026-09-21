@@ -4034,7 +4034,10 @@ git commit -m "Добавляет backfill истории аналитики (с
 
 **Files:**
 - Modify: `app/cabinet/app.py`
-- Create: `app/cabinet/openapi_export.py`, `scripts/export_openapi.py`, `docs/api/openapi.json` (генерируется), `docs/api/README.md`, `docs/api/analytics-foundation.md`
+- Create: `app/cabinet/openapi_export.py`, `scripts/export_openapi.py`, `docs/api/README.md`, `docs/api/analytics-foundation.md`
+- Regenerate: `docs/api/openapi.json`, `docs/api/reference-*.md`, `docs/api/schemas.md` (файлы уже существуют — см. ниже)
+
+**Уже существует (не пишите заново):** `docs/api/API.md` (ручное руководство), `docs/api/reference-cabinet.md`, `reference-admin.md`, `reference-system.md`, `schemas.md`, `openapi.json` и генератор `scripts/generate_api_docs.py`, который пересоздаёт справочники и `openapi.json` из кода. Их надо не создавать, а **перегенерировать** после изменений API (Step 4) и обновить `API.md` там, где изменилось поведение (раздел «Что изменится»).
 - Test: `tests/test_openapi.py`
 
 **Interfaces:**
@@ -4145,8 +4148,10 @@ if __name__ == '__main__':
 
 - [ ] **Step 4: Сгенерировать схему и запустить тесты**
 
-Run (PowerShell): `$env:BOT_TOKEN='1:test'; python scripts/export_openapi.py`; затем `python -m pytest tests -q -p no:warnings`
-Expected: файл `docs/api/openapi.json` создан; все тесты PASS.
+Run (PowerShell): `$env:BOT_TOKEN='1:test'; python scripts/export_openapi.py; python scripts/generate_api_docs.py`; затем `python -m pytest tests -q -p no:warnings`
+Expected: `docs/api/openapi.json` и справочники перегенерированы (в справочниках появились новые эндпоинты `…/analytics/reconcile/cispay*`); генератор печатает `missing from groups: []` — если нет, добавьте недостающие эндпоинты в словарь `S` и списки `GROUPS_*` в `scripts/generate_api_docs.py` (описания на русском). Все тесты PASS.
+
+Затем обновите ручной `docs/api/API.md`: раздел «Что изменится» превратите в «Что изменилось» (выручка нетто, `?tz=`, N точек, новые поля и эндпоинты, `/openapi.json` закрыт, `409`/`502` у сверки).
 
 - [ ] **Step 5: Документы для фронтенда**
 
@@ -4164,6 +4169,7 @@ npx openapi-typescript ../NRW-Bot/docs/api/openapi.json -o src/api/generated/ope
 ```
 
 - Описание изменений по разделам: `analytics-foundation.md`.
+- Полное описание API: `API.md` (правила, авторизация, вебхуки), справочники `reference-*.md`, схемы `schemas.md` — генерируются `scripts/generate_api_docs.py`.
 ````
 
 Создайте `docs/api/analytics-foundation.md`:

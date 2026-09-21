@@ -1,0 +1,6664 @@
+{
+  "components": {
+    "schemas": {
+      "ActiveSubsByTariffOut": {
+        "properties": {
+          "active_count": {
+            "title": "Active Count",
+            "type": "integer"
+          },
+          "tariff_name": {
+            "title": "Tariff Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tariff_name",
+          "active_count"
+        ],
+        "title": "ActiveSubsByTariffOut",
+        "type": "object"
+      },
+      "AdminSubscriptionListItem": {
+        "description": "Подписки по ВСЕМ пользователям (см. диалог 2026-09-01) — раньше видна\nбыла только внутри карточки одного юзера (AdminUserDetailResponse.\nsubscription). Только наши данные (Subscription/Tariff), без обращений\nк Remnawave — traffic_used_gb уже синхронизирован фоновой задачей (см.\nanalytics_service.get_overview::total_traffic_gb).",
+        "properties": {
+          "autopay_enabled": {
+            "title": "Autopay Enabled",
+            "type": "boolean"
+          },
+          "device_limit": {
+            "title": "Device Limit",
+            "type": "integer"
+          },
+          "end_date": {
+            "format": "date-time",
+            "title": "End Date",
+            "type": "string"
+          },
+          "full_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Name"
+          },
+          "is_trial": {
+            "title": "Is Trial",
+            "type": "boolean"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tariff_name": {
+            "title": "Tariff Name",
+            "type": "string"
+          },
+          "telegram_id": {
+            "title": "Telegram Id",
+            "type": "integer"
+          },
+          "traffic_limit_gb": {
+            "title": "Traffic Limit Gb",
+            "type": "integer"
+          },
+          "traffic_used_gb": {
+            "title": "Traffic Used Gb",
+            "type": "number"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "integer"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          }
+        },
+        "required": [
+          "user_id",
+          "telegram_id",
+          "username",
+          "full_name",
+          "tariff_name",
+          "status",
+          "is_trial",
+          "end_date",
+          "traffic_used_gb",
+          "traffic_limit_gb",
+          "device_limit",
+          "autopay_enabled"
+        ],
+        "title": "AdminSubscriptionListItem",
+        "type": "object"
+      },
+      "AdminSubscriptionOut": {
+        "properties": {
+          "device_limit": {
+            "title": "Device Limit",
+            "type": "integer"
+          },
+          "end_date": {
+            "format": "date-time",
+            "title": "End Date",
+            "type": "string"
+          },
+          "is_trial": {
+            "title": "Is Trial",
+            "type": "boolean"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "traffic_limit_gb": {
+            "title": "Traffic Limit Gb",
+            "type": "integer"
+          },
+          "traffic_used_gb": {
+            "title": "Traffic Used Gb",
+            "type": "number"
+          }
+        },
+        "required": [
+          "status",
+          "end_date",
+          "traffic_limit_gb",
+          "traffic_used_gb",
+          "device_limit",
+          "is_trial"
+        ],
+        "title": "AdminSubscriptionOut",
+        "type": "object"
+      },
+      "AdminTransactionDetailResponse": {
+        "description": "«Тело транзакции» (см. диалог 2026-09-01, клик по строке в /transactions)\n— то же, что в списке, плюс всё, что знаем про сам платёж: статус на нашей\nстороне, служебный контекст провижининга (raw_payload) и последний сырой\nответ провайдера (provider_raw_response, см. Payment в models.py) — то,\nради чего изначально заводили это поле при сверке с Platega. Оба None,\nесли у транзакции вообще нет Payment (топап админом/реферальный бонус).",
+        "properties": {
+          "amount_kopeks": {
+            "title": "Amount Kopeks",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "full_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Name"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "payment_external_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment External Id"
+          },
+          "payment_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Provider"
+          },
+          "payment_raw_payload": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Raw Payload"
+          },
+          "payment_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Status"
+          },
+          "provider_raw_response": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Raw Response"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "telegram_id": {
+            "title": "Telegram Id",
+            "type": "integer"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "integer"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "amount_kopeks",
+          "status",
+          "description",
+          "created_at",
+          "user_id",
+          "telegram_id",
+          "username",
+          "full_name",
+          "payment_provider",
+          "payment_external_id",
+          "payment_status",
+          "payment_raw_payload",
+          "provider_raw_response"
+        ],
+        "title": "AdminTransactionDetailResponse",
+        "type": "object"
+      },
+      "AdminTransactionListItem": {
+        "description": "То же, что AdminTransactionOut, плюс кто платил — единый список\n/transactions (см. диалог 2026-09-01, \"решить вопрос по транзакциям\")\nпоказывает транзакции ПО ВСЕМ пользователям, не внутри одной карточки,\nпоэтому нужна личность плательщика в каждой строке.",
+        "properties": {
+          "amount_kopeks": {
+            "title": "Amount Kopeks",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "full_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Name"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "payment_external_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment External Id"
+          },
+          "payment_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Provider"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "telegram_id": {
+            "title": "Telegram Id",
+            "type": "integer"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "integer"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "amount_kopeks",
+          "status",
+          "description",
+          "created_at",
+          "user_id",
+          "telegram_id",
+          "username",
+          "full_name",
+          "payment_provider",
+          "payment_external_id"
+        ],
+        "title": "AdminTransactionListItem",
+        "type": "object"
+      },
+      "AdminTransactionOut": {
+        "properties": {
+          "amount_kopeks": {
+            "title": "Amount Kopeks",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "amount_kopeks",
+          "status",
+          "description",
+          "created_at"
+        ],
+        "title": "AdminTransactionOut",
+        "type": "object"
+      },
+      "AdminUserDetailResponse": {
+        "properties": {
+          "balance_kopeks": {
+            "title": "Balance Kopeks",
+            "type": "integer"
+          },
+          "blocked_bot": {
+            "title": "Blocked Bot",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "full_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Name"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_blocked": {
+            "title": "Is Blocked",
+            "type": "boolean"
+          },
+          "language": {
+            "title": "Language",
+            "type": "string"
+          },
+          "last_activity_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Activity At"
+          },
+          "promo_group_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promo Group Id"
+          },
+          "promo_group_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promo Group Name"
+          },
+          "referral_commission_percent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Referral Commission Percent"
+          },
+          "referrals_earned_kopeks": {
+            "title": "Referrals Earned Kopeks",
+            "type": "integer"
+          },
+          "referrals_invited_count": {
+            "title": "Referrals Invited Count",
+            "type": "integer"
+          },
+          "subscription": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminSubscriptionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "telegram_id": {
+            "title": "Telegram Id",
+            "type": "integer"
+          },
+          "transactions": {
+            "items": {
+              "$ref": "#/components/schemas/AdminTransactionOut"
+            },
+            "title": "Transactions",
+            "type": "array"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          }
+        },
+        "required": [
+          "id",
+          "telegram_id",
+          "username",
+          "full_name",
+          "language",
+          "is_blocked",
+          "blocked_bot",
+          "balance_kopeks",
+          "created_at",
+          "last_activity_at",
+          "subscription",
+          "transactions",
+          "referrals_invited_count",
+          "referrals_earned_kopeks",
+          "referral_commission_percent",
+          "promo_group_id",
+          "promo_group_name"
+        ],
+        "title": "AdminUserDetailResponse",
+        "type": "object"
+      },
+      "AdminUserListItem": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "full_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Name"
+          },
+          "has_active_subscription": {
+            "title": "Has Active Subscription",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_blocked": {
+            "title": "Is Blocked",
+            "type": "boolean"
+          },
+          "is_trial": {
+            "title": "Is Trial",
+            "type": "boolean"
+          },
+          "last_activity_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Activity At"
+          },
+          "telegram_id": {
+            "title": "Telegram Id",
+            "type": "integer"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          }
+        },
+        "required": [
+          "id",
+          "telegram_id",
+          "username",
+          "full_name",
+          "is_blocked",
+          "has_active_subscription",
+          "is_trial",
+          "last_activity_at",
+          "created_at"
+        ],
+        "title": "AdminUserListItem",
+        "type": "object"
+      },
+      "AdminUserListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AdminUserListItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "total_pages": {
+            "title": "Total Pages",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "total_pages"
+        ],
+        "title": "AdminUserListResponse",
+        "type": "object"
+      },
+      "AlertOut": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link"
+          },
+          "severity": {
+            "enum": [
+              "critical",
+              "warning",
+              "info"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "severity",
+          "title"
+        ],
+        "title": "AlertOut",
+        "type": "object"
+      },
+      "AuthRequest": {
+        "properties": {
+          "init_data": {
+            "title": "Init Data",
+            "type": "string"
+          }
+        },
+        "required": [
+          "init_data"
+        ],
+        "title": "AuthRequest",
+        "type": "object"
+      },
+      "AuthResponse": {
+        "properties": {
+          "access_token": {
+            "title": "Access Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "access_token"
+        ],
+        "title": "AuthResponse",
+        "type": "object"
+      },
+      "BalanceAdjustRequest": {
+        "properties": {
+          "amount_rub": {
+            "title": "Amount Rub",
+            "type": "number"
+          }
+        },
+        "required": [
+          "amount_rub"
+        ],
+        "title": "BalanceAdjustRequest",
+        "type": "object"
+      },
+      "BlockRequest": {
+        "properties": {
+          "blocked": {
+            "title": "Blocked",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "blocked"
+        ],
+        "title": "BlockRequest",
+        "type": "object"
+      },
+      "CampaignCreateRequest": {
+        "properties": {
+          "balance_bonus_kopeks": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Balance Bonus Kopeks",
+            "type": "integer"
+          },
+          "bonus_type": {
+            "pattern": "^(balance|subscription|none)$",
+            "title": "Bonus Type",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "start_parameter": {
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9_-]+$",
+            "title": "Start Parameter",
+            "type": "string"
+          },
+          "subscription_duration_days": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subscription Duration Days"
+          }
+        },
+        "required": [
+          "name",
+          "start_parameter",
+          "bonus_type"
+        ],
+        "title": "CampaignCreateRequest",
+        "type": "object"
+      },
+      "CampaignOut": {
+        "properties": {
+          "balance_bonus_kopeks": {
+            "title": "Balance Bonus Kopeks",
+            "type": "integer"
+          },
+          "bonus_type": {
+            "title": "Bonus Type",
+            "type": "string"
+          },
+          "deep_link": {
+            "title": "Deep Link",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "start_parameter": {
+            "title": "Start Parameter",
+            "type": "string"
+          },
+          "subscription_duration_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subscription Duration Days"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "start_parameter",
+          "bonus_type",
+          "balance_bonus_kopeks",
+          "subscription_duration_days",
+          "is_active",
+          "deep_link"
+        ],
+        "title": "CampaignOut",
+        "type": "object"
+      },
+      "CampaignStatsResponse": {
+        "properties": {
+          "conversion_percent": {
+            "title": "Conversion Percent",
+            "type": "number"
+          },
+          "paying_count": {
+            "title": "Paying Count",
+            "type": "integer"
+          },
+          "registrations_count": {
+            "title": "Registrations Count",
+            "type": "integer"
+          },
+          "revenue_kopeks": {
+            "title": "Revenue Kopeks",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "registrations_count",
+          "paying_count",
+          "conversion_percent",
+          "revenue_kopeks"
+        ],
+        "title": "CampaignStatsResponse",
+        "type": "object"
+      },
+      "CampaignUpdateRequest": {
+        "properties": {
+          "balance_bonus_kopeks": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Balance Bonus Kopeks"
+          },
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Active"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "subscription_duration_days": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subscription Duration Days"
+          }
+        },
+        "title": "CampaignUpdateRequest",
+        "type": "object"
+      },
+      "CohortOut": {
+        "properties": {
+          "cohort_month": {
+            "title": "Cohort Month",
+            "type": "string"
+          },
+          "revenue_per_user_by_month_offset": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Revenue Per User By Month Offset",
+            "type": "array"
+          },
+          "users_count": {
+            "title": "Users Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cohort_month",
+          "users_count",
+          "revenue_per_user_by_month_offset"
+        ],
+        "title": "CohortOut",
+        "type": "object"
+      },
+      "CohortsResponse": {
+        "properties": {
+          "cohorts": {
+            "items": {
+              "$ref": "#/components/schemas/CohortOut"
+            },
+            "title": "Cohorts",
+            "type": "array"
+          },
+          "max_months": {
+            "title": "Max Months",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "max_months",
+          "cohorts"
+        ],
+        "title": "CohortsResponse",
+        "type": "object"
+      },
+      "ConnectAppOut": {
+        "properties": {
+          "blocks": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectBlockOut"
+            },
+            "title": "Blocks",
+            "type": "array"
+          },
+          "featured": {
+            "title": "Featured",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "featured",
+          "blocks"
+        ],
+        "title": "ConnectAppOut",
+        "type": "object"
+      },
+      "ConnectAppsResponse": {
+        "properties": {
+          "platforms": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectPlatformOut"
+            },
+            "title": "Platforms",
+            "type": "array"
+          }
+        },
+        "required": [
+          "platforms"
+        ],
+        "title": "ConnectAppsResponse",
+        "type": "object"
+      },
+      "ConnectBlockOut": {
+        "description": "Один шаг инструкции (\"Установка приложения\", \"Предупреждение\", ...) —\nрендерится как шаг вертикального таймлайна, см. app/external/remnawave/base.py.",
+        "properties": {
+          "buttons": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectButtonOut"
+            },
+            "title": "Buttons",
+            "type": "array"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "icon_color": {
+            "title": "Icon Color",
+            "type": "string"
+          },
+          "icon_key": {
+            "title": "Icon Key",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "description",
+          "icon_key",
+          "icon_color",
+          "buttons"
+        ],
+        "title": "ConnectBlockOut",
+        "type": "object"
+      },
+      "ConnectButtonOut": {
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "label",
+          "url"
+        ],
+        "title": "ConnectButtonOut",
+        "type": "object"
+      },
+      "ConnectPlatformOut": {
+        "properties": {
+          "apps": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectAppOut"
+            },
+            "title": "Apps",
+            "type": "array"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "apps"
+        ],
+        "title": "ConnectPlatformOut",
+        "type": "object"
+      },
+      "DashboardResponse": {
+        "properties": {
+          "balance_kopeks": {
+            "title": "Balance Kopeks",
+            "type": "integer"
+          },
+          "is_admin": {
+            "title": "Is Admin",
+            "type": "boolean"
+          },
+          "subscription": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubscriptionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "balance_kopeks",
+          "subscription",
+          "is_admin"
+        ],
+        "title": "DashboardResponse",
+        "type": "object"
+      },
+      "DeviceOut": {
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "device_model": {
+            "title": "Device Model",
+            "type": "string"
+          },
+          "hwid": {
+            "title": "Hwid",
+            "type": "string"
+          },
+          "platform": {
+            "title": "Platform",
+            "type": "string"
+          }
+        },
+        "required": [
+          "hwid",
+          "platform",
+          "device_model",
+          "created_at"
+        ],
+        "title": "DeviceOut",
+        "type": "object"
+      },
+      "GiftPurchaseRequest": {
+        "properties": {
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "period_days": {
+            "title": "Period Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "period_days",
+          "method"
+        ],
+        "title": "GiftPurchaseRequest",
+        "type": "object"
+      },
+      "GiftPurchaseResponse": {
+        "properties": {
+          "gift_link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gift Link"
+          },
+          "payment_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Url"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "GiftPurchaseResponse",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "InfraBillingNodeOut": {
+        "properties": {
+          "next_billing_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Billing At"
+          },
+          "node_name": {
+            "title": "Node Name",
+            "type": "string"
+          },
+          "node_uuid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Uuid"
+          },
+          "provider_name": {
+            "title": "Provider Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "node_uuid",
+          "node_name",
+          "provider_name",
+          "next_billing_at"
+        ],
+        "title": "InfraBillingNodeOut",
+        "type": "object"
+      },
+      "InfraBillingOut": {
+        "properties": {
+          "current_month_payments": {
+            "title": "Current Month Payments",
+            "type": "number"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/InfraBillingNodeOut"
+            },
+            "title": "Nodes",
+            "type": "array"
+          },
+          "total_spent": {
+            "title": "Total Spent",
+            "type": "number"
+          },
+          "upcoming_nodes_count": {
+            "title": "Upcoming Nodes Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total_spent",
+          "current_month_payments",
+          "upcoming_nodes_count",
+          "nodes"
+        ],
+        "title": "InfraBillingOut",
+        "type": "object"
+      },
+      "LanguageRequest": {
+        "properties": {
+          "language": {
+            "title": "Language",
+            "type": "string"
+          }
+        },
+        "required": [
+          "language"
+        ],
+        "title": "LanguageRequest",
+        "type": "object"
+      },
+      "LanguageResponse": {
+        "properties": {
+          "language": {
+            "title": "Language",
+            "type": "string"
+          }
+        },
+        "required": [
+          "language"
+        ],
+        "title": "LanguageResponse",
+        "type": "object"
+      },
+      "LtvResponse": {
+        "properties": {
+          "arpu_kopeks": {
+            "title": "Arpu Kopeks",
+            "type": "integer"
+          },
+          "avg_ltv_paying_kopeks": {
+            "title": "Avg Ltv Paying Kopeks",
+            "type": "integer"
+          },
+          "median_ltv_kopeks": {
+            "title": "Median Ltv Kopeks",
+            "type": "integer"
+          },
+          "paying_users_count": {
+            "title": "Paying Users Count",
+            "type": "integer"
+          },
+          "top_payers": {
+            "items": {
+              "$ref": "#/components/schemas/TopPayerOut"
+            },
+            "title": "Top Payers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "arpu_kopeks",
+          "avg_ltv_paying_kopeks",
+          "median_ltv_kopeks",
+          "paying_users_count",
+          "top_payers"
+        ],
+        "title": "LtvResponse",
+        "type": "object"
+      },
+      "MassbanRequest": {
+        "properties": {
+          "telegram_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Telegram Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "telegram_ids"
+        ],
+        "title": "MassbanRequest",
+        "type": "object"
+      },
+      "MassbanResponse": {
+        "properties": {
+          "blocked_count": {
+            "title": "Blocked Count",
+            "type": "integer"
+          },
+          "requested_count": {
+            "title": "Requested Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "blocked_count",
+          "requested_count"
+        ],
+        "title": "MassbanResponse",
+        "type": "object"
+      },
+      "MessageRequest": {
+        "properties": {
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "MessageRequest",
+        "type": "object"
+      },
+      "MonitoringResponse": {
+        "properties": {
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/NodeMetricOut"
+            },
+            "title": "Nodes",
+            "type": "array"
+          },
+          "panel": {
+            "$ref": "#/components/schemas/PanelStatsOut"
+          }
+        },
+        "required": [
+          "panel",
+          "nodes"
+        ],
+        "title": "MonitoringResponse",
+        "type": "object"
+      },
+      "NetProfitOut": {
+        "properties": {
+          "cost_all_time": {
+            "title": "Cost All Time",
+            "type": "number"
+          },
+          "cost_this_month": {
+            "title": "Cost This Month",
+            "type": "number"
+          },
+          "net_profit_all_time": {
+            "title": "Net Profit All Time",
+            "type": "number"
+          },
+          "net_profit_this_month": {
+            "title": "Net Profit This Month",
+            "type": "number"
+          },
+          "revenue_all_time": {
+            "title": "Revenue All Time",
+            "type": "number"
+          },
+          "revenue_this_month": {
+            "title": "Revenue This Month",
+            "type": "number"
+          }
+        },
+        "required": [
+          "revenue_all_time",
+          "cost_all_time",
+          "net_profit_all_time",
+          "revenue_this_month",
+          "cost_this_month",
+          "net_profit_this_month"
+        ],
+        "title": "NetProfitOut",
+        "type": "object"
+      },
+      "NodeDetailOut": {
+        "properties": {
+          "address": {
+            "title": "Address",
+            "type": "string"
+          },
+          "consumption_multiplier": {
+            "title": "Consumption Multiplier",
+            "type": "number"
+          },
+          "country_code": {
+            "title": "Country Code",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "is_connected": {
+            "title": "Is Connected",
+            "type": "boolean"
+          },
+          "is_connecting": {
+            "title": "Is Connecting",
+            "type": "boolean"
+          },
+          "is_disabled": {
+            "title": "Is Disabled",
+            "type": "boolean"
+          },
+          "last_status_change": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Status Change"
+          },
+          "last_status_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Status Message"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "notify_percent": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notify Percent"
+          },
+          "port": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Port"
+          },
+          "provider_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Name"
+          },
+          "system": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "System"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "traffic_limit_gb": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Traffic Limit Gb"
+          },
+          "traffic_reset_day": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Traffic Reset Day"
+          },
+          "traffic_used_gb": {
+            "title": "Traffic Used Gb",
+            "type": "number"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "users_online": {
+            "title": "Users Online",
+            "type": "integer"
+          },
+          "uuid": {
+            "title": "Uuid",
+            "type": "string"
+          },
+          "versions": {
+            "$ref": "#/components/schemas/NodeVersionsOut"
+          },
+          "xray_uptime_seconds": {
+            "title": "Xray Uptime Seconds",
+            "type": "number"
+          }
+        },
+        "required": [
+          "uuid",
+          "name",
+          "country_code",
+          "is_connected",
+          "is_disabled",
+          "traffic_used_gb",
+          "address",
+          "port",
+          "is_connecting",
+          "users_online",
+          "xray_uptime_seconds",
+          "last_status_change",
+          "last_status_message",
+          "traffic_limit_gb",
+          "traffic_reset_day",
+          "notify_percent",
+          "consumption_multiplier",
+          "tags",
+          "note",
+          "provider_name",
+          "versions",
+          "system",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "NodeDetailOut",
+        "type": "object"
+      },
+      "NodeMetricOut": {
+        "properties": {
+          "inbound_stats": {
+            "items": {
+              "$ref": "#/components/schemas/NodeMetricStat"
+            },
+            "title": "Inbound Stats",
+            "type": "array"
+          },
+          "node_name": {
+            "title": "Node Name",
+            "type": "string"
+          },
+          "node_uuid": {
+            "title": "Node Uuid",
+            "type": "string"
+          },
+          "outbound_stats": {
+            "items": {
+              "$ref": "#/components/schemas/NodeMetricStat"
+            },
+            "title": "Outbound Stats",
+            "type": "array"
+          },
+          "users_online": {
+            "title": "Users Online",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "node_uuid",
+          "node_name",
+          "users_online",
+          "inbound_stats",
+          "outbound_stats"
+        ],
+        "title": "NodeMetricOut",
+        "type": "object"
+      },
+      "NodeMetricStat": {
+        "properties": {
+          "download": {
+            "title": "Download",
+            "type": "string"
+          },
+          "tag": {
+            "title": "Tag",
+            "type": "string"
+          },
+          "upload": {
+            "title": "Upload",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tag",
+          "upload",
+          "download"
+        ],
+        "title": "NodeMetricStat",
+        "type": "object"
+      },
+      "NodeOut": {
+        "properties": {
+          "country_code": {
+            "title": "Country Code",
+            "type": "string"
+          },
+          "is_connected": {
+            "title": "Is Connected",
+            "type": "boolean"
+          },
+          "is_disabled": {
+            "title": "Is Disabled",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "traffic_used_gb": {
+            "title": "Traffic Used Gb",
+            "type": "number"
+          },
+          "uuid": {
+            "title": "Uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "uuid",
+          "name",
+          "country_code",
+          "is_connected",
+          "is_disabled",
+          "traffic_used_gb"
+        ],
+        "title": "NodeOut",
+        "type": "object"
+      },
+      "NodeVersionsOut": {
+        "properties": {
+          "node": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node"
+          },
+          "xray": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Xray"
+          }
+        },
+        "required": [
+          "xray",
+          "node"
+        ],
+        "title": "NodeVersionsOut",
+        "type": "object"
+      },
+      "OverviewResponse": {
+        "properties": {
+          "active_subscriptions": {
+            "title": "Active Subscriptions",
+            "type": "integer"
+          },
+          "arr_kopeks": {
+            "title": "Arr Kopeks",
+            "type": "integer"
+          },
+          "avg_check_kopeks": {
+            "title": "Avg Check Kopeks",
+            "type": "integer"
+          },
+          "churn_percent_30d": {
+            "title": "Churn Percent 30D",
+            "type": "number"
+          },
+          "conversion_percent": {
+            "title": "Conversion Percent",
+            "type": "number"
+          },
+          "mrr_kopeks": {
+            "title": "Mrr Kopeks",
+            "type": "integer"
+          },
+          "new_paying_subscriptions_today": {
+            "title": "New Paying Subscriptions Today",
+            "type": "integer"
+          },
+          "new_users_7d": {
+            "title": "New Users 7D",
+            "type": "integer"
+          },
+          "paying_subscriptions": {
+            "title": "Paying Subscriptions",
+            "type": "integer"
+          },
+          "paying_users_count": {
+            "title": "Paying Users Count",
+            "type": "integer"
+          },
+          "renewed_users_count": {
+            "title": "Renewed Users Count",
+            "type": "integer"
+          },
+          "revenue_30d_kopeks": {
+            "title": "Revenue 30D Kopeks",
+            "type": "integer"
+          },
+          "revenue_7d_kopeks": {
+            "title": "Revenue 7D Kopeks",
+            "type": "integer"
+          },
+          "revenue_all_time_kopeks": {
+            "title": "Revenue All Time Kopeks",
+            "type": "integer"
+          },
+          "revenue_today_kopeks": {
+            "title": "Revenue Today Kopeks",
+            "type": "integer"
+          },
+          "total_traffic_gb": {
+            "title": "Total Traffic Gb",
+            "type": "number"
+          },
+          "total_users": {
+            "title": "Total Users",
+            "type": "integer"
+          },
+          "trial_started_count": {
+            "title": "Trial Started Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revenue_today_kopeks",
+          "revenue_7d_kopeks",
+          "revenue_30d_kopeks",
+          "revenue_all_time_kopeks",
+          "active_subscriptions",
+          "paying_subscriptions",
+          "new_paying_subscriptions_today",
+          "total_users",
+          "new_users_7d",
+          "conversion_percent",
+          "avg_check_kopeks",
+          "mrr_kopeks",
+          "arr_kopeks",
+          "churn_percent_30d",
+          "total_traffic_gb",
+          "trial_started_count",
+          "paying_users_count",
+          "renewed_users_count"
+        ],
+        "title": "OverviewResponse",
+        "type": "object"
+      },
+      "PanelStatsOut": {
+        "properties": {
+          "cpu_cores": {
+            "title": "Cpu Cores",
+            "type": "integer"
+          },
+          "memory_total_bytes": {
+            "title": "Memory Total Bytes",
+            "type": "integer"
+          },
+          "memory_used_bytes": {
+            "title": "Memory Used Bytes",
+            "type": "integer"
+          },
+          "nodes_online": {
+            "title": "Nodes Online",
+            "type": "integer"
+          },
+          "nodes_total_bytes_lifetime": {
+            "title": "Nodes Total Bytes Lifetime",
+            "type": "integer"
+          },
+          "uptime_seconds": {
+            "title": "Uptime Seconds",
+            "type": "number"
+          },
+          "users_never_online": {
+            "title": "Users Never Online",
+            "type": "integer"
+          },
+          "users_online_last_day": {
+            "title": "Users Online Last Day",
+            "type": "integer"
+          },
+          "users_online_last_week": {
+            "title": "Users Online Last Week",
+            "type": "integer"
+          },
+          "users_online_now": {
+            "title": "Users Online Now",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cpu_cores",
+          "memory_used_bytes",
+          "memory_total_bytes",
+          "uptime_seconds",
+          "users_online_now",
+          "users_online_last_day",
+          "users_online_last_week",
+          "users_never_online",
+          "nodes_online",
+          "nodes_total_bytes_lifetime"
+        ],
+        "title": "PanelStatsOut",
+        "type": "object"
+      },
+      "PaymentMethodOut": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label"
+        ],
+        "title": "PaymentMethodOut",
+        "type": "object"
+      },
+      "PeriodOut": {
+        "properties": {
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "original_price_kopeks": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Price Kopeks"
+          },
+          "price_kopeks": {
+            "title": "Price Kopeks",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "days",
+          "label",
+          "price_kopeks"
+        ],
+        "title": "PeriodOut",
+        "type": "object"
+      },
+      "ProfileResponse": {
+        "properties": {
+          "balance_kopeks": {
+            "title": "Balance Kopeks",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "full_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Name"
+          },
+          "language": {
+            "title": "Language",
+            "type": "string"
+          },
+          "telegram_id": {
+            "title": "Telegram Id",
+            "type": "integer"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          }
+        },
+        "required": [
+          "telegram_id",
+          "username",
+          "full_name",
+          "language",
+          "balance_kopeks",
+          "created_at"
+        ],
+        "title": "ProfileResponse",
+        "type": "object"
+      },
+      "PromoCodeCreateRequest": {
+        "properties": {
+          "code": {
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "max_activations": {
+            "default": 1,
+            "exclusiveMinimum": 0.0,
+            "title": "Max Activations",
+            "type": "integer"
+          },
+          "type": {
+            "enum": [
+              "balance",
+              "days"
+            ],
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "exclusiveMinimum": 0.0,
+            "title": "Value",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "code",
+          "type",
+          "value"
+        ],
+        "title": "PromoCodeCreateRequest",
+        "type": "object"
+      },
+      "PromoCodeOut": {
+        "properties": {
+          "activations_count": {
+            "title": "Activations Count",
+            "type": "integer"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "max_activations": {
+            "title": "Max Activations",
+            "type": "integer"
+          },
+          "type": {
+            "enum": [
+              "balance",
+              "days"
+            ],
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "type",
+          "value",
+          "max_activations",
+          "activations_count",
+          "expires_at",
+          "is_active",
+          "created_at"
+        ],
+        "title": "PromoCodeOut",
+        "type": "object"
+      },
+      "PromoCodeRequest": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "PromoCodeRequest",
+        "type": "object"
+      },
+      "PromoCodeResponse": {
+        "properties": {
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "value"
+        ],
+        "title": "PromoCodeResponse",
+        "type": "object"
+      },
+      "PromoCodeUpdateRequest": {
+        "properties": {
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "is_active"
+        ],
+        "title": "PromoCodeUpdateRequest",
+        "type": "object"
+      },
+      "PromoGroupCreateRequest": {
+        "properties": {
+          "discount_percent": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Discount Percent",
+            "type": "integer"
+          },
+          "name": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "discount_percent"
+        ],
+        "title": "PromoGroupCreateRequest",
+        "type": "object"
+      },
+      "PromoGroupOut": {
+        "properties": {
+          "discount_percent": {
+            "title": "Discount Percent",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "users_count": {
+            "title": "Users Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "discount_percent",
+          "users_count"
+        ],
+        "title": "PromoGroupOut",
+        "type": "object"
+      },
+      "PromoGroupUpdateRequest": {
+        "properties": {
+          "discount_percent": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discount Percent"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "title": "PromoGroupUpdateRequest",
+        "type": "object"
+      },
+      "PurchaseRequest": {
+        "properties": {
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "period_days": {
+            "title": "Period Days",
+            "type": "integer"
+          },
+          "tariff_id": {
+            "title": "Tariff Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tariff_id",
+          "period_days",
+          "method"
+        ],
+        "title": "PurchaseRequest",
+        "type": "object"
+      },
+      "PurchaseResponse": {
+        "properties": {
+          "payment_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Url"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "subscription": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubscriptionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "PurchaseResponse",
+        "type": "object"
+      },
+      "RecentPaymentOut": {
+        "properties": {
+          "amount_kopeks": {
+            "title": "Amount Kopeks",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "full_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Name"
+          },
+          "telegram_id": {
+            "title": "Telegram Id",
+            "type": "integer"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "integer"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          }
+        },
+        "required": [
+          "user_id",
+          "telegram_id",
+          "username",
+          "full_name",
+          "amount_kopeks",
+          "type",
+          "created_at"
+        ],
+        "title": "RecentPaymentOut",
+        "type": "object"
+      },
+      "ReferralCommissionRequest": {
+        "properties": {
+          "commission_percent": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commission Percent"
+          }
+        },
+        "title": "ReferralCommissionRequest",
+        "type": "object"
+      },
+      "ReferralFunnelResponse": {
+        "properties": {
+          "conversion_percent": {
+            "title": "Conversion Percent",
+            "type": "number"
+          },
+          "referred_paying_count": {
+            "title": "Referred Paying Count",
+            "type": "integer"
+          },
+          "referred_users_count": {
+            "title": "Referred Users Count",
+            "type": "integer"
+          },
+          "top_referrers": {
+            "items": {
+              "$ref": "#/components/schemas/TopReferrerOut"
+            },
+            "title": "Top Referrers",
+            "type": "array"
+          },
+          "total_earnings_kopeks": {
+            "title": "Total Earnings Kopeks",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "referred_users_count",
+          "referred_paying_count",
+          "conversion_percent",
+          "total_earnings_kopeks",
+          "top_referrers"
+        ],
+        "title": "ReferralFunnelResponse",
+        "type": "object"
+      },
+      "ReferralResponse": {
+        "properties": {
+          "earned_kopeks": {
+            "title": "Earned Kopeks",
+            "type": "integer"
+          },
+          "invite_bonus_days": {
+            "title": "Invite Bonus Days",
+            "type": "integer"
+          },
+          "invited_count": {
+            "title": "Invited Count",
+            "type": "integer"
+          },
+          "percent": {
+            "title": "Percent",
+            "type": "integer"
+          },
+          "referral_link": {
+            "title": "Referral Link",
+            "type": "string"
+          }
+        },
+        "required": [
+          "referral_link",
+          "percent",
+          "invited_count",
+          "earned_kopeks",
+          "invite_bonus_days"
+        ],
+        "title": "ReferralResponse",
+        "type": "object"
+      },
+      "RevenueByProviderDayOut": {
+        "properties": {
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "values": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "provider",
+          "values"
+        ],
+        "title": "RevenueByProviderDayOut",
+        "type": "object"
+      },
+      "RevenueByProviderOut": {
+        "properties": {
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "revenue_kopeks": {
+            "title": "Revenue Kopeks",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "provider",
+          "revenue_kopeks"
+        ],
+        "title": "RevenueByProviderOut",
+        "type": "object"
+      },
+      "RevenueByTypeOut": {
+        "properties": {
+          "revenue_kopeks": {
+            "title": "Revenue Kopeks",
+            "type": "integer"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "revenue_kopeks"
+        ],
+        "title": "RevenueByTypeOut",
+        "type": "object"
+      },
+      "RevenueByWeekdayOut": {
+        "properties": {
+          "revenue_kopeks": {
+            "title": "Revenue Kopeks",
+            "type": "integer"
+          },
+          "weekday": {
+            "title": "Weekday",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "weekday",
+          "revenue_kopeks"
+        ],
+        "title": "RevenueByWeekdayOut",
+        "type": "object"
+      },
+      "RevenueCompositionResponse": {
+        "properties": {
+          "days": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Days",
+            "type": "array"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/RevenueByProviderDayOut"
+            },
+            "title": "Series",
+            "type": "array"
+          }
+        },
+        "required": [
+          "days",
+          "series"
+        ],
+        "title": "RevenueCompositionResponse",
+        "type": "object"
+      },
+      "RevenuePointOut": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "revenue_kopeks": {
+            "title": "Revenue Kopeks",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "date",
+          "revenue_kopeks",
+          "count"
+        ],
+        "title": "RevenuePointOut",
+        "type": "object"
+      },
+      "SalesBreakdownResponse": {
+        "properties": {
+          "active_subs_by_tariff": {
+            "items": {
+              "$ref": "#/components/schemas/ActiveSubsByTariffOut"
+            },
+            "title": "Active Subs By Tariff",
+            "type": "array"
+          },
+          "by_provider": {
+            "items": {
+              "$ref": "#/components/schemas/RevenueByProviderOut"
+            },
+            "title": "By Provider",
+            "type": "array"
+          },
+          "by_type": {
+            "items": {
+              "$ref": "#/components/schemas/RevenueByTypeOut"
+            },
+            "title": "By Type",
+            "type": "array"
+          },
+          "by_weekday": {
+            "items": {
+              "$ref": "#/components/schemas/RevenueByWeekdayOut"
+            },
+            "title": "By Weekday",
+            "type": "array"
+          }
+        },
+        "required": [
+          "by_type",
+          "by_provider",
+          "by_weekday",
+          "active_subs_by_tariff"
+        ],
+        "title": "SalesBreakdownResponse",
+        "type": "object"
+      },
+      "SetUserPromoGroupRequest": {
+        "properties": {
+          "promo_group_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promo Group Id"
+          }
+        },
+        "title": "SetUserPromoGroupRequest",
+        "type": "object"
+      },
+      "SubscriptionDaysAdjustRequest": {
+        "properties": {
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "days"
+        ],
+        "title": "SubscriptionDaysAdjustRequest",
+        "type": "object"
+      },
+      "SubscriptionListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AdminSubscriptionListItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "total_pages": {
+            "title": "Total Pages",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "total_pages"
+        ],
+        "title": "SubscriptionListResponse",
+        "type": "object"
+      },
+      "SubscriptionOut": {
+        "properties": {
+          "device_limit": {
+            "title": "Device Limit",
+            "type": "integer"
+          },
+          "end_date": {
+            "format": "date-time",
+            "title": "End Date",
+            "type": "string"
+          },
+          "is_trial": {
+            "title": "Is Trial",
+            "type": "boolean"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "subscription_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subscription Url"
+          },
+          "tariff_id": {
+            "title": "Tariff Id",
+            "type": "integer"
+          },
+          "tariff_name": {
+            "title": "Tariff Name",
+            "type": "string"
+          },
+          "traffic_limit_gb": {
+            "title": "Traffic Limit Gb",
+            "type": "integer"
+          },
+          "traffic_used_gb": {
+            "title": "Traffic Used Gb",
+            "type": "number"
+          }
+        },
+        "required": [
+          "status",
+          "end_date",
+          "traffic_limit_gb",
+          "traffic_used_gb",
+          "device_limit",
+          "subscription_url",
+          "tariff_id",
+          "tariff_name",
+          "is_trial"
+        ],
+        "title": "SubscriptionOut",
+        "type": "object"
+      },
+      "SubscriptionPulseOut": {
+        "properties": {
+          "expiring_24h": {
+            "title": "Expiring 24H",
+            "type": "integer"
+          },
+          "expiring_3d": {
+            "title": "Expiring 3D",
+            "type": "integer"
+          },
+          "new_today": {
+            "title": "New Today",
+            "type": "integer"
+          },
+          "renewals_today": {
+            "title": "Renewals Today",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "new_today",
+          "renewals_today",
+          "expiring_24h",
+          "expiring_3d"
+        ],
+        "title": "SubscriptionPulseOut",
+        "type": "object"
+      },
+      "SupportMessageOut": {
+        "properties": {
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "direction": {
+            "title": "Direction",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "direction",
+          "body",
+          "created_at"
+        ],
+        "title": "SupportMessageOut",
+        "type": "object"
+      },
+      "SupportReplyRequest": {
+        "properties": {
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "SupportReplyRequest",
+        "type": "object"
+      },
+      "SupportThreadDetailResponse": {
+        "properties": {
+          "assigned_admin_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned Admin Name"
+          },
+          "full_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Name"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/SupportMessageOut"
+            },
+            "title": "Messages",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "telegram_id": {
+            "title": "Telegram Id",
+            "type": "integer"
+          },
+          "ticket_id": {
+            "title": "Ticket Id",
+            "type": "integer"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "integer"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "status",
+          "assigned_admin_name",
+          "user_id",
+          "telegram_id",
+          "username",
+          "full_name",
+          "messages"
+        ],
+        "title": "SupportThreadDetailResponse",
+        "type": "object"
+      },
+      "SupportThreadOut": {
+        "properties": {
+          "assigned_admin_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned Admin Name"
+          },
+          "full_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Name"
+          },
+          "last_message": {
+            "title": "Last Message",
+            "type": "string"
+          },
+          "last_message_at": {
+            "format": "date-time",
+            "title": "Last Message At",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "telegram_id": {
+            "title": "Telegram Id",
+            "type": "integer"
+          },
+          "ticket_id": {
+            "title": "Ticket Id",
+            "type": "integer"
+          },
+          "unread": {
+            "title": "Unread",
+            "type": "boolean"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "integer"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          }
+        },
+        "required": [
+          "ticket_id",
+          "status",
+          "assigned_admin_name",
+          "user_id",
+          "telegram_id",
+          "username",
+          "full_name",
+          "last_message",
+          "last_message_at",
+          "unread"
+        ],
+        "title": "SupportThreadOut",
+        "type": "object"
+      },
+      "SyncResultResponse": {
+        "properties": {
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "subscription": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AdminSubscriptionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "SyncResultResponse",
+        "type": "object"
+      },
+      "TariffChangePreviewResponse": {
+        "properties": {
+          "price_kopeks": {
+            "title": "Price Kopeks",
+            "type": "integer"
+          },
+          "remaining_days": {
+            "title": "Remaining Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "price_kopeks",
+          "remaining_days"
+        ],
+        "title": "TariffChangePreviewResponse",
+        "type": "object"
+      },
+      "TariffChangeRequest": {
+        "properties": {
+          "tariff_id": {
+            "title": "Tariff Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tariff_id"
+        ],
+        "title": "TariffChangeRequest",
+        "type": "object"
+      },
+      "TariffResponse": {
+        "properties": {
+          "device_limit": {
+            "title": "Device Limit",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "payment_methods": {
+            "items": {
+              "$ref": "#/components/schemas/PaymentMethodOut"
+            },
+            "title": "Payment Methods",
+            "type": "array"
+          },
+          "periods": {
+            "items": {
+              "$ref": "#/components/schemas/PeriodOut"
+            },
+            "title": "Periods",
+            "type": "array"
+          },
+          "traffic_limit_gb": {
+            "title": "Traffic Limit Gb",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "device_limit",
+          "traffic_limit_gb",
+          "periods",
+          "payment_methods"
+        ],
+        "title": "TariffResponse",
+        "type": "object"
+      },
+      "TariffsResponse": {
+        "properties": {
+          "balance_kopeks": {
+            "default": 0,
+            "title": "Balance Kopeks",
+            "type": "integer"
+          },
+          "discount_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discount Expires At"
+          },
+          "discount_percent": {
+            "default": 0,
+            "title": "Discount Percent",
+            "type": "integer"
+          },
+          "tariffs": {
+            "items": {
+              "$ref": "#/components/schemas/TariffResponse"
+            },
+            "title": "Tariffs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tariffs"
+        ],
+        "title": "TariffsResponse",
+        "type": "object"
+      },
+      "TopPayerOut": {
+        "properties": {
+          "full_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Name"
+          },
+          "telegram_id": {
+            "title": "Telegram Id",
+            "type": "integer"
+          },
+          "total_kopeks": {
+            "title": "Total Kopeks",
+            "type": "integer"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "integer"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          }
+        },
+        "required": [
+          "user_id",
+          "telegram_id",
+          "username",
+          "full_name",
+          "total_kopeks"
+        ],
+        "title": "TopPayerOut",
+        "type": "object"
+      },
+      "TopReferrerOut": {
+        "properties": {
+          "earnings_kopeks": {
+            "title": "Earnings Kopeks",
+            "type": "integer"
+          },
+          "full_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Name"
+          },
+          "referred_count": {
+            "title": "Referred Count",
+            "type": "integer"
+          },
+          "telegram_id": {
+            "title": "Telegram Id",
+            "type": "integer"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "integer"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          }
+        },
+        "required": [
+          "user_id",
+          "telegram_id",
+          "username",
+          "full_name",
+          "earnings_kopeks",
+          "referred_count"
+        ],
+        "title": "TopReferrerOut",
+        "type": "object"
+      },
+      "TransactionListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AdminTransactionListItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "total_pages": {
+            "title": "Total Pages",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "total_pages"
+        ],
+        "title": "TransactionListResponse",
+        "type": "object"
+      },
+      "TransactionOut": {
+        "properties": {
+          "amount_kopeks": {
+            "title": "Amount Kopeks",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "amount_kopeks",
+          "status",
+          "description",
+          "created_at"
+        ],
+        "title": "TransactionOut",
+        "type": "object"
+      },
+      "UserNodeTrafficOut": {
+        "properties": {
+          "country_code": {
+            "title": "Country Code",
+            "type": "string"
+          },
+          "node_name": {
+            "title": "Node Name",
+            "type": "string"
+          },
+          "node_uuid": {
+            "title": "Node Uuid",
+            "type": "string"
+          },
+          "total_bytes": {
+            "title": "Total Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "node_uuid",
+          "node_name",
+          "country_code",
+          "total_bytes"
+        ],
+        "title": "UserNodeTrafficOut",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "app__cabinet__admin_schemas__PaginatedTransactionsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AdminTransactionOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "total_pages": {
+            "title": "Total Pages",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "total_pages"
+        ],
+        "title": "PaginatedTransactionsResponse",
+        "type": "object"
+      },
+      "app__cabinet__schemas__PaginatedTransactionsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TransactionOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "total_pages": {
+            "title": "Total Pages",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "total_pages"
+        ],
+        "title": "PaginatedTransactionsResponse",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "title": "Bedolaga Cabinet API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/cabinet/admin/alerts": {
+      "get": {
+        "description": "\"Требует внимания\" на Обзоре (диалог 2026-09-01) — только то, что честно\nсчитается из уже имеющихся данных: без Prometheus/выдуманных источников,\nбез истории состояний (нет alert-таблицы — 'recovered' показать нечем,\nэто живой снимок сейчас, не журнал событий).",
+        "operationId": "alerts_cabinet_admin_alerts_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AlertOut"
+                  },
+                  "title": "Response Alerts Cabinet Admin Alerts Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Alerts"
+      }
+    },
+    "/cabinet/admin/campaigns": {
+      "get": {
+        "operationId": "list_campaigns_cabinet_admin_campaigns_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CampaignOut"
+                  },
+                  "title": "Response List Campaigns Cabinet Admin Campaigns Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Campaigns"
+      },
+      "post": {
+        "operationId": "create_campaign_cabinet_admin_campaigns_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CampaignCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Campaign"
+      }
+    },
+    "/cabinet/admin/campaigns/{campaign_id}": {
+      "delete": {
+        "operationId": "delete_campaign_cabinet_admin_campaigns__campaign_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "title": "Campaign Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Delete Campaign Cabinet Admin Campaigns  Campaign Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Campaign"
+      },
+      "patch": {
+        "operationId": "update_campaign_cabinet_admin_campaigns__campaign_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "title": "Campaign Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CampaignUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Campaign"
+      }
+    },
+    "/cabinet/admin/campaigns/{campaign_id}/stats": {
+      "get": {
+        "operationId": "campaign_stats_cabinet_admin_campaigns__campaign_id__stats_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "title": "Campaign Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignStatsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Campaign Stats"
+      }
+    },
+    "/cabinet/admin/cohorts": {
+      "get": {
+        "operationId": "cohorts_cabinet_admin_cohorts_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CohortsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cohorts"
+      }
+    },
+    "/cabinet/admin/infra-billing": {
+      "get": {
+        "operationId": "infra_billing_cabinet_admin_infra_billing_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InfraBillingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Infra Billing"
+      }
+    },
+    "/cabinet/admin/ltv": {
+      "get": {
+        "operationId": "ltv_cabinet_admin_ltv_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LtvResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Ltv"
+      }
+    },
+    "/cabinet/admin/monitoring": {
+      "get": {
+        "operationId": "monitoring_cabinet_admin_monitoring_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonitoringResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Monitoring"
+      }
+    },
+    "/cabinet/admin/net-profit": {
+      "get": {
+        "operationId": "net_profit_cabinet_admin_net_profit_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NetProfitOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Net Profit"
+      }
+    },
+    "/cabinet/admin/nodes": {
+      "get": {
+        "operationId": "nodes_cabinet_admin_nodes_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/NodeOut"
+                  },
+                  "title": "Response Nodes Cabinet Admin Nodes Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Nodes"
+      }
+    },
+    "/cabinet/admin/nodes/{node_uuid}": {
+      "get": {
+        "operationId": "node_detail_cabinet_admin_nodes__node_uuid__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node_uuid",
+            "required": true,
+            "schema": {
+              "title": "Node Uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeDetailOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Node Detail"
+      }
+    },
+    "/cabinet/admin/nodes/{node_uuid}/disable": {
+      "post": {
+        "operationId": "disable_node_cabinet_admin_nodes__node_uuid__disable_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node_uuid",
+            "required": true,
+            "schema": {
+              "title": "Node Uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Disable Node"
+      }
+    },
+    "/cabinet/admin/nodes/{node_uuid}/enable": {
+      "post": {
+        "operationId": "enable_node_cabinet_admin_nodes__node_uuid__enable_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node_uuid",
+            "required": true,
+            "schema": {
+              "title": "Node Uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Enable Node"
+      }
+    },
+    "/cabinet/admin/nodes/{node_uuid}/restart": {
+      "post": {
+        "operationId": "restart_node_cabinet_admin_nodes__node_uuid__restart_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node_uuid",
+            "required": true,
+            "schema": {
+              "title": "Node Uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Restart Node Cabinet Admin Nodes  Node Uuid  Restart Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Restart Node"
+      }
+    },
+    "/cabinet/admin/overview": {
+      "get": {
+        "operationId": "overview_cabinet_admin_overview_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Overview"
+      }
+    },
+    "/cabinet/admin/promo-codes": {
+      "get": {
+        "operationId": "list_promo_codes_cabinet_admin_promo_codes_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PromoCodeOut"
+                  },
+                  "title": "Response List Promo Codes Cabinet Admin Promo Codes Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Promo Codes"
+      },
+      "post": {
+        "operationId": "create_promo_code_cabinet_admin_promo_codes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromoCodeCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromoCodeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Promo Code"
+      }
+    },
+    "/cabinet/admin/promo-codes/{code_id}": {
+      "delete": {
+        "operationId": "delete_promo_code_cabinet_admin_promo_codes__code_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code_id",
+            "required": true,
+            "schema": {
+              "title": "Code Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Delete Promo Code Cabinet Admin Promo Codes  Code Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Promo Code"
+      },
+      "patch": {
+        "operationId": "update_promo_code_cabinet_admin_promo_codes__code_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code_id",
+            "required": true,
+            "schema": {
+              "title": "Code Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromoCodeUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromoCodeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Promo Code"
+      }
+    },
+    "/cabinet/admin/promo-groups": {
+      "get": {
+        "operationId": "list_promo_groups_cabinet_admin_promo_groups_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PromoGroupOut"
+                  },
+                  "title": "Response List Promo Groups Cabinet Admin Promo Groups Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Promo Groups"
+      },
+      "post": {
+        "operationId": "create_promo_group_cabinet_admin_promo_groups_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromoGroupCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromoGroupOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Promo Group"
+      }
+    },
+    "/cabinet/admin/promo-groups/{group_id}": {
+      "delete": {
+        "operationId": "delete_promo_group_cabinet_admin_promo_groups__group_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "title": "Group Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Delete Promo Group Cabinet Admin Promo Groups  Group Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Promo Group"
+      },
+      "patch": {
+        "operationId": "update_promo_group_cabinet_admin_promo_groups__group_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "group_id",
+            "required": true,
+            "schema": {
+              "title": "Group Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromoGroupUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromoGroupOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Promo Group"
+      }
+    },
+    "/cabinet/admin/recent-payments": {
+      "get": {
+        "operationId": "recent_payments_cabinet_admin_recent_payments_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RecentPaymentOut"
+                  },
+                  "title": "Response Recent Payments Cabinet Admin Recent Payments Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Recent Payments"
+      }
+    },
+    "/cabinet/admin/referrals": {
+      "get": {
+        "operationId": "referrals_cabinet_admin_referrals_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferralFunnelResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Referrals"
+      }
+    },
+    "/cabinet/admin/revenue-composition": {
+      "get": {
+        "operationId": "revenue_composition_cabinet_admin_revenue_composition_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 90,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevenueCompositionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Revenue Composition"
+      }
+    },
+    "/cabinet/admin/revenue-timeseries": {
+      "get": {
+        "operationId": "revenue_timeseries_cabinet_admin_revenue_timeseries_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 800,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RevenuePointOut"
+                  },
+                  "title": "Response Revenue Timeseries Cabinet Admin Revenue Timeseries Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Revenue Timeseries"
+      }
+    },
+    "/cabinet/admin/sales-breakdown": {
+      "get": {
+        "operationId": "sales_breakdown_cabinet_admin_sales_breakdown_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SalesBreakdownResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Sales Breakdown"
+      }
+    },
+    "/cabinet/admin/subscription-pulse": {
+      "get": {
+        "operationId": "subscription_pulse_cabinet_admin_subscription_pulse_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionPulseOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Subscription Pulse"
+      }
+    },
+    "/cabinet/admin/subscriptions": {
+      "get": {
+        "description": "Подписки по ВСЕМ пользователям (см. диалог 2026-09-01) — только наши\nданные (Subscription join Tariff/User), никаких обращений к Remnawave —\nтот же паттерн поиска/фильтра/пагинации, что list_users/list_transactions\nвыше.",
+        "operationId": "list_subscriptions_cabinet_admin_subscriptions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Query"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Subscriptions"
+      }
+    },
+    "/cabinet/admin/support/threads": {
+      "get": {
+        "operationId": "support_threads_cabinet_admin_support_threads_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SupportThreadOut"
+                  },
+                  "title": "Response Support Threads Cabinet Admin Support Threads Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Support Threads"
+      }
+    },
+    "/cabinet/admin/support/threads/{ticket_id}": {
+      "get": {
+        "operationId": "support_thread_detail_cabinet_admin_support_threads__ticket_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "title": "Ticket Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupportThreadDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Support Thread Detail"
+      }
+    },
+    "/cabinet/admin/support/threads/{ticket_id}/close": {
+      "post": {
+        "operationId": "support_thread_close_cabinet_admin_support_threads__ticket_id__close_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "title": "Ticket Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Support Thread Close Cabinet Admin Support Threads  Ticket Id  Close Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Support Thread Close"
+      }
+    },
+    "/cabinet/admin/support/threads/{ticket_id}/reopen": {
+      "post": {
+        "operationId": "support_thread_reopen_cabinet_admin_support_threads__ticket_id__reopen_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "title": "Ticket Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Support Thread Reopen Cabinet Admin Support Threads  Ticket Id  Reopen Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Support Thread Reopen"
+      }
+    },
+    "/cabinet/admin/support/threads/{ticket_id}/reply": {
+      "post": {
+        "operationId": "support_thread_reply_cabinet_admin_support_threads__ticket_id__reply_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "title": "Ticket Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupportReplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Support Thread Reply Cabinet Admin Support Threads  Ticket Id  Reply Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Support Thread Reply"
+      }
+    },
+    "/cabinet/admin/transactions": {
+      "get": {
+        "description": "Транзакции по ВСЕМ пользователям (см. диалог 2026-09-01) — раньше\nсписок был только внутри карточки одного юзера (user_transactions ниже,\nтот же PAGE_SIZE/паттерн пагинации, здесь плюс поиск/фильтры, портировано\nиз list_users выше).",
+        "operationId": "list_transactions_cabinet_admin_transactions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Query"
+            }
+          },
+          {
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Transactions"
+      }
+    },
+    "/cabinet/admin/transactions/platega-reconcile": {
+      "get": {
+        "description": "Сверка с личным кабинетом Platega (см. диалог 2026-09-01, \"решить вопрос\nпо транзакциям, я хочу их видеть\" — нашли эндпоинт по их документации,\nPOST /transaction/export/json, не было в коде раньше). Возвращает\n{recordId: status} за последние `days` — фронт сопоставляет по\nAdminTransactionListItem.payment_external_id (строки с provider!='platega'\nне сверяются вообще, у них нет external_id в этом пространстве). Лимит 31\nдень — реальный запрос к платёжному провайдеру с реальными боевыми\nключами, не листаем произвольно широкий диапазон по требованию фронта.",
+        "operationId": "platega_reconcile_cabinet_admin_transactions_platega_reconcile_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 7,
+              "maximum": 31,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Platega Reconcile Cabinet Admin Transactions Platega Reconcile Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Platega Reconcile"
+      }
+    },
+    "/cabinet/admin/transactions/{transaction_id}": {
+      "get": {
+        "description": "«Тело транзакции» по клику на строку в /transactions (см. диалог\n2026-09-01) — то же, что в списке, плюс Payment.raw_payload/\nprovider_raw_response, если у транзакции вообще есть Payment.",
+        "operationId": "transaction_detail_cabinet_admin_transactions__transaction_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "transaction_id",
+            "required": true,
+            "schema": {
+              "title": "Transaction Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminTransactionDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Transaction Detail"
+      }
+    },
+    "/cabinet/admin/users": {
+      "get": {
+        "operationId": "list_users_cabinet_admin_users_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Query"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "title": "Filter",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Users"
+      }
+    },
+    "/cabinet/admin/users/massban": {
+      "post": {
+        "operationId": "massban_cabinet_admin_users_massban_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MassbanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MassbanResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Massban"
+      }
+    },
+    "/cabinet/admin/users/{user_id}": {
+      "delete": {
+        "operationId": "delete_user_cabinet_admin_users__user_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Delete User Cabinet Admin Users  User Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete User"
+      },
+      "get": {
+        "operationId": "user_detail_cabinet_admin_users__user_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "User Detail"
+      }
+    },
+    "/cabinet/admin/users/{user_id}/balance": {
+      "post": {
+        "operationId": "adjust_balance_cabinet_admin_users__user_id__balance_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BalanceAdjustRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Adjust Balance"
+      }
+    },
+    "/cabinet/admin/users/{user_id}/block": {
+      "post": {
+        "operationId": "toggle_block_cabinet_admin_users__user_id__block_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BlockRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Toggle Block"
+      }
+    },
+    "/cabinet/admin/users/{user_id}/devices": {
+      "delete": {
+        "operationId": "reset_devices_cabinet_admin_users__user_id__devices_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Reset Devices Cabinet Admin Users  User Id  Devices Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Reset Devices"
+      },
+      "get": {
+        "operationId": "list_devices_cabinet_admin_users__user_id__devices_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DeviceOut"
+                  },
+                  "title": "Response List Devices Cabinet Admin Users  User Id  Devices Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Devices"
+      }
+    },
+    "/cabinet/admin/users/{user_id}/devices/{hwid}": {
+      "delete": {
+        "operationId": "remove_device_cabinet_admin_users__user_id__devices__hwid__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "hwid",
+            "required": true,
+            "schema": {
+              "title": "Hwid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Remove Device Cabinet Admin Users  User Id  Devices  Hwid  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Remove Device"
+      }
+    },
+    "/cabinet/admin/users/{user_id}/message": {
+      "post": {
+        "operationId": "message_user_cabinet_admin_users__user_id__message_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Message User Cabinet Admin Users  User Id  Message Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Message User"
+      }
+    },
+    "/cabinet/admin/users/{user_id}/promo-group": {
+      "post": {
+        "operationId": "set_user_promo_group_cabinet_admin_users__user_id__promo_group_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetUserPromoGroupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set User Promo Group"
+      }
+    },
+    "/cabinet/admin/users/{user_id}/referral-commission": {
+      "post": {
+        "operationId": "set_referral_commission_cabinet_admin_users__user_id__referral_commission_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReferralCommissionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Referral Commission"
+      }
+    },
+    "/cabinet/admin/users/{user_id}/subscription-days": {
+      "post": {
+        "description": "Продлить (days > 0) или сократить (days < 0) действующую подписку —\nвеб-аналог handlers/admin.py::cb_user_grant_sub, но произвольным числом\nдней вместо фиксированных периодов тарифа, и умеет сокращать (то, чего\nв боте нет вообще).\n\nis_trial подписки НЕ трогаем — ручная правка срока админом (в обе стороны)\nне делает пользователя ни \"оплатившим\", ни \"триальщиком\" сама по себе,\nсм. models.py::Subscription.is_trial и services/subscription_provisioning.py.",
+        "operationId": "adjust_subscription_days_cabinet_admin_users__user_id__subscription_days_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubscriptionDaysAdjustRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminUserDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Adjust Subscription Days"
+      }
+    },
+    "/cabinet/admin/users/{user_id}/sync/from-panel": {
+      "post": {
+        "description": "Панель — источник истины: подтягиваем трафик/срок/статус в БД.",
+        "operationId": "sync_from_panel_cabinet_admin_users__user_id__sync_from_panel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncResultResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Sync From Panel"
+      }
+    },
+    "/cabinet/admin/users/{user_id}/sync/to-panel": {
+      "post": {
+        "description": "БД — источник истины: прописываем срок/статус в панель.",
+        "operationId": "sync_to_panel_cabinet_admin_users__user_id__sync_to_panel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncResultResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Sync To Panel"
+      }
+    },
+    "/cabinet/admin/users/{user_id}/traffic-by-node": {
+      "get": {
+        "operationId": "user_traffic_by_node_cabinet_admin_users__user_id__traffic_by_node_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UserNodeTrafficOut"
+                  },
+                  "title": "Response User Traffic By Node Cabinet Admin Users  User Id  Traffic By Node Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "User Traffic By Node"
+      }
+    },
+    "/cabinet/admin/users/{user_id}/transactions": {
+      "get": {
+        "operationId": "user_transactions_cabinet_admin_users__user_id__transactions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__cabinet__admin_schemas__PaginatedTransactionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "User Transactions"
+      }
+    },
+    "/cabinet/auth/telegram": {
+      "post": {
+        "operationId": "auth_telegram_cabinet_auth_telegram_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Auth Telegram"
+      }
+    },
+    "/cabinet/connect-apps": {
+      "get": {
+        "description": "Список VPN-клиентов по платформам для кнопки \"Подключить VPN\" в Mini App —\nберётся из Subpage Builder панели Remnawave (RemnawaveClient.get_subscription_page_config),\nа не хардкодится на фронте (там были непроверенные/неверные url-схемы — см. ревью).\nПлейсхолдеры {{SUBSCRIPTION_LINK}}/{{USERNAME}} в deep-link'ах подставляются\nздесь же, под конкретного пользователя — фронт получает уже готовые ссылки.",
+        "operationId": "connect_apps_cabinet_connect_apps_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectAppsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Connect Apps"
+      }
+    },
+    "/cabinet/dashboard": {
+      "get": {
+        "operationId": "dashboard_cabinet_dashboard_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Dashboard"
+      }
+    },
+    "/cabinet/devices": {
+      "delete": {
+        "operationId": "reset_own_devices_cabinet_devices_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Reset Own Devices Cabinet Devices Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Reset Own Devices"
+      },
+      "get": {
+        "operationId": "devices_cabinet_devices_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DeviceOut"
+                  },
+                  "title": "Response Devices Cabinet Devices Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Devices"
+      }
+    },
+    "/cabinet/devices/{hwid}": {
+      "delete": {
+        "operationId": "remove_own_device_cabinet_devices__hwid__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "hwid",
+            "required": true,
+            "schema": {
+              "title": "Hwid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Remove Own Device Cabinet Devices  Hwid  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Remove Own Device"
+      }
+    },
+    "/cabinet/gift/purchase": {
+      "post": {
+        "description": "Купить подарочную подписку — использует тот же purchase_gift_subscription,\nчто и бот (handlers/gift.py::cb_choose_payment). Период/цены берутся из того\nже активного тарифа, что и обычная покупка (см. /cabinet/tariff — общий\nсписок периодов/способов оплаты подходит и для подарка).",
+        "operationId": "gift_purchase_cabinet_gift_purchase_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GiftPurchaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GiftPurchaseResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Gift Purchase"
+      }
+    },
+    "/cabinet/profile": {
+      "get": {
+        "description": "Профиль — открывается тапом по имени/аватарке в TopBar. Баланс здесь\nпоказывается ВПЕРВЫЕ во всём Mini App (раньше /cabinet/dashboard его уже\nотдавал, но фронт нигде не рендерил) — важно при переносе пользователей\nсо старого бота: у них уже есть ненулевой balance_kopeks, и он не должен\nбыть невидимым в новом интерфейсе.",
+        "operationId": "profile_cabinet_profile_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Profile"
+      }
+    },
+    "/cabinet/promocode/activate": {
+      "post": {
+        "description": "Тот же activate_promocode, что использует бот в /promo (handlers/promocode.py) —\nбизнес-логика не дублируется, здесь только HTTP-обёртка.",
+        "operationId": "promocode_activate_cabinet_promocode_activate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromoCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromoCodeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Promocode Activate"
+      }
+    },
+    "/cabinet/referral": {
+      "get": {
+        "description": "Реферальная ссылка/статистика для Mini App — то же самое, что показывает\nботу handlers/referral.py::cb_referral_menu (единый источник данных, просто\nдругая поверхность отображения).",
+        "operationId": "referral_cabinet_referral_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferralResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Referral"
+      }
+    },
+    "/cabinet/settings/language": {
+      "post": {
+        "description": "Тот же User.language, что переключает settings:lang: в самом боте\n(handlers/start.py::cb_settings_set_language) — один язык на оба интерфейса.",
+        "operationId": "set_language_cabinet_settings_language_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LanguageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LanguageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Language"
+      }
+    },
+    "/cabinet/subscription/purchase": {
+      "post": {
+        "operationId": "purchase_cabinet_subscription_purchase_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PurchaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PurchaseResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Purchase"
+      }
+    },
+    "/cabinet/tariff/change": {
+      "post": {
+        "operationId": "tariff_change_cabinet_tariff_change_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TariffChangeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Tariff Change"
+      }
+    },
+    "/cabinet/tariff/change-preview": {
+      "get": {
+        "operationId": "tariff_change_preview_cabinet_tariff_change_preview_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "tariff_id",
+            "required": true,
+            "schema": {
+              "title": "Tariff Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TariffChangePreviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Tariff Change Preview"
+      }
+    },
+    "/cabinet/tariffs": {
+      "get": {
+        "operationId": "tariffs_cabinet_tariffs_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TariffsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Tariffs"
+      }
+    },
+    "/cabinet/transactions": {
+      "get": {
+        "description": "История транзакций самого пользователя (пополнения/оплаты/реферальные\nначисления/возвраты) — self-service аналог admin_routes.py::user_transactions,\nно без права смотреть чужие.",
+        "operationId": "transactions_cabinet_transactions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__cabinet__schemas__PaginatedTransactionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Transactions"
+      }
+    },
+    "/cispay-webhook": {
+      "post": {
+        "description": "См. app/services/payment/cispay.py — cisPay подписывает СЫРОЕ тело\nHMAC-SHA256(X-Api-Key) в заголовке X-Signature, поэтому raw_body передаётся\nв verify_webhook отдельным keyword-параметром (payload одного re-serialize\nне даёт побайтовой гарантии совпадения).",
+        "operationId": "cispay_webhook_cispay_webhook_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Cispay Webhook"
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Health Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/platega-webhook": {
+      "get": {
+        "description": "Platega дёргает URL до сохранения при добавлении вебхука в личном\nкабинете — без 200 на GET сохранить адрес не даст.",
+        "operationId": "platega_health_platega_webhook_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Platega Health"
+      },
+      "post": {
+        "operationId": "platega_webhook_platega_webhook_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Platega Webhook"
+      }
+    }
+  }
+}
