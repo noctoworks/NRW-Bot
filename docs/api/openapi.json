@@ -780,6 +780,309 @@
         "title": "BlockRequest",
         "type": "object"
       },
+      "BroadcastButtonOut": {
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label"
+        ],
+        "title": "BroadcastButtonOut",
+        "type": "object"
+      },
+      "BroadcastCreateRequest": {
+        "properties": {
+          "buttons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Buttons",
+            "type": "array"
+          },
+          "media_file_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Media File Id"
+          },
+          "media_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Media Type"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target",
+          "text"
+        ],
+        "title": "BroadcastCreateRequest",
+        "type": "object"
+      },
+      "BroadcastListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BroadcastOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "total_pages": {
+            "title": "Total Pages",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "total_pages"
+        ],
+        "title": "BroadcastListResponse",
+        "type": "object"
+      },
+      "BroadcastOptionsResponse": {
+        "properties": {
+          "buttons": {
+            "items": {
+              "$ref": "#/components/schemas/BroadcastButtonOut"
+            },
+            "title": "Buttons",
+            "type": "array"
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/BroadcastTargetOut"
+            },
+            "title": "Targets",
+            "type": "array"
+          },
+          "tariffs": {
+            "items": {
+              "$ref": "#/components/schemas/BroadcastTariffOut"
+            },
+            "title": "Tariffs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "targets",
+          "tariffs",
+          "buttons"
+        ],
+        "title": "BroadcastOptionsResponse",
+        "type": "object"
+      },
+      "BroadcastOut": {
+        "properties": {
+          "admin_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Admin Name"
+          },
+          "blocked_count": {
+            "title": "Blocked Count",
+            "type": "integer"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "failed_count": {
+            "title": "Failed Count",
+            "type": "integer"
+          },
+          "has_media": {
+            "title": "Has Media",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "media_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Media Type"
+          },
+          "sent_count": {
+            "title": "Sent Count",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "target_display_name": {
+            "title": "Target Display Name",
+            "type": "string"
+          },
+          "target_type": {
+            "title": "Target Type",
+            "type": "string"
+          },
+          "total_count": {
+            "title": "Total Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "target_type",
+          "target_display_name",
+          "total_count",
+          "sent_count",
+          "failed_count",
+          "blocked_count",
+          "has_media",
+          "media_type",
+          "admin_name",
+          "created_at",
+          "completed_at"
+        ],
+        "title": "BroadcastOut",
+        "type": "object"
+      },
+      "BroadcastPreviewRequest": {
+        "properties": {
+          "target": {
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target"
+        ],
+        "title": "BroadcastPreviewRequest",
+        "type": "object"
+      },
+      "BroadcastPreviewResponse": {
+        "properties": {
+          "recipient_count": {
+            "title": "Recipient Count",
+            "type": "integer"
+          },
+          "target_display_name": {
+            "title": "Target Display Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_display_name",
+          "recipient_count"
+        ],
+        "title": "BroadcastPreviewResponse",
+        "type": "object"
+      },
+      "BroadcastTargetOut": {
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "recipient_count": {
+            "title": "Recipient Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "recipient_count"
+        ],
+        "title": "BroadcastTargetOut",
+        "type": "object"
+      },
+      "BroadcastTariffOut": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "recipient_count": {
+            "title": "Recipient Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "recipient_count"
+        ],
+        "title": "BroadcastTariffOut",
+        "type": "object"
+      },
       "CampaignCreateRequest": {
         "properties": {
           "balance_bonus_kopeks": {
@@ -3798,6 +4101,249 @@
           }
         ],
         "summary": "Alerts"
+      }
+    },
+    "/cabinet/admin/broadcasts/": {
+      "get": {
+        "operationId": "list_broadcasts_cabinet_admin_broadcasts__get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BroadcastListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Broadcasts"
+      },
+      "post": {
+        "operationId": "create_broadcast_cabinet_admin_broadcasts__post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BroadcastCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BroadcastOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Broadcast"
+      }
+    },
+    "/cabinet/admin/broadcasts/options": {
+      "get": {
+        "operationId": "get_options_cabinet_admin_broadcasts_options_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BroadcastOptionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Options"
+      }
+    },
+    "/cabinet/admin/broadcasts/preview": {
+      "post": {
+        "operationId": "preview_broadcast_cabinet_admin_broadcasts_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BroadcastPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BroadcastPreviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Preview Broadcast"
+      }
+    },
+    "/cabinet/admin/broadcasts/{broadcast_id}": {
+      "get": {
+        "operationId": "get_broadcast_cabinet_admin_broadcasts__broadcast_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "broadcast_id",
+            "required": true,
+            "schema": {
+              "title": "Broadcast Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BroadcastOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Broadcast"
+      }
+    },
+    "/cabinet/admin/broadcasts/{broadcast_id}/cancel": {
+      "post": {
+        "operationId": "cancel_broadcast_route_cabinet_admin_broadcasts__broadcast_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "broadcast_id",
+            "required": true,
+            "schema": {
+              "title": "Broadcast Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Cancel Broadcast Route Cabinet Admin Broadcasts  Broadcast Id  Cancel Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cancel Broadcast Route"
       }
     },
     "/cabinet/admin/campaigns": {

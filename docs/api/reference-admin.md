@@ -74,6 +74,13 @@
   - [POST `/cabinet/admin/notifications/templates/{key}/preview`](#post-cabinet-admin-notifications-templates-key-preview) — Предпросмотр
   - [POST `/cabinet/admin/notifications/templates/{key}/test`](#post-cabinet-admin-notifications-templates-key-test) — Отправить тест мне
   - [GET `/cabinet/admin/notifications/emoji`](#get-cabinet-admin-notifications-emoji) — Кастомные эмодзи
+- **Рассылки**
+  - [GET `/cabinet/admin/broadcasts/options`](#get-cabinet-admin-broadcasts-options) — Данные для формы рассылки
+  - [POST `/cabinet/admin/broadcasts/preview`](#post-cabinet-admin-broadcasts-preview) — Предпросмотр аудитории
+  - [GET `/cabinet/admin/broadcasts/`](#get-cabinet-admin-broadcasts) — История рассылок
+  - [POST `/cabinet/admin/broadcasts/`](#post-cabinet-admin-broadcasts) — Запустить рассылку
+  - [GET `/cabinet/admin/broadcasts/{broadcast_id}`](#get-cabinet-admin-broadcasts-broadcast-id) — Статус рассылки
+  - [POST `/cabinet/admin/broadcasts/{broadcast_id}/cancel`](#post-cabinet-admin-broadcasts-broadcast-id-cancel) — Остановить рассылку
 
 ## Аналитика
 
@@ -1783,5 +1790,171 @@ Deep-link кампании с бонусом для новых пользова�
 |---|---|
 | 401 | Требуется авторизация / невалидный или истёкший токен |
 | 403 | Требуются права администратора / пользователь заблокирован |
+
+---
+
+## Рассылки
+
+### GET `/cabinet/admin/broadcasts/options` — Данные для формы рассылки
+<a id="get-cabinet-admin-broadcasts-options"></a>
+
+Категории аудитории и тарифы с live-счётчиком получателей, список доступных кнопок-конструктора.
+
+**Доступ:** администратор (`Authorization: Bearer`)
+
+**Ответ 200:** [BroadcastOptionsResponse](schemas.md#schema-broadcastoptionsresponse)
+
+**Ошибки**
+
+| Код | Когда |
+|---|---|
+| 401 | Требуется авторизация / невалидный или истёкший токен |
+| 403 | Требуются права администратора / пользователь заблокирован |
+
+---
+
+### POST `/cabinet/admin/broadcasts/preview` — Предпросмотр аудитории
+<a id="post-cabinet-admin-broadcasts-preview"></a>
+
+Название категории и число получателей без запуска рассылки. `400`, если `target` не входит в известные категории и не `tariff:<id>` существующего тарифа.
+
+**Доступ:** администратор (`Authorization: Bearer`)
+
+**Тело запроса** (JSON): [BroadcastPreviewRequest](schemas.md#schema-broadcastpreviewrequest)
+
+| Поле | Тип | Обязательное | Примечание |
+|---|---|---|---|
+| `target` | string | да |  |
+
+Заготовка (только обязательные поля, значения — заглушки по типу):
+
+```json
+{
+  "target": "string"
+}
+```
+
+**Ответ 200:** [BroadcastPreviewResponse](schemas.md#schema-broadcastpreviewresponse)
+
+**Ошибки**
+
+| Код | Когда |
+|---|---|
+| 401 | Требуется авторизация / невалидный или истёкший токен |
+| 403 | Требуются права администратора / пользователь заблокирован |
+| 422 | Ошибка валидации параметров или тела запроса |
+
+---
+
+### GET `/cabinet/admin/broadcasts/` — История рассылок
+<a id="get-cabinet-admin-broadcasts"></a>
+
+Постранично, новые сверху.
+
+**Доступ:** администратор (`Authorization: Bearer`)
+
+**Параметры**
+
+| Имя | Где | Тип | Обязательный | Примечание |
+|---|---|---|---|---|
+| `page` | query | integer | нет | ≥ 1, по умолчанию `1` |
+
+**Ответ 200:** [BroadcastListResponse](schemas.md#schema-broadcastlistresponse)
+
+**Ошибки**
+
+| Код | Когда |
+|---|---|
+| 401 | Требуется авторизация / невалидный или истёкший токен |
+| 403 | Требуются права администратора / пользователь заблокирован |
+| 422 | Ошибка валидации параметров или тела запроса |
+
+---
+
+### POST `/cabinet/admin/broadcasts/` — Запустить рассылку
+<a id="post-cabinet-admin-broadcasts"></a>
+
+Создаёт запись и запускает отправку ФОНОВОЙ задачей — ответ `202` сразу, прогресс через `GET .../{id}`. Не более одной рассылки одновременно: `409`, если уже есть `in_progress`. `media_file_id` — Telegram file_id, полученный где-то ещё (загрузка файла через API не поддерживается). `400` при неизвестной аудитории/типе медиа/кнопке.
+
+**Доступ:** администратор (`Authorization: Bearer`)
+
+**Тело запроса** (JSON): [BroadcastCreateRequest](schemas.md#schema-broadcastcreaterequest)
+
+| Поле | Тип | Обязательное | Примечание |
+|---|---|---|---|
+| `target` | string | да |  |
+| `text` | string | да | длина ≥ 1, длина ≤ 4000 |
+| `media_type` | string \| null | нет |  |
+| `media_file_id` | string \| null | нет |  |
+| `buttons` | string[] | нет |  |
+
+Заготовка (только обязательные поля, значения — заглушки по типу):
+
+```json
+{
+  "target": "string",
+  "text": "string"
+}
+```
+
+**Ответ 200:** —
+
+**Ошибки**
+
+| Код | Когда |
+|---|---|
+| 401 | Требуется авторизация / невалидный или истёкший токен |
+| 403 | Требуются права администратора / пользователь заблокирован |
+| 422 | Ошибка валидации параметров или тела запроса |
+
+---
+
+### GET `/cabinet/admin/broadcasts/{broadcast_id}` — Статус рассылки
+<a id="get-cabinet-admin-broadcasts-broadcast-id"></a>
+
+Для опроса прогресса: `total_count`/`sent_count`/`failed_count`/`blocked_count`, `status` (`in_progress`/`completed`/`partial`/`cancelled`/`interrupted`).
+
+**Доступ:** администратор (`Authorization: Bearer`)
+
+**Параметры**
+
+| Имя | Где | Тип | Обязательный | Примечание |
+|---|---|---|---|---|
+| `broadcast_id` | path | integer | да |  |
+
+**Ответ 200:** [BroadcastOut](schemas.md#schema-broadcastout)
+
+**Ошибки**
+
+| Код | Когда |
+|---|---|
+| 401 | Требуется авторизация / невалидный или истёкший токен |
+| 403 | Требуются права администратора / пользователь заблокирован |
+| 422 | Ошибка валидации параметров или тела запроса |
+
+---
+
+### POST `/cabinet/admin/broadcasts/{broadcast_id}/cancel` — Остановить рассылку
+<a id="post-cabinet-admin-broadcasts-broadcast-id-cancel"></a>
+
+Не откатывает уже отправленные сообщения — останавливает перед следующей пачкой. `409`, если рассылка уже не `in_progress`.
+
+**Доступ:** администратор (`Authorization: Bearer`)
+
+**Параметры**
+
+| Имя | Где | Тип | Обязательный | Примечание |
+|---|---|---|---|---|
+| `broadcast_id` | path | integer | да |  |
+
+**Ответ 200:** —
+
+**Ошибки**
+
+| Код | Когда |
+|---|---|
+| 401 | Требуется авторизация / невалидный или истёкший токен |
+| 403 | Требуются права администратора / пользователь заблокирован |
+| 422 | Ошибка валидации параметров или тела запроса |
 
 ---

@@ -18,6 +18,15 @@
 - [AuthResponse](#schema-authresponse)
 - [BalanceAdjustRequest](#schema-balanceadjustrequest)
 - [BlockRequest](#schema-blockrequest)
+- [BroadcastButtonOut](#schema-broadcastbuttonout)
+- [BroadcastCreateRequest](#schema-broadcastcreaterequest)
+- [BroadcastListResponse](#schema-broadcastlistresponse)
+- [BroadcastOptionsResponse](#schema-broadcastoptionsresponse)
+- [BroadcastOut](#schema-broadcastout)
+- [BroadcastPreviewRequest](#schema-broadcastpreviewrequest)
+- [BroadcastPreviewResponse](#schema-broadcastpreviewresponse)
+- [BroadcastTargetOut](#schema-broadcasttargetout)
+- [BroadcastTariffOut](#schema-broadcasttariffout)
 - [CampaignCreateRequest](#schema-campaigncreaterequest)
 - [CampaignOut](#schema-campaignout)
 - [CampaignStatsResponse](#schema-campaignstatsresponse)
@@ -296,6 +305,96 @@ analytics_service.get_overview::total_traffic_gb).
 | Поле | Тип | Обязательное | Примечание |
 |---|---|---|---|
 | `blocked` | boolean | да |  |
+
+## BroadcastButtonOut
+<a id="schema-broadcastbuttonout"></a>
+
+| Поле | Тип | Обязательное | Примечание |
+|---|---|---|---|
+| `key` | string | да |  |
+| `label` | string | да |  |
+
+## BroadcastCreateRequest
+<a id="schema-broadcastcreaterequest"></a>
+
+| Поле | Тип | Обязательное | Примечание |
+|---|---|---|---|
+| `target` | string | да |  |
+| `text` | string | да | длина ≥ 1, длина ≤ 4000 |
+| `media_type` | string \| null | нет |  |
+| `media_file_id` | string \| null | нет |  |
+| `buttons` | string[] | нет |  |
+
+## BroadcastListResponse
+<a id="schema-broadcastlistresponse"></a>
+
+| Поле | Тип | Обязательное | Примечание |
+|---|---|---|---|
+| `items` | [BroadcastOut](#schema-broadcastout)[] | да |  |
+| `total` | integer | да |  |
+| `page` | integer | да |  |
+| `total_pages` | integer | да |  |
+
+## BroadcastOptionsResponse
+<a id="schema-broadcastoptionsresponse"></a>
+
+| Поле | Тип | Обязательное | Примечание |
+|---|---|---|---|
+| `targets` | [BroadcastTargetOut](#schema-broadcasttargetout)[] | да |  |
+| `tariffs` | [BroadcastTariffOut](#schema-broadcasttariffout)[] | да |  |
+| `buttons` | [BroadcastButtonOut](#schema-broadcastbuttonout)[] | да |  |
+
+## BroadcastOut
+<a id="schema-broadcastout"></a>
+
+| Поле | Тип | Обязательное | Примечание |
+|---|---|---|---|
+| `id` | integer | да |  |
+| `status` | string | да |  |
+| `target_type` | string | да |  |
+| `target_display_name` | string | да |  |
+| `total_count` | integer | да |  |
+| `sent_count` | integer | да |  |
+| `failed_count` | integer | да |  |
+| `blocked_count` | integer | да |  |
+| `has_media` | boolean | да |  |
+| `media_type` | string \| null | да |  |
+| `admin_name` | string \| null | да |  |
+| `created_at` | string (date-time) | да |  |
+| `completed_at` | string (date-time) \| null | да |  |
+
+## BroadcastPreviewRequest
+<a id="schema-broadcastpreviewrequest"></a>
+
+| Поле | Тип | Обязательное | Примечание |
+|---|---|---|---|
+| `target` | string | да |  |
+
+## BroadcastPreviewResponse
+<a id="schema-broadcastpreviewresponse"></a>
+
+| Поле | Тип | Обязательное | Примечание |
+|---|---|---|---|
+| `target_display_name` | string | да |  |
+| `recipient_count` | integer | да |  |
+
+## BroadcastTargetOut
+<a id="schema-broadcasttargetout"></a>
+
+| Поле | Тип | Обязательное | Примечание |
+|---|---|---|---|
+| `key` | string | да |  |
+| `label` | string | да |  |
+| `recipient_count` | integer | да |  |
+
+## BroadcastTariffOut
+<a id="schema-broadcasttariffout"></a>
+
+| Поле | Тип | Обязательное | Примечание |
+|---|---|---|---|
+| `id` | integer | да |  |
+| `name` | string | да |  |
+| `recipient_count` | integer | да |  |
 
 ## CampaignCreateRequest
 <a id="schema-campaigncreaterequest"></a>

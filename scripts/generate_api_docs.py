@@ -214,6 +214,13 @@ add('DELETE', '/cabinet/admin/notifications/templates/{key}', 'Сбросить 
 add('POST', '/cabinet/admin/notifications/templates/{key}/preview', 'Предпросмотр', 'Рендерит текст с примерами переменных без сохранения; возвращает длину видимого текста и предупреждения (например, про кастомные эмодзи). Пустое тело — предпросмотр текущего текста.')
 add('POST', '/cabinet/admin/notifications/templates/{key}/test', 'Отправить тест мне', 'Отправляет предпросмотр вызвавшему админу в Telegram (с настоящей кнопкой, если она есть). `502` с текстом причины, если Telegram отклонил сообщение (например, недопустимое кастомное эмодзи).')
 add('GET', '/cabinet/admin/notifications/emoji', 'Кастомные эмодзи', 'Кастомные эмодзи из `app/emoji.py` с заданным ID — для вставки в текст.')
+# --- админка: рассылки
+add('GET', '/cabinet/admin/broadcasts/options', 'Данные для формы рассылки', 'Категории аудитории и тарифы с live-счётчиком получателей, список доступных кнопок-конструктора.')
+add('POST', '/cabinet/admin/broadcasts/preview', 'Предпросмотр аудитории', 'Название категории и число получателей без запуска рассылки. `400`, если `target` не входит в известные категории и не `tariff:<id>` существующего тарифа.')
+add('POST', '/cabinet/admin/broadcasts/', 'Запустить рассылку', 'Создаёт запись и запускает отправку ФОНОВОЙ задачей — ответ `202` сразу, прогресс через `GET .../{id}`. Не более одной рассылки одновременно: `409`, если уже есть `in_progress`. `media_file_id` — Telegram file_id, полученный где-то ещё (загрузка файла через API не поддерживается). `400` при неизвестной аудитории/типе медиа/кнопке.')
+add('GET', '/cabinet/admin/broadcasts/', 'История рассылок', 'Постранично, новые сверху.')
+add('GET', '/cabinet/admin/broadcasts/{broadcast_id}', 'Статус рассылки', 'Для опроса прогресса: `total_count`/`sent_count`/`failed_count`/`blocked_count`, `status` (`in_progress`/`completed`/`partial`/`cancelled`/`interrupted`).')
+add('POST', '/cabinet/admin/broadcasts/{broadcast_id}/cancel', 'Остановить рассылку', 'Не откатывает уже отправленные сообщения — останавливает перед следующей пачкой. `409`, если рассылка уже не `in_progress`.')
 # --- система
 add('GET', '/health', 'Проверка живости', 'Всегда `{"status": "ok"}`; базу данных и внешние сервисы не проверяет.')
 add('GET', '/platega-webhook', 'Проверка адреса вебхука Platega', 'Platega обращается к адресу при сохранении вебхука в кабинете — без `200` сохранить его нельзя.')
@@ -236,6 +243,7 @@ GROUPS_ADMIN = [
     ('Поддержка', ['/cabinet/admin/support/threads', '/cabinet/admin/support/threads/{ticket_id}', '/cabinet/admin/support/threads/{ticket_id}/reply', '/cabinet/admin/support/threads/{ticket_id}/close', '/cabinet/admin/support/threads/{ticket_id}/reopen']),
     ('Скидки, промокоды, кампании', ['/cabinet/admin/promo-groups', '/cabinet/admin/promo-groups/{group_id}', '/cabinet/admin/promo-codes', '/cabinet/admin/promo-codes/{code_id}', '/cabinet/admin/campaigns', '/cabinet/admin/campaigns/{campaign_id}', '/cabinet/admin/campaigns/{campaign_id}/stats']),
     ('Уведомления бота', ['/cabinet/admin/notifications/templates', '/cabinet/admin/notifications/templates/{key}', '/cabinet/admin/notifications/templates/{key}/preview', '/cabinet/admin/notifications/templates/{key}/test', '/cabinet/admin/notifications/emoji']),
+    ('Рассылки', ['/cabinet/admin/broadcasts/options', '/cabinet/admin/broadcasts/preview', '/cabinet/admin/broadcasts/', '/cabinet/admin/broadcasts/{broadcast_id}', '/cabinet/admin/broadcasts/{broadcast_id}/cancel']),
 ]
 GROUPS_SYSTEM = [('Служебные', ['/health', '/platega-webhook', '/cispay-webhook'])]
 
