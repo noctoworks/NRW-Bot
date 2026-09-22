@@ -64,7 +64,6 @@ from app.services.broadcast_service import (
     BROADCAST_TARGETS,
     DEFAULT_BROADCAST_BUTTONS,
 )
-from app.services.broadcast_service import result_keyboard as _broadcast_result_keyboard
 from app.services.broadcast_service import target_display_name as _broadcast_target_display_name
 from app.services.broadcast_service import target_users as _broadcast_target_users
 from app.states import AdminBroadcastStates, AdminEmojiStates, AdminPromoCodeStates, AdminTariffStates, AdminUserStates

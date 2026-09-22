@@ -128,6 +128,39 @@ def test_run_broadcast_now_waits_for_completion_and_returns_final_row(session_fa
     asyncio.run(scenario())
 
 
+def test_run_finalizes_as_failed_and_reraises_on_unexpected_crash(session_factory, monkeypatch):
+    """Ошибка за пределами send_one (например, в _commit_progress) не должна оставлять строку
+    в status='in_progress' навсегда — иначе single-flight проверка в _prepare_broadcast
+    блокирует любые новые рассылки до рестарта процесса (см. Fix 1)."""
+
+    async def scenario():
+        admin_id = await make_user(session_factory, telegram_id=1, is_admin=True)
+        await make_user(session_factory, telegram_id=2)
+        bot = AsyncMock()
+
+        monkeypatch.setattr(bs, 'PROGRESS_COMMIT_INTERVAL', 0.0)
+
+        async def boom(*args, **kwargs):
+            raise RuntimeError('db is down')
+
+        monkeypatch.setattr(bs, '_commit_progress', boom)
+
+        async with session_factory() as db:
+            admin = await db.get(User, admin_id)
+            with pytest.raises(RuntimeError, match='db is down'):
+                await bs.run_broadcast_now(db, bot, admin=admin, target='all', text='Упадёт')
+
+        async with session_factory() as db:
+            rows = (await db.execute(__import__('sqlalchemy').select(BroadcastHistory))).scalars().all()
+            assert len(rows) == 1
+            assert rows[0].status == 'failed'
+
+        # cancel-flag не должен зависать после сбоя — иначе Fix 3's guard ложно блокирует всё.
+        assert bs._cancel_flags == {}
+
+    asyncio.run(scenario())
+
+
 def test_mark_interrupted_broadcasts_marks_stale_in_progress_rows(session_factory):
     async def scenario():
         async with session_factory() as db:

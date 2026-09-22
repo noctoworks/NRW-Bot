@@ -124,6 +124,10 @@ ProgressCallback = Callable[[BroadcastHistory], Awaitable[None]]
 # не должна — см. mark_interrupted_broadcasts.
 _cancel_flags: dict[int, asyncio.Event] = {}
 
+# Сильные ссылки на фоновые задачи рассылок (start_broadcast) — без этого asyncio может собрать
+# задачу как мусор посреди выполнения (см. предупреждение в документации asyncio.create_task).
+_background_tasks: set[asyncio.Task] = set()
+
 
 class BroadcastAlreadyRunningError(Exception):
     """Уже есть рассылка со статусом in_progress — общий Telegram-лимит один на процесс."""
@@ -158,6 +162,12 @@ async def _prepare_broadcast(
     """Общая часть для start_broadcast/run_broadcast_now: проверка «одна рассылка одновременно»,
     подсчёт получателей, создание и коммит строки истории, регистрация флага отмены — ДО того,
     как первое сообщение уйдёт получателю."""
+    # Синхронная (без await) проверка in-memory реестра — закрывает TOCTOU-окно между SELECT
+    # ниже и INSERT+commit этой же функции при почти одновременном втором вызове; ноль стоимости
+    # (без лока и лишнего запроса). Проверку по БД оставляем — она ловит зависшую строку,
+    # пережившую рестарт процесса, до отработки mark_interrupted_broadcasts.
+    if _cancel_flags:
+        raise BroadcastAlreadyRunningError
     running = await db.execute(select(BroadcastHistory.id).where(BroadcastHistory.status == 'in_progress').limit(1))
     if running.scalar_one_or_none() is not None:
         raise BroadcastAlreadyRunningError
@@ -291,37 +301,51 @@ async def _run(
 
     last_commit = 0.0
     try:
-        for i in range(0, len(recipient_ids), BATCH_SIZE):
-            if cancel_event.is_set():
-                cancelled = True
-                break
-            batch = recipient_ids[i : i + BATCH_SIZE]
-            results = await asyncio.gather(*[send_one(tid) for tid in batch], return_exceptions=True)
-            for idx, result in enumerate(results):
-                if result == 'sent':
-                    sent += 1
-                elif result == 'blocked':
-                    blocked += 1
-                    blocked_ids.append(batch[idx])
-                else:
-                    failed += 1
+        try:
+            for i in range(0, len(recipient_ids), BATCH_SIZE):
+                if cancel_event.is_set():
+                    cancelled = True
+                    break
+                batch = recipient_ids[i : i + BATCH_SIZE]
+                results = await asyncio.gather(*[send_one(tid) for tid in batch], return_exceptions=True)
+                for idx, result in enumerate(results):
+                    if result == 'sent':
+                        sent += 1
+                    elif result == 'blocked':
+                        blocked += 1
+                        blocked_ids.append(batch[idx])
+                    else:
+                        failed += 1
 
-            now = asyncio.get_event_loop().time()
-            if now - last_commit >= PROGRESS_COMMIT_INTERVAL:
-                last_commit = now
-                history = await _commit_progress(history_id, sent=sent, failed=failed, blocked=blocked, db=db)
-                if on_progress is not None:
-                    await on_progress(history)
-            await asyncio.sleep(BATCH_DELAY)
+                now = asyncio.get_event_loop().time()
+                if now - last_commit >= PROGRESS_COMMIT_INTERVAL:
+                    last_commit = now
+                    history = await _commit_progress(history_id, sent=sent, failed=failed, blocked=blocked, db=db)
+                    if on_progress is not None:
+                        await on_progress(history)
+                await asyncio.sleep(BATCH_DELAY)
+
+            final_status = 'cancelled' if cancelled else ('completed' if failed == 0 and blocked == 0 else 'partial')
+            history = await _finalize(
+                history_id, sent=sent, failed=failed, blocked=blocked, blocked_ids=blocked_ids, status=final_status, db=db
+            )
+            log.info('broadcast_finished', history_id=history_id, status=final_status, sent=sent, failed=failed, blocked=blocked)
+            if on_progress is not None:
+                await on_progress(history)
+            return history
+        except Exception:
+            # Что угодно за пределами send_one (например, ошибка БД в _commit_progress) не должно
+            # оставлять строку в status='in_progress' навсегда — иначе single-flight проверка в
+            # _prepare_broadcast блокирует любые новые рассылки до рестарта процесса. На пути
+            # start_broadcast (fire-and-forget) исключение из этой задачи никто не ждёт, поэтому
+            # логируем его здесь же перед повторным поднятием.
+            log.exception('broadcast_run_crashed', history_id=history_id)
+            await _finalize(
+                history_id, sent=sent, failed=failed, blocked=blocked, blocked_ids=blocked_ids, status='failed', db=db
+            )
+            raise
     finally:
         _cancel_flags.pop(history_id, None)
-
-    final_status = 'cancelled' if cancelled else ('completed' if failed == 0 and blocked == 0 else 'partial')
-    history = await _finalize(history_id, sent=sent, failed=failed, blocked=blocked, blocked_ids=blocked_ids, status=final_status, db=db)
-    log.info('broadcast_finished', history_id=history_id, status=final_status, sent=sent, failed=failed, blocked=blocked)
-    if on_progress is not None:
-        await on_progress(history)
-    return history
 
 
 async def start_broadcast(
@@ -342,7 +366,7 @@ async def start_broadcast(
         db, admin=admin, target=target, text=text, media_type=media_type,
         media_file_id=media_file_id, selected_buttons=selected_buttons,
     )
-    asyncio.create_task(
+    task = asyncio.create_task(
         _run(
             bot, prepared.history.id, prepared.recipient_ids, text=text, media_type=media_type,
             media_file_id=media_file_id, reply_markup=prepared.reply_markup,
@@ -350,6 +374,8 @@ async def start_broadcast(
         ),
         name=f'broadcast-{prepared.history.id}',
     )
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
     return prepared.history
 
 
