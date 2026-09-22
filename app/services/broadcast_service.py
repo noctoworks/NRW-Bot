@@ -188,8 +188,10 @@ async def _prepare_broadcast(
     return _PreparedBroadcast(history=history, recipient_ids=recipient_ids, reply_markup=reply_markup, cancel_event=cancel_event)
 
 
-async def _commit_progress(history_id: int, *, sent: int, failed: int, blocked: int) -> BroadcastHistory:
-    async with AsyncSessionLocal() as db:
+async def _commit_progress(
+    history_id: int, *, sent: int, failed: int, blocked: int, db: AsyncSession | None = None
+) -> BroadcastHistory:
+    if db is not None:
         history = await db.get(BroadcastHistory, history_id)
         history.sent_count = sent
         history.failed_count = failed
@@ -197,12 +199,21 @@ async def _commit_progress(history_id: int, *, sent: int, failed: int, blocked: 
         await db.commit()
         await db.refresh(history)
         return history
+    async with AsyncSessionLocal() as session:
+        history = await session.get(BroadcastHistory, history_id)
+        history.sent_count = sent
+        history.failed_count = failed
+        history.blocked_count = blocked
+        await session.commit()
+        await session.refresh(history)
+        return history
 
 
 async def _finalize(
-    history_id: int, *, sent: int, failed: int, blocked: int, blocked_ids: list[int], status: str
+    history_id: int, *, sent: int, failed: int, blocked: int, blocked_ids: list[int], status: str,
+    db: AsyncSession | None = None,
 ) -> BroadcastHistory:
-    async with AsyncSessionLocal() as db:
+    if db is not None:
         if blocked_ids:
             await db.execute(update(User).where(User.telegram_id.in_(blocked_ids)).values(blocked_bot=True))
         history = await db.get(BroadcastHistory, history_id)
@@ -213,6 +224,18 @@ async def _finalize(
         history.completed_at = datetime.now(timezone.utc)
         await db.commit()
         await db.refresh(history)
+        return history
+    async with AsyncSessionLocal() as session:
+        if blocked_ids:
+            await session.execute(update(User).where(User.telegram_id.in_(blocked_ids)).values(blocked_bot=True))
+        history = await session.get(BroadcastHistory, history_id)
+        history.sent_count = sent
+        history.failed_count = failed
+        history.blocked_count = blocked
+        history.status = status
+        history.completed_at = datetime.now(timezone.utc)
+        await session.commit()
+        await session.refresh(history)
         return history
 
 
@@ -227,6 +250,7 @@ async def _run(
     reply_markup: InlineKeyboardMarkup | None,
     cancel_event: asyncio.Event,
     on_progress: ProgressCallback | None,
+    db: AsyncSession | None = None,
 ) -> BroadcastHistory:
     """Батчами по BATCH_SIZE с паузой BATCH_DELAY; ретрай на flood-control; заблокировавшие
     бота помечаются blocked_bot=True. Прогресс коммитится в БД каждые PROGRESS_COMMIT_INTERVAL
@@ -285,7 +309,7 @@ async def _run(
             now = asyncio.get_event_loop().time()
             if now - last_commit >= PROGRESS_COMMIT_INTERVAL:
                 last_commit = now
-                history = await _commit_progress(history_id, sent=sent, failed=failed, blocked=blocked)
+                history = await _commit_progress(history_id, sent=sent, failed=failed, blocked=blocked, db=db)
                 if on_progress is not None:
                     await on_progress(history)
             await asyncio.sleep(BATCH_DELAY)
@@ -293,7 +317,7 @@ async def _run(
         _cancel_flags.pop(history_id, None)
 
     final_status = 'cancelled' if cancelled else ('completed' if failed == 0 and blocked == 0 else 'partial')
-    history = await _finalize(history_id, sent=sent, failed=failed, blocked=blocked, blocked_ids=blocked_ids, status=final_status)
+    history = await _finalize(history_id, sent=sent, failed=failed, blocked=blocked, blocked_ids=blocked_ids, status=final_status, db=db)
     log.info('broadcast_finished', history_id=history_id, status=final_status, sent=sent, failed=failed, blocked=blocked)
     if on_progress is not None:
         await on_progress(history)
@@ -350,7 +374,7 @@ async def run_broadcast_now(
     return await _run(
         bot, prepared.history.id, prepared.recipient_ids, text=text, media_type=media_type,
         media_file_id=media_file_id, reply_markup=prepared.reply_markup,
-        cancel_event=prepared.cancel_event, on_progress=on_progress,
+        cancel_event=prepared.cancel_event, on_progress=on_progress, db=db,
     )
 
 
