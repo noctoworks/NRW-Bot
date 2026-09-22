@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.cabinet.admin_routes import router as admin_router
+from app.cabinet.broadcast_routes import router as broadcast_router
 from app.cabinet.notifications_routes import router as notifications_router
 from app.cabinet.routes import router
 from app.cabinet.webhooks import router as webhooks_router
@@ -66,6 +67,7 @@ def create_app(bot: Bot) -> FastAPI:
 
     app.include_router(router)
     app.include_router(admin_router)
+    app.include_router(broadcast_router)
     app.include_router(notifications_router)
     app.include_router(webhooks_router)
 
