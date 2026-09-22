@@ -53,6 +53,10 @@ async def main() -> None:
     await init_sqlite_pragmas()
     await _warn_if_no_active_tariff()
 
+    from app.services.broadcast_service import mark_interrupted_broadcasts
+
+    await mark_interrupted_broadcasts()
+
     bot, dp = await setup_bot()
 
     # === BACKGROUND TASKS (только agent:admin-support-notifications трогает этот блок) ===

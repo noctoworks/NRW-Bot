@@ -27,12 +27,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
 from aiogram import Dispatcher, F, Router
-from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
+from aiogram.exceptions import TelegramForbiddenError
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
@@ -1973,119 +1972,53 @@ async def cb_admin_broadcast_confirm(callback: CallbackQuery, db: AsyncSession, 
 
     await callback.answer('Рассылка запущена…')
     await _answer_or_edit(callback, '📨 Подготовка рассылки…', None)
-
-    users = await _broadcast_target_users(db, target)
-    recipient_ids = [u.telegram_id for u in users]
-
-    history = BroadcastHistory(
-        target_type=target,
-        message_text=text,
-        has_media=has_media,
-        media_type=media_type,
-        media_file_id=media_file_id,
-        total_count=len(recipient_ids),
-        admin_id=db_user.id,
-        admin_name=db_user.username or str(db_user.telegram_id),
-        status='in_progress',
-    )
-    db.add(history)
-    await db.commit()
-
-    reply_markup = _broadcast_result_keyboard(selected)
-
-    # Батчи по 25 с паузой 1с — те же параметры, что у Bedolaga (запас от лимита
-    # Telegram ~30 msg/sec для бота), с ретраем на FloodWait.
-    BATCH_SIZE = 25
-    BATCH_DELAY = 1.0
-    MAX_RETRIES = 3
-    flood_wait_until = 0.0
-
-    async def send_one(telegram_id: int) -> str:
-        nonlocal flood_wait_until
-        for attempt in range(MAX_RETRIES):
-            now = asyncio.get_event_loop().time()
-            if flood_wait_until > now:
-                await asyncio.sleep(flood_wait_until - now)
-            try:
-                if has_media and media_file_id:
-                    send_method = {
-                        'photo': callback.bot.send_photo,
-                        'video': callback.bot.send_video,
-                        'document': callback.bot.send_document,
-                    }[media_type]
-                    kwarg = {'photo': 'photo', 'video': 'video', 'document': 'document'}[media_type]
-                    if len(text) <= 1024:
-                        await send_method(chat_id=telegram_id, **{kwarg: media_file_id}, caption=text, reply_markup=reply_markup)
-                    else:
-                        await send_method(chat_id=telegram_id, **{kwarg: media_file_id})
-                        await callback.bot.send_message(chat_id=telegram_id, text=text, reply_markup=reply_markup)
-                else:
-                    await callback.bot.send_message(chat_id=telegram_id, text=text, reply_markup=reply_markup)
-                return 'sent'
-            except TelegramRetryAfter as exc:
-                flood_wait_until = asyncio.get_event_loop().time() + exc.retry_after + 1
-                await asyncio.sleep(exc.retry_after + 1)
-            except TelegramForbiddenError:
-                return 'blocked'
-            except Exception:
-                logger.debug('Ошибка отправки рассылки %s (попытка %s)', telegram_id, attempt + 1, exc_info=True)
-                if attempt < MAX_RETRIES - 1:
-                    await asyncio.sleep(0.5 * (attempt + 1))
-        return 'failed'
-
-    sent_count = failed_count = blocked_count = 0
-    blocked_ids: list[int] = []
-    last_progress = 0.0
     progress_message = callback.message
 
-    for batch_idx, i in enumerate(range(0, len(recipient_ids), BATCH_SIZE)):
-        batch = recipient_ids[i : i + BATCH_SIZE]
-        results = await asyncio.gather(*[send_one(tid) for tid in batch], return_exceptions=True)
-        for idx, result in enumerate(results):
-            if result == 'sent':
-                sent_count += 1
-            elif result == 'blocked':
-                blocked_count += 1
-                blocked_ids.append(batch[idx])
-            else:
-                failed_count += 1
+    async def on_progress(history: BroadcastHistory) -> None:
+        processed = history.sent_count + history.failed_count + history.blocked_count
+        percent = round(processed / history.total_count * 100, 1) if history.total_count else 100
+        filled = int(20 * processed / max(history.total_count, 1))
+        bar = '█' * filled + '░' * (20 - filled)
 
-        now = asyncio.get_event_loop().time()
-        if now - last_progress >= 5.0:
-            last_progress = now
-            processed = sent_count + failed_count + blocked_count
-            percent = round(processed / len(recipient_ids) * 100, 1) if recipient_ids else 100
-            bar = '█' * int(20 * processed / max(len(recipient_ids), 1)) + '░' * (20 - int(20 * processed / max(len(recipient_ids), 1)))
+        if history.status == 'in_progress':
             try:
                 await progress_message.edit_text(
                     f'📨 <b>Рассылка в процессе...</b>\n\n[{bar}] {percent}%\n\n'
-                    f'Отправлено: {sent_count} · Заблокировали: {blocked_count} · Ошибок: {failed_count}\n'
-                    f'Обработано: {processed}/{len(recipient_ids)}'
+                    f'Отправлено: {history.sent_count} · Заблокировали: {history.blocked_count} · Ошибок: {history.failed_count}\n'
+                    f'Обработано: {processed}/{history.total_count}'
                 )
             except Exception:
                 pass
-        await asyncio.sleep(BATCH_DELAY)
+            return
 
-    if blocked_ids:
-        await db.execute(update(User).where(User.telegram_id.in_(blocked_ids)).values(blocked_bot=True))
+        success_rate = round(history.sent_count / history.total_count * 100, 1) if history.total_count else 0
+        header = '⏹ <b>Рассылка остановлена.</b>' if history.status == 'cancelled' else '✅ <b>Рассылка завершена!</b>'
+        result_text = (
+            f'{header}\n\n📊 Отправлено: {history.sent_count}\n'
+            f'🚫 Заблокировали бота: {history.blocked_count}\n❌ Не доставлено: {history.failed_count}\n'
+            f'👥 Всего: {history.total_count}\n📈 Успешность: {success_rate}%'
+        )
+        try:
+            await progress_message.edit_text(result_text, reply_markup=_back_keyboard())
+        except Exception:
+            await callback.message.answer(result_text, reply_markup=_back_keyboard())
 
-    history.sent_count = sent_count
-    history.failed_count = failed_count
-    history.blocked_count = blocked_count
-    history.status = 'completed' if failed_count == 0 and blocked_count == 0 else 'partial'
-    history.completed_at = datetime.now(timezone.utc)
-    await db.commit()
-
-    success_rate = round(sent_count / len(recipient_ids) * 100, 1) if recipient_ids else 0
-    result_text = (
-        f'✅ <b>Рассылка завершена!</b>\n\n📊 Отправлено: {sent_count}\n'
-        f'🚫 Заблокировали бота: {blocked_count}\n❌ Не доставлено: {failed_count}\n'
-        f'👥 Всего: {len(recipient_ids)}\n📈 Успешность: {success_rate}%'
-    )
     try:
-        await progress_message.edit_text(result_text, reply_markup=_back_keyboard())
-    except Exception:
-        await callback.message.answer(result_text, reply_markup=_back_keyboard())
+        await broadcast_service.run_broadcast_now(
+            db,
+            callback.bot,
+            admin=db_user,
+            target=target,
+            text=text,
+            media_type=media_type if has_media else None,
+            media_file_id=media_file_id if has_media else None,
+            selected_buttons=selected,
+            on_progress=on_progress,
+        )
+    except broadcast_service.BroadcastAlreadyRunningError:
+        await progress_message.edit_text(
+            '⚠️ Уже выполняется другая рассылка — дождитесь её завершения.', reply_markup=_back_keyboard()
+        )
 
 
 @router.callback_query(F.data.startswith(CB_BROADCAST_HISTORY))
