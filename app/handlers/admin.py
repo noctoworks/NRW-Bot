@@ -57,6 +57,16 @@ from app.keyboards.main_menu import (
 from app.services.balance_service import adjust_balance_clamped
 from app.services.notification_service import notify_balance_changed
 from app.services.time_utils import business_day_start_utc
+from app.services import broadcast_service
+from app.services.broadcast_service import (
+    BROADCAST_BUTTON_ROWS,
+    BROADCAST_BUTTONS,
+    BROADCAST_TARGETS,
+    DEFAULT_BROADCAST_BUTTONS,
+)
+from app.services.broadcast_service import result_keyboard as _broadcast_result_keyboard
+from app.services.broadcast_service import target_display_name as _broadcast_target_display_name
+from app.services.broadcast_service import target_users as _broadcast_target_users
 from app.states import AdminBroadcastStates, AdminEmojiStates, AdminPromoCodeStates, AdminTariffStates, AdminUserStates
 
 logger = logging.getLogger(__name__)
@@ -1651,15 +1661,7 @@ async def cb_promo_list_page0(callback: CallbackQuery, db: AsyncSession, db_user
 #  - наша сессия БД живёт на весь хендлер (AuthMiddleware), поэтому не нужен
 #    трюк оригинала с извлечением скаляров "на случай смерти соединения".
 
-BROADCAST_TARGETS: dict[str, str] = {
-    'all': '👥 Всем',
-    'active': '📱 С подпиской',
-    'no_sub': '❌ Без подписки',
-    'expiring': '⏰ Истекающие',
-    'expired': '🔚 Истёкшие',
-}
-
-CB_BROADCAST_TARGET = 'broadcast:target:'  # + ключ из BROADCAST_TARGETS, либо tariff:<id>
+CB_BROADCAST_TARGET = 'broadcast:target:'  # + ключ из broadcast_service.BROADCAST_TARGETS, либо tariff:<id>
 CB_BROADCAST_TARGET_TARIFF_MENU = 'broadcast:target_tariff_menu'
 
 CB_BROADCAST_MEDIA = 'broadcast:media:'  # + photo|video|document|skip
@@ -1671,73 +1673,7 @@ CB_BROADCAST_BTN_CONTINUE = 'broadcast:btn_continue'
 
 CB_BROADCAST_HISTORY = 'broadcast:history:'  # + page
 
-# Кнопки-конструктор для тела рассылки — используют РЕАЛЬНЫЕ callback_data других
-# модулей (main_menu.py/referral.py/promocode.py/support.py): при клике по кнопке
-# в разосланном сообщении сработает штатный хендлер соответствующего модуля,
-# это не заглушки. 'balance'/'connect' у оригинала — не переносим, см. комментарий выше.
-BROADCAST_BUTTONS: dict[str, dict[str, str]] = {
-    'subscription': {'text': '📱 Моя подписка', 'callback': CB_SUBSCRIPTION_MY},
-    'renew': {'text': '💎 Продлить подписку', 'callback': CB_SUBSCRIPTION_RENEW},
-    'referrals': {'text': '🤝 Партнёрка', 'callback': CB_REFERRAL_MENU},
-    'promocode': {'text': '🎫 Промокод', 'callback': CB_PROMO_ENTER},
-    'support': {'text': '🛠️ Техподдержка', 'callback': CB_SUPPORT_MENU},
-    'home': {'text': '🏠 На главную', 'callback': CB_MENU_MAIN},
-}
-BROADCAST_BUTTON_ROWS: tuple[tuple[str, ...], ...] = (
-    ('subscription', 'renew'),
-    ('referrals', 'promocode'),
-    ('support',),
-    ('home',),
-)
-DEFAULT_BROADCAST_BUTTONS = ('home',)
-
 _BROADCAST_MEDIA_LABELS = {'photo': 'Фотография', 'video': 'Видео', 'document': 'Документ'}
-
-
-async def _broadcast_target_users(db: AsyncSession, target: str) -> list[User]:
-    """Единая функция и для счётчика (len(...)), и для реальной выборки —
-    см. комментарий в начале секции про то, почему это осознанно не два запроса."""
-    now = datetime.now(timezone.utc)
-
-    if target == 'all':
-        stmt = select(User)
-    elif target == 'active':
-        stmt = select(User).join(Subscription, Subscription.user_id == User.id).where(Subscription.status == 'active')
-    elif target == 'no_sub':
-        has_active = (
-            select(Subscription.id)
-            .where(Subscription.user_id == User.id, Subscription.status == 'active')
-            .correlate(User)
-            .exists()
-        )
-        stmt = select(User).where(~has_active)
-    elif target == 'expiring':
-        stmt = select(User).join(Subscription, Subscription.user_id == User.id).where(
-            Subscription.status == 'active',
-            Subscription.end_date <= now + timedelta(days=3),
-            Subscription.end_date > now,
-        )
-    elif target == 'expired':
-        stmt = select(User).join(Subscription, Subscription.user_id == User.id).where(Subscription.status == 'expired')
-    elif target.startswith('tariff:'):
-        tariff_id = int(target.split(':', 1)[1])
-        stmt = select(User).join(Subscription, Subscription.user_id == User.id).where(
-            Subscription.status == 'active', Subscription.tariff_id == tariff_id
-        )
-    else:
-        return []
-
-    result = await db.execute(stmt)
-    return list(result.scalars().unique().all())
-
-
-async def _broadcast_target_display_name(db: AsyncSession, target: str) -> str:
-    if target in BROADCAST_TARGETS:
-        return BROADCAST_TARGETS[target]
-    if target.startswith('tariff:'):
-        tariff = await db.get(Tariff, int(target.split(':', 1)[1]))
-        return f'Тариф «{tariff.name}»' if tariff else 'Тариф (удалён)'
-    return target
 
 
 def _broadcast_target_keyboard() -> InlineKeyboardMarkup:
@@ -1790,14 +1726,6 @@ def _broadcast_buttons_keyboard(selected: list[str]) -> InlineKeyboardMarkup:
             )
         rows.append(row)
     rows.append([InlineKeyboardButton(text='➡️ Продолжить', callback_data=CB_BROADCAST_BTN_CONTINUE)])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-def _broadcast_result_keyboard(selected: list[str]) -> InlineKeyboardMarkup | None:
-    ordered_keys = [k for row in BROADCAST_BUTTON_ROWS for k in row if k in selected]
-    if not ordered_keys:
-        return None
-    rows = [[InlineKeyboardButton(text=BROADCAST_BUTTONS[k]['text'], callback_data=BROADCAST_BUTTONS[k]['callback'])] for k in ordered_keys]
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
