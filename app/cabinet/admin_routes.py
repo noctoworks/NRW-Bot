@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 from aiogram.exceptions import TelegramForbiddenError
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -94,6 +94,16 @@ from app.services.subscription_provisioning import provision_or_extend_subscript
 router = APIRouter(prefix='/cabinet/admin')
 
 PAGE_SIZE = 20
+
+
+def _user_search_clause(stripped: str):
+    """Поиск пользователя в списках админки: число — точный Telegram ID, иначе подстрока в username ИЛИ в
+    имени (full_name). Регистр: на PostgreSQL ILIKE нечувствителен к регистру и для кириллицы, на SQLite
+    (dev/тесты) — только для ASCII."""
+    if stripped.isdigit():
+        return User.telegram_id == int(stripped)
+    pattern = f'%{stripped}%'
+    return or_(User.username.ilike(pattern), User.full_name.ilike(pattern))
 
 
 # === Аналитика =================================================================
@@ -328,7 +338,7 @@ async def list_subscriptions(
         list_stmt = list_stmt.where(Subscription.status == status_filter)
     if query:
         stripped = query.strip().lstrip('@')
-        search_clause = User.telegram_id == int(stripped) if stripped.isdigit() else User.username.ilike(f'%{stripped}%')
+        search_clause = _user_search_clause(stripped)
         count_stmt = count_stmt.where(search_clause)
         list_stmt = list_stmt.where(search_clause)
 
@@ -410,10 +420,7 @@ async def list_users(
 
     if query:
         stripped = query.strip().lstrip('@')
-        if stripped.isdigit():
-            search_clause = User.telegram_id == int(stripped)
-        else:
-            search_clause = User.username.ilike(f'%{stripped}%')
+        search_clause = _user_search_clause(stripped)
         count_stmt = count_stmt.where(search_clause)
         list_stmt = list_stmt.where(search_clause)
 
@@ -829,7 +836,7 @@ async def list_transactions(
         list_stmt = list_stmt.where(Transaction.status == status_filter)
     if query:
         stripped = query.strip().lstrip('@')
-        search_clause = User.telegram_id == int(stripped) if stripped.isdigit() else User.username.ilike(f'%{stripped}%')
+        search_clause = _user_search_clause(stripped)
         count_stmt = count_stmt.where(search_clause)
         list_stmt = list_stmt.where(search_clause)
 
