@@ -53,6 +53,8 @@ class EventDef:
 
 
 _AMOUNT = Variable('amount', 'Сумма в рублях числом, без знака ₽ (например 249.00)', '249.00')
+_DISCOUNT_PERCENT = Variable('discount_percent', 'Размер скидки в процентах числом, без знака % (например 20)', '20')
+_UNTIL = Variable('until', 'До какого момента действует скидка, по Москве (например «27.09 в 15:00 МСК»)', '27.09 в 15:00 МСК')
 
 EVENTS: tuple[EventDef, ...] = (
     EventDef(
@@ -96,6 +98,30 @@ EVENTS: tuple[EventDef, ...] = (
         title='Подписка истекла',
         trigger='Подписка закончилась',
         default_template='❌ Ваша подписка истекла. Продлите её в главном меню.',
+    ),
+    EventDef(
+        key='trial_ending',
+        group='Подписка',
+        title='Пробный период скоро закончится',
+        trigger='За 1 день до конца пробного периода, пока действует скидка (вместо обычного напоминания)',
+        default_template=(
+            '⏳ Пробный период заканчивается завтра. Оформите подписку со скидкой {discount_percent}% — '
+            'предложение действует до {until}.'
+        ),
+        variables=(_DISCOUNT_PERCENT, _UNTIL),
+        default_button_text='💎 Подключиться со скидкой',
+    ),
+    EventDef(
+        key='trial_expired',
+        group='Подписка',
+        title='Пробный период закончился',
+        trigger='Пробный период закончился, пока действует скидка (вместо «Подписка истекла»)',
+        default_template=(
+            '⌛ Пробный период закончился. Скидка {discount_percent}% на первую подписку ещё действует — '
+            'до {until}.'
+        ),
+        variables=(_DISCOUNT_PERCENT, _UNTIL),
+        default_button_text='💎 Подключиться со скидкой',
     ),
     EventDef(
         key='gift_redeemed',

@@ -10,9 +10,12 @@ referral_service.py (бонус рефереру), gift_service.py (подаро
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from aiogram import Bot
 
 from app.services.message_templates.service import send_templated
+from app.services.time_utils import MOSCOW_OFFSET
 
 
 def _rub(kopeks: int) -> str:
@@ -38,6 +41,26 @@ async def notify_subscription_expiring(bot: Bot, *, telegram_id: int, days_left:
 
 async def notify_subscription_expired(bot: Bot, *, telegram_id: int) -> None:
     await send_templated(bot, telegram_id=telegram_id, key='subscription_expired')
+
+
+def _until_moscow(deadline: datetime) -> str:
+    """Дедлайн скидки для текста: aware UTC -> «27.09 в 15:00 МСК» (Москва — UTC+3 круглый год)."""
+    moscow = deadline + MOSCOW_OFFSET
+    return f'{moscow:%d.%m} в {moscow:%H:%M} МСК'
+
+
+async def notify_trial_ending(bot: Bot, *, telegram_id: int, discount_percent: int, deadline: datetime) -> None:
+    """За день до конца триала, пока действует скидка (вместо notify_subscription_expiring для триальных)."""
+    await send_templated(
+        bot, telegram_id=telegram_id, key='trial_ending', discount_percent=discount_percent, until=_until_moscow(deadline)
+    )
+
+
+async def notify_trial_expired(bot: Bot, *, telegram_id: int, discount_percent: int, deadline: datetime) -> None:
+    """Триал закончился, скидка ещё действует (вместо notify_subscription_expired для триальных)."""
+    await send_templated(
+        bot, telegram_id=telegram_id, key='trial_expired', discount_percent=discount_percent, until=_until_moscow(deadline)
+    )
 
 
 async def notify_gift_redeemed_to_gifter(bot: Bot, *, gifter_telegram_id: int, recipient_username: str | None) -> None:

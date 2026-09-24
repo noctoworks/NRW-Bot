@@ -61,7 +61,8 @@ class TariffResponse(BaseModel):
 
 class TariffsResponse(BaseModel):
     tariffs: list[TariffResponse]
-    # Win-back скидка на первую покупку (см. pricing_service.get_trial_winback_discount) —
+    # Лучшая действующая скидка (см. pricing_service.get_best_discount), в том числе скидка триальному
+    # пользователю на первую покупку: 20% за 2 дня до конца триала и ещё 3 дня после него —
     # 0/None, если сейчас не действует. discount_expires_at — дедлайн для баннера на фронте.
     discount_percent: int = 0
     discount_expires_at: datetime | None = None

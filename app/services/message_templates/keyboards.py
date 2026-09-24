@@ -1,4 +1,5 @@
-"""Клавиатуры автоматических сообщений с кнопкой (winback, abandoned_payment, welcome_nudge).
+"""Клавиатуры автоматических сообщений с кнопкой (winback, abandoned_payment, welcome_nudge,
+trial_ending, trial_expired).
 
 Раньше жили в notification_service.py. Подпись кнопки приходит снаружи (заводская или правка владельца);
 кнопка ведёт в Mini App, а без MINIAPP_URL — на прежний callback чат-сценария."""
@@ -30,7 +31,7 @@ def _open_app_button(text: str) -> InlineKeyboardButton:
 def build_keyboard(key: str, label: str | None) -> InlineKeyboardMarkup | None:
     if label is None:
         return None
-    if key in ('winback', 'abandoned_payment'):
+    if key in ('winback', 'abandoned_payment', 'trial_ending', 'trial_expired'):
         return InlineKeyboardMarkup(inline_keyboard=[[_renew_button(label)]])
     if key == 'welcome_nudge':
         return InlineKeyboardMarkup(inline_keyboard=[[_open_app_button(label)]])

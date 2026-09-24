@@ -32,9 +32,12 @@ from app.services.notification_service import (
     notify_abandoned_payment,
     notify_subscription_expired,
     notify_subscription_expiring,
+    notify_trial_ending,
+    notify_trial_expired,
     notify_welcome_nudge,
     notify_winback,
 )
+from app.services.pricing_service import trial_discount_at
 
 logger = logging.getLogger(__name__)
 log = get_logger(__name__)
@@ -115,7 +118,15 @@ async def run_expiry_check_once(bot: Bot) -> None:
                     continue
             sub.status = 'expired'
             log.info('subscription_expired', user_id=user.id, subscription_id=sub.id)
-            await notify_subscription_expired(bot, telegram_id=user.telegram_id)
+            # Триальному пользователю, пока действует скидка, — сообщение со скидкой; окно могло уже
+            # закрыться (проверка истечения долго не работала) — тогда обычное уведомление.
+            discount_percent, deadline = trial_discount_at(sub, now)
+            if discount_percent:
+                await notify_trial_expired(
+                    bot, telegram_id=user.telegram_id, discount_percent=discount_percent, deadline=deadline
+                )
+            else:
+                await notify_subscription_expired(bot, telegram_id=user.telegram_id)
 
         # 2) напоминание за 3 дня
         result = await db.execute(
@@ -142,7 +153,13 @@ async def run_expiry_check_once(bot: Bot) -> None:
         )
         for sub in result.scalars():
             await db.refresh(sub, attribute_names=['user'])
-            await notify_subscription_expiring(bot, telegram_id=sub.user.telegram_id, days_left=1)
+            discount_percent, deadline = trial_discount_at(sub, now)
+            if discount_percent:  # триальный пользователь в окне скидки — то же напоминание, но со скидкой
+                await notify_trial_ending(
+                    bot, telegram_id=sub.user.telegram_id, discount_percent=discount_percent, deadline=deadline
+                )
+            else:
+                await notify_subscription_expiring(bot, telegram_id=sub.user.telegram_id, days_left=1)
             sub.reminder_1d_sent = True
 
         await db.commit()

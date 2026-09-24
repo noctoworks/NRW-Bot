@@ -22,29 +22,37 @@ from app.database.models import BotSetting, PromoGroup, Subscription, Tariff, Us
 SALE_DISCOUNT_PERCENT_KEY = 'sale_discount_percent'
 SALE_ENDS_AT_KEY = 'sale_ends_at'
 
-# Win-back-скидка на первую покупку тем, у кого только что закончился бесплатный
-# триал (см. диалог 2026-09-13, идея из разбора воронки конверсии MiniApp) —
-# 20% в течение 48 часов после истечения триала. is_trial остаётся True, пока
-# не пройдёт НАСТОЯЩАЯ оплата (см. subscription_provisioning.py) — значит
-# is_trial=True + status='expired' однозначно значит "ни разу не платил".
+# Скидка триальному пользователю на первую покупку (диалог 2026-09-13 — win-back после триала;
+# 2026-09-24 — окно расширено: скидка действует и в последние дни триала). 20% с момента «за
+# TRIAL_DISCOUNT_LEAD до конца триала» и до «TRIAL_WINBACK_WINDOW после его окончания». is_trial
+# остаётся True, пока не пройдёт НАСТОЯЩАЯ оплата (см. subscription_provisioning.py) — значит
+# is_trial=True + status in (active, expired) однозначно значит «ни разу не платил»: скидка
+# одноразовая на человека.
 TRIAL_WINBACK_DISCOUNT_PERCENT = 20
-TRIAL_WINBACK_WINDOW = timedelta(hours=48)
+TRIAL_DISCOUNT_LEAD = timedelta(days=2)  # сколько до конца триала скидка уже действует
+TRIAL_WINBACK_WINDOW = timedelta(days=3)  # сколько после конца триала она ещё действует
 
 
-async def get_trial_winback_discount(db: AsyncSession, user: User) -> tuple[int, datetime | None]:
-    """(процент, дедлайн) win-back скидки — (0, None), если не применима."""
-    result = await db.execute(select(Subscription).where(Subscription.user_id == user.id))
-    subscription = result.scalar_one_or_none()
-    if subscription is None or not subscription.is_trial or subscription.status != 'expired':
+def trial_discount_at(subscription: Subscription | None, now: datetime) -> tuple[int, datetime | None]:
+    """(процент, дедлайн) скидки триальному пользователю на момент `now` — (0, None), если не
+    применима. Чистая функция: без обращений к БД, поэтому её же используют фоновые уведомления
+    (тексты для триальных пользователей) и тесты границ окна. Дедлайн — конец триала плюс окно
+    после него, границы окна включительно."""
+    if subscription is None or not subscription.is_trial or subscription.status not in ('active', 'expired'):
         return 0, None
-
     end = subscription.end_date
     if end.tzinfo is None:
         end = end.replace(tzinfo=timezone.utc)
     deadline = end + TRIAL_WINBACK_WINDOW
-    if datetime.now(timezone.utc) > deadline:
+    if not (end - TRIAL_DISCOUNT_LEAD <= now <= deadline):
         return 0, None
     return TRIAL_WINBACK_DISCOUNT_PERCENT, deadline
+
+
+async def get_trial_winback_discount(db: AsyncSession, user: User) -> tuple[int, datetime | None]:
+    """(процент, дедлайн) скидки триальному пользователю — (0, None), если не применима."""
+    result = await db.execute(select(Subscription).where(Subscription.user_id == user.id))
+    return trial_discount_at(result.scalar_one_or_none(), datetime.now(timezone.utc))
 
 
 async def get_active_sale_discount(db: AsyncSession) -> tuple[int, datetime | None]:

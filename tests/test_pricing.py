@@ -14,6 +14,7 @@ from app.database.models import BotSetting, PromoGroup, Subscription, User
 from app.services.pricing_service import (
     SALE_DISCOUNT_PERCENT_KEY,
     SALE_ENDS_AT_KEY,
+    TRIAL_DISCOUNT_LEAD,
     TRIAL_WINBACK_DISCOUNT_PERCENT,
     TRIAL_WINBACK_WINDOW,
     apply_discount,
@@ -22,6 +23,7 @@ from app.services.pricing_service import (
     get_daily_price_kopeks,
     get_period_price_kopeks,
     get_trial_winback_discount,
+    trial_discount_at,
 )
 from tests.helpers import make_tariff, make_user
 
@@ -131,24 +133,59 @@ def _winback(session_factory, **kwargs):
     return asyncio.run(scenario())
 
 
-def test_winback_applies_within_window_after_trial_expired(session_factory):
+def test_discount_applies_within_window_after_trial_expired(session_factory):
     percent, deadline = _winback(session_factory, status='expired', is_trial=True, ended_ago=timedelta(hours=1))
 
     assert percent == TRIAL_WINBACK_DISCOUNT_PERCENT
-    assert timedelta(hours=46) < deadline - NOW() < TRIAL_WINBACK_WINDOW
+    assert timedelta(days=2, hours=22) < deadline - NOW() < TRIAL_WINBACK_WINDOW
+
+
+def test_discount_applies_during_the_last_days_of_a_running_trial(session_factory):
+    percent, deadline = _winback(session_factory, status='active', is_trial=True, ended_ago=-timedelta(days=1))
+
+    assert percent == TRIAL_WINBACK_DISCOUNT_PERCENT
+    # дедлайн — конец триала + окно после него, а не конец триала
+    assert timedelta(days=3, hours=23) < deadline - NOW() < timedelta(days=1) + TRIAL_WINBACK_WINDOW
 
 
 @pytest.mark.parametrize(
     'kwargs',
     [
         dict(status='expired', is_trial=True, ended_ago=TRIAL_WINBACK_WINDOW + timedelta(hours=1)),  # окно закрылось
-        dict(status='active', is_trial=True, ended_ago=timedelta(hours=-5)),  # триал ещё идёт
+        dict(status='active', is_trial=True, ended_ago=-(TRIAL_DISCOUNT_LEAD + timedelta(hours=1))),  # окно ещё не открылось
+        dict(status='active', is_trial=True, ended_ago=-timedelta(days=5)),  # триал только начался
         dict(status='expired', is_trial=False, ended_ago=timedelta(hours=1)),  # уже платил
+        dict(status='active', is_trial=False, ended_ago=-timedelta(hours=5)),  # платный клиент в последние дни
+        dict(status='disabled', is_trial=True, ended_ago=timedelta(hours=1)),  # отключён администратором
     ],
-    ids=['window_closed', 'trial_still_active', 'was_paying_customer'],
+    ids=['window_closed', 'window_not_open_yet', 'trial_just_started', 'was_paying_customer', 'paying_customer_active', 'disabled'],
 )
-def test_winback_not_applicable(session_factory, kwargs):
+def test_discount_not_applicable(session_factory, kwargs):
     assert _winback(session_factory, **kwargs) == (0, None)
+
+
+def test_discount_window_boundaries_are_inclusive_and_exact():
+    end = datetime(2026, 9, 24, 12, 0, tzinfo=timezone.utc)
+    trial = Subscription(is_trial=True, status='active', end_date=end)
+    one_second = timedelta(seconds=1)
+
+    assert trial_discount_at(trial, end - TRIAL_DISCOUNT_LEAD) == (TRIAL_WINBACK_DISCOUNT_PERCENT, end + TRIAL_WINBACK_WINDOW)
+    assert trial_discount_at(trial, end - TRIAL_DISCOUNT_LEAD - one_second) == (0, None)
+    assert trial_discount_at(trial, end + TRIAL_WINBACK_WINDOW) == (TRIAL_WINBACK_DISCOUNT_PERCENT, end + TRIAL_WINBACK_WINDOW)
+    assert trial_discount_at(trial, end + TRIAL_WINBACK_WINDOW + one_second) == (0, None)
+
+
+def test_discount_window_lengths_are_two_days_before_and_three_days_after():
+    assert TRIAL_DISCOUNT_LEAD == timedelta(days=2)
+    assert TRIAL_WINBACK_WINDOW == timedelta(days=3)
+
+
+def test_discount_for_naive_datetimes_is_treated_as_utc():
+    """На SQLite даты приходят без часового пояса — окно считается по UTC."""
+    end = datetime(2026, 9, 24, 12, 0)  # naive
+    trial = Subscription(is_trial=True, status='expired', end_date=end)
+
+    assert trial_discount_at(trial, datetime(2026, 9, 25, tzinfo=timezone.utc))[0] == TRIAL_WINBACK_DISCOUNT_PERCENT
 
 
 def test_winback_without_subscription(session_factory):
