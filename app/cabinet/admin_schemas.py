@@ -130,6 +130,18 @@ class ReferralFunnelResponse(BaseModel):
     top_referrers: list[TopReferrerOut]
 
 
+class ReferralPointOut(BaseModel):
+    date: str  # YYYY-MM-DD (день по UTC)
+    invited: int
+    paid_first: int
+    earnings_kopeks: int
+
+
+class ReferralTimeseriesResponse(BaseModel):
+    days: int
+    points: list[ReferralPointOut]
+
+
 class AdminUserListItem(BaseModel):
     id: int
     telegram_id: int

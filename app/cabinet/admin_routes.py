@@ -53,6 +53,7 @@ from app.cabinet.admin_schemas import (
     RecentPaymentOut,
     ReferralCommissionRequest,
     ReferralFunnelResponse,
+    ReferralTimeseriesResponse,
     RevenuePointOut,
     RevenueCompositionResponse,
     SalesBreakdownResponse,
@@ -368,6 +369,13 @@ async def cohorts(db: AsyncSession = Depends(get_db), _admin: User = Depends(req
 @router.get('/referrals', response_model=ReferralFunnelResponse)
 async def referrals(db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)) -> dict:
     return await analytics_service.get_referral_funnel(db)
+
+
+@router.get('/referrals/timeseries', response_model=ReferralTimeseriesResponse)
+async def referrals_timeseries(
+    days: int = Query(30, ge=1, le=365), db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> dict:
+    return await analytics_service.get_referral_timeseries(db, days=days)
 
 
 # === Пользователи ==============================================================

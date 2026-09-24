@@ -15,6 +15,7 @@
   - [GET `/cabinet/admin/ltv`](#get-cabinet-admin-ltv) — LTV
   - [GET `/cabinet/admin/cohorts`](#get-cabinet-admin-cohorts) — Когорты
   - [GET `/cabinet/admin/referrals`](#get-cabinet-admin-referrals) — Реферальная воронка
+  - [GET `/cabinet/admin/referrals/timeseries`](#get-cabinet-admin-referrals-timeseries) — Динамика рефералов по дням
   - [GET `/cabinet/admin/net-profit`](#get-cabinet-admin-net-profit) — Чистая прибыль
 - **Инфраструктура**
   - [GET `/cabinet/admin/nodes`](#get-cabinet-admin-nodes) — Список нод
@@ -282,6 +283,31 @@ ARPU, средний и медианный LTV платящих, топ-20 пл�
 |---|---|
 | 401 | Требуется авторизация / невалидный или истёкший токен |
 | 403 | Требуются права администратора / пользователь заблокирован |
+
+---
+
+### GET `/cabinet/admin/referrals/timeseries` — Динамика рефералов по дням
+<a id="get-cabinet-admin-referrals-timeseries"></a>
+
+Ровно `days` точек (1–365, по умолчанию 30) по календарным дням UTC, по возрастанию, последняя — сегодня; дни без событий — нули. `invited` — зарегистрировавшиеся рефералы, `paid_first` — рефералы, чей ПЕРВЫЙ платёж (те же правила, что у `referred_paying_count`: подписка/подарок, завершён, не с баланса) пришёлся на этот день (каждый реферал считается один раз за всё время), `earnings_kopeks` — начисленные рефереру комиссии за день, в копейках. `422` при `days` вне 1–365.
+
+**Доступ:** администратор (`Authorization: Bearer`)
+
+**Параметры**
+
+| Имя | Где | Тип | Обязательный | Примечание |
+|---|---|---|---|---|
+| `days` | query | integer | нет | ≥ 1, ≤ 365, по умолчанию `30` |
+
+**Ответ 200:** [ReferralTimeseriesResponse](schemas.md#schema-referraltimeseriesresponse)
+
+**Ошибки**
+
+| Код | Когда |
+|---|---|
+| 401 | Требуется авторизация / невалидный или истёкший токен |
+| 403 | Требуются права администратора / пользователь заблокирован |
+| 422 | Ошибка валидации параметров или тела запроса |
 
 ---
 

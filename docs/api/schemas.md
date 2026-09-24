@@ -79,7 +79,9 @@
 - [RecentPaymentOut](#schema-recentpaymentout)
 - [ReferralCommissionRequest](#schema-referralcommissionrequest)
 - [ReferralFunnelResponse](#schema-referralfunnelresponse)
+- [ReferralPointOut](#schema-referralpointout)
 - [ReferralResponse](#schema-referralresponse)
+- [ReferralTimeseriesResponse](#schema-referraltimeseriesresponse)
 - [RevenueByProviderDayOut](#schema-revenuebyproviderdayout)
 - [RevenueByProviderOut](#schema-revenuebyproviderout)
 - [RevenueByTypeOut](#schema-revenuebytypeout)
@@ -927,6 +929,16 @@ analytics_service.get_overview::total_traffic_gb).
 | `total_earnings_kopeks` | integer | да |  |
 | `top_referrers` | [TopReferrerOut](#schema-topreferrerout)[] | да |  |
 
+## ReferralPointOut
+<a id="schema-referralpointout"></a>
+
+| Поле | Тип | Обязательное | Примечание |
+|---|---|---|---|
+| `date` | string | да |  |
+| `invited` | integer | да |  |
+| `paid_first` | integer | да |  |
+| `earnings_kopeks` | integer | да |  |
+
 ## ReferralResponse
 <a id="schema-referralresponse"></a>
 
@@ -937,6 +949,14 @@ analytics_service.get_overview::total_traffic_gb).
 | `invited_count` | integer | да |  |
 | `earned_kopeks` | integer | да |  |
 | `invite_bonus_days` | integer | да |  |
+
+## ReferralTimeseriesResponse
+<a id="schema-referraltimeseriesresponse"></a>
+
+| Поле | Тип | Обязательное | Примечание |
+|---|---|---|---|
+| `days` | integer | да |  |
+| `points` | [ReferralPointOut](#schema-referralpointout)[] | да |  |
 
 ## RevenueByProviderDayOut
 <a id="schema-revenuebyproviderdayout"></a>

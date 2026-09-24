@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import statistics
 from collections import defaultdict
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -462,6 +462,60 @@ async def get_referral_funnel(db: AsyncSession) -> dict:
         'total_earnings_kopeks': total_earnings_kopeks,
         'top_referrers': top_referrers,
     }
+
+
+async def get_referral_timeseries(db: AsyncSession, *, days: int = 30, now: datetime | None = None) -> dict:
+    """Динамика реферальной программы по календарным дням (UTC): ровно `days` точек по возрастанию,
+    последняя — сегодня, дни без событий — нули (в отличие от get_revenue_timeseries, у которого days+1
+    точек и скользящее окно: здесь окно начинается в 00:00 UTC первого дня, чтобы «+N за день/неделю/месяц»
+    считалось по целым дням).
+
+    - invited — рефералы (referred_by_id заполнен), зарегистрированные в этот день;
+    - paid_first — рефералы, чей ПЕРВЫЙ платёж пришёлся на этот день. «Платёж» — по тем же правилам, что
+      referred_paying_count в get_referral_funnel (REVENUE_TYPES, completed, не с баланса). Минимум по
+      Transaction.created_at берётся по ВСЕЙ истории пользователя, а не по окну: реферал, впервые заплативший
+      до окна, «первым» в окне не считается; каждый реферал учитывается не больше одного раза;
+    - earnings_kopeks — сумма ReferralEarning.amount_kopeks за день."""
+    today = (now or datetime.now(timezone.utc)).astimezone(timezone.utc).date()
+    first_day = today - timedelta(days=days - 1)
+    since = datetime.combine(first_day, time.min, tzinfo=timezone.utc)
+
+    invited: dict[date, int] = defaultdict(int)
+    invited_rows = await db.execute(select(User.created_at).where(User.referred_by_id.is_not(None), User.created_at >= since))
+    for (created_at,) in invited_rows.all():
+        invited[_as_utc(created_at).date()] += 1
+
+    first_payment = (
+        select(func.min(Transaction.created_at).label('first_at'))
+        .select_from(Transaction)
+        .join(User, User.id == Transaction.user_id)
+        .where(
+            User.referred_by_id.is_not(None),
+            Transaction.type.in_(REVENUE_TYPES),
+            Transaction.status == 'completed',
+            _NOT_BALANCE_FUNDED,
+        )
+        .group_by(Transaction.user_id)
+        .subquery()
+    )
+    paid_first: dict[date, int] = defaultdict(int)
+    for (first_at,) in (await db.execute(select(first_payment.c.first_at).where(first_payment.c.first_at >= since))).all():
+        paid_first[_as_utc(first_at).date()] += 1
+
+    earnings: dict[date, int] = defaultdict(int)
+    earning_rows = await db.execute(
+        select(ReferralEarning.created_at, ReferralEarning.amount_kopeks).where(ReferralEarning.created_at >= since)
+    )
+    for created_at, amount_kopeks in earning_rows.all():
+        earnings[_as_utc(created_at).date()] += amount_kopeks
+
+    points = []
+    for offset in range(days - 1, -1, -1):
+        day = today - timedelta(days=offset)
+        points.append(
+            {'date': day.isoformat(), 'invited': invited[day], 'paid_first': paid_first[day], 'earnings_kopeks': earnings[day]}
+        )
+    return {'days': days, 'points': points}
 
 
 async def get_recent_payments(db: AsyncSession, *, limit: int = 10) -> list[dict]:

@@ -155,6 +155,7 @@ add('GET', '/cabinet/admin/alerts', 'Требует внимания', 'Живо
 add('GET', '/cabinet/admin/ltv', 'LTV', 'ARPU, средний и медианный LTV платящих, топ-20 плательщиков.')
 add('GET', '/cabinet/admin/cohorts', 'Когорты', 'Когорты по месяцу регистрации: выручка на пользователя по месяцам после регистрации.')
 add('GET', '/cabinet/admin/referrals', 'Реферальная воронка', 'Приглашённые, платящие из них, конверсия, выплаченные комиссии и топ рефереров.')
+add('GET', '/cabinet/admin/referrals/timeseries', 'Динамика рефералов по дням', 'Ровно `days` точек (1–365, по умолчанию 30) по календарным дням UTC, по возрастанию, последняя — сегодня; дни без событий — нули. `invited` — зарегистрировавшиеся рефералы, `paid_first` — рефералы, чей ПЕРВЫЙ платёж (те же правила, что у `referred_paying_count`: подписка/подарок, завершён, не с баланса) пришёлся на этот день (каждый реферал считается один раз за всё время), `earnings_kopeks` — начисленные рефереру комиссии за день, в копейках. `422` при `days` вне 1–365.')
 add('GET', '/cabinet/admin/net-profit', 'Чистая прибыль', 'Выручка минус расходы на инфраструктуру (данные Remnawave Infra Billing). Все суммы в рублях (число с плавающей точкой), а не в копейках.')
 # --- админка: инфраструктура
 add('GET', '/cabinet/admin/nodes', 'Список нод', 'Ноды из панели Remnawave.')
@@ -236,7 +237,7 @@ GROUPS_USER = [
     ('Рефералы', ['/cabinet/referral']),
 ]
 GROUPS_ADMIN = [
-    ('Аналитика', ['/cabinet/admin/overview', '/cabinet/admin/revenue-timeseries', '/cabinet/admin/recent-payments', '/cabinet/admin/sales-breakdown', '/cabinet/admin/revenue-composition', '/cabinet/admin/subscription-pulse', '/cabinet/admin/alerts', '/cabinet/admin/ltv', '/cabinet/admin/cohorts', '/cabinet/admin/referrals', '/cabinet/admin/net-profit']),
+    ('Аналитика', ['/cabinet/admin/overview', '/cabinet/admin/revenue-timeseries', '/cabinet/admin/recent-payments', '/cabinet/admin/sales-breakdown', '/cabinet/admin/revenue-composition', '/cabinet/admin/subscription-pulse', '/cabinet/admin/alerts', '/cabinet/admin/ltv', '/cabinet/admin/cohorts', '/cabinet/admin/referrals', '/cabinet/admin/referrals/timeseries', '/cabinet/admin/net-profit']),
     ('Инфраструктура', ['/cabinet/admin/nodes', '/cabinet/admin/nodes/{node_uuid}', '/cabinet/admin/nodes/{node_uuid}/enable', '/cabinet/admin/nodes/{node_uuid}/disable', '/cabinet/admin/nodes/{node_uuid}/restart', '/cabinet/admin/infra-billing', '/cabinet/admin/monitoring']),
     ('Пользователи', ['/cabinet/admin/users', '/cabinet/admin/users/massban', '/cabinet/admin/users/{user_id}', '/cabinet/admin/users/{user_id}/balance', '/cabinet/admin/users/{user_id}/subscription-days', '/cabinet/admin/users/{user_id}/block', '/cabinet/admin/users/{user_id}/message', '/cabinet/admin/users/{user_id}/referral-commission', '/cabinet/admin/users/{user_id}/promo-group', '/cabinet/admin/users/{user_id}/devices', '/cabinet/admin/users/{user_id}/devices/{hwid}', '/cabinet/admin/users/{user_id}/traffic-by-node', '/cabinet/admin/users/{user_id}/sync/from-panel', '/cabinet/admin/users/{user_id}/sync/to-panel', '/cabinet/admin/users/{user_id}/transactions']),
     ('Подписки и транзакции', ['/cabinet/admin/subscriptions', '/cabinet/admin/transactions', '/cabinet/admin/transactions/platega-reconcile', '/cabinet/admin/transactions/{transaction_id}']),

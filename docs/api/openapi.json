@@ -2907,6 +2907,34 @@
         "title": "ReferralFunnelResponse",
         "type": "object"
       },
+      "ReferralPointOut": {
+        "properties": {
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "earnings_kopeks": {
+            "title": "Earnings Kopeks",
+            "type": "integer"
+          },
+          "invited": {
+            "title": "Invited",
+            "type": "integer"
+          },
+          "paid_first": {
+            "title": "Paid First",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "date",
+          "invited",
+          "paid_first",
+          "earnings_kopeks"
+        ],
+        "title": "ReferralPointOut",
+        "type": "object"
+      },
       "ReferralResponse": {
         "properties": {
           "earned_kopeks": {
@@ -2938,6 +2966,27 @@
           "invite_bonus_days"
         ],
         "title": "ReferralResponse",
+        "type": "object"
+      },
+      "ReferralTimeseriesResponse": {
+        "properties": {
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/ReferralPointOut"
+            },
+            "title": "Points",
+            "type": "array"
+          }
+        },
+        "required": [
+          "days",
+          "points"
+        ],
+        "title": "ReferralTimeseriesResponse",
         "type": "object"
       },
       "RevenueByProviderDayOut": {
@@ -5573,6 +5622,53 @@
           }
         ],
         "summary": "Referrals"
+      }
+    },
+    "/cabinet/admin/referrals/timeseries": {
+      "get": {
+        "operationId": "referrals_timeseries_cabinet_admin_referrals_timeseries_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 365,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReferralTimeseriesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Referrals Timeseries"
       }
     },
     "/cabinet/admin/revenue-composition": {
