@@ -119,8 +119,11 @@ class RemnawaveClient(ABC):
     async def disable_user(self, *, remnawave_uuid: str) -> None: ...
 
     @abstractmethod
-    async def revoke_user_subscription(self, *, remnawave_uuid: str) -> RemnawaveUser:
-        """Перевыпуск ссылки подписки (новый short_uuid/subscription_url)."""
+    async def revoke_user_subscription(
+        self, *, remnawave_uuid: str, revoke_only_passwords: bool = False
+    ) -> RemnawaveUser:
+        """Перевыпуск доступа. По умолчанию — ссылки И паролей (новый short_uuid/subscription_url);
+        revoke_only_passwords=True — только пароли, ссылка (short_uuid) остаётся прежней."""
 
     @abstractmethod
     async def reset_user_traffic(self, *, remnawave_uuid: str) -> None: ...

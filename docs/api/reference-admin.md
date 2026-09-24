@@ -40,6 +40,7 @@
   - [DELETE `/cabinet/admin/users/{user_id}/devices`](#delete-cabinet-admin-users-user-id-devices) — Сбросить все устройства пользователя
   - [DELETE `/cabinet/admin/users/{user_id}/devices/{hwid}`](#delete-cabinet-admin-users-user-id-devices-hwid) — Удалить устройство пользователя
   - [GET `/cabinet/admin/users/{user_id}/traffic-by-node`](#get-cabinet-admin-users-user-id-traffic-by-node) — Трафик пользователя по нодам
+  - [POST `/cabinet/admin/users/{user_id}/revoke-subscription`](#post-cabinet-admin-users-user-id-revoke-subscription) — Перевыпустить доступ
   - [POST `/cabinet/admin/users/{user_id}/sync/from-panel`](#post-cabinet-admin-users-user-id-sync-from-panel) — Синхронизировать из панели
   - [POST `/cabinet/admin/users/{user_id}/sync/to-panel`](#post-cabinet-admin-users-user-id-sync-to-panel) — Синхронизировать в панель
   - [GET `/cabinet/admin/users/{user_id}/transactions`](#get-cabinet-admin-users-user-id-transactions) — Транзакции пользователя
@@ -940,6 +941,53 @@ ARPU, средний и медианный LTV платящих, топ-20 пл�
 
 ---
 
+### POST `/cabinet/admin/users/{user_id}/revoke-subscription` — Перевыпустить доступ
+<a id="post-cabinet-admin-users-user-id-revoke-subscription"></a>
+
+Перевыпуск доступа в Remnawave. `mode`: `link_and_passwords` — новая ссылка подписки и новые пароли; `passwords_only` — только пароли, ссылка остаётся прежней (`revokeOnlyPasswords` на панели). Новая ссылка (`subscription_url`, `short_uuid`) записывается в БД — Mini App берёт её оттуда, «Синхронизировать из панели» ссылку не обновляет; в ответе — новая ссылка, либо `null` для `passwords_only`. `reset_devices` — заодно отвязать все устройства; `notify` — отправить пользователю сообщение бота (событие `subscription_revoked`, текст правится в «Уведомлениях бота»). `404` — нет `remnawave_uuid` или подписки. `502` — панель не ответила / не вернула ссылку, либо перевыпуск прошёл, но сбросить устройства не удалось (тогда ссылка в БД уже новая, а пользователь при `notify` уже получил сообщение — повторите сброс устройств).
+
+**Доступ:** администратор (`Authorization: Bearer`)
+
+**Параметры**
+
+| Имя | Где | Тип | Обязательный | Примечание |
+|---|---|---|---|---|
+| `user_id` | path | integer | да |  |
+
+**Тело запроса** (JSON): [RevokeSubscriptionRequest](schemas.md#schema-revokesubscriptionrequest)
+
+| Поле | Тип | Обязательное | Примечание |
+|---|---|---|---|
+| `mode` | enum: `link_and_passwords` \| `passwords_only` | да |  |
+| `reset_devices` | boolean | нет | по умолчанию `false` |
+| `notify` | boolean | нет | по умолчанию `false` |
+
+Заготовка (только обязательные поля, значения — заглушки по типу):
+
+```json
+{
+  "mode": "link_and_passwords"
+}
+```
+
+**Ответ 200:** [RevokeSubscriptionResponse](schemas.md#schema-revokesubscriptionresponse)
+
+**Ошибки**
+
+| Код | Когда |
+|---|---|
+| 401 | Требуется авторизация / невалидный или истёкший токен |
+| 403 | Требуются права администратора / пользователь заблокирован |
+| 404 | Пользователь не найден |
+| 404 | У пользователя нет remnawave_uuid |
+| 404 | У пользователя нет подписки в БД |
+| 422 | Ошибка валидации параметров или тела запроса |
+| 502 | Доступ перевыпущен, но сбросить устройства не удалось — повторите сброс устройств |
+| 502 | Не удалось перевыпустить доступ в Remnawave — попробуйте позже |
+| 502 | Панель перевыпустила ссылку, но не вернула её — возьмите новую ссылку в Remnawave |
+
+---
+
 ### POST `/cabinet/admin/users/{user_id}/sync/from-panel` — Синхронизировать из панели
 <a id="post-cabinet-admin-users-user-id-sync-from-panel"></a>
 
@@ -1664,7 +1712,7 @@ Deep-link кампании с бонусом для новых пользова�
 ### GET `/cabinet/admin/notifications/templates` — Автоматические сообщения бота
 <a id="get-cabinet-admin-notifications-templates"></a>
 
-Все 17 событий с текущим текстом, заводским текстом, переменными, признаками `is_customized`/`enabled`, подписью кнопки (если есть) и автором последней правки.
+Все 18 событий с текущим текстом, заводским текстом, переменными, признаками `is_customized`/`enabled`, подписью кнопки (если есть) и автором последней правки.
 
 **Доступ:** администратор (`Authorization: Bearer`)
 

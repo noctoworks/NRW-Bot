@@ -348,6 +348,19 @@ class SyncResultResponse(BaseModel):
     subscription: AdminSubscriptionOut | None = None
 
 
+class RevokeSubscriptionRequest(BaseModel):
+    # link_and_passwords — новая ссылка подписки и новые пароли; passwords_only — только пароли, ссылка прежняя.
+    mode: Literal['link_and_passwords', 'passwords_only']
+    reset_devices: bool = False  # заодно отвязать все устройства пользователя
+    notify: bool = False  # отправить пользователю сообщение (шаблон subscription_revoked)
+
+
+class RevokeSubscriptionResponse(BaseModel):
+    status: Literal['revoked']
+    mode: Literal['link_and_passwords', 'passwords_only']
+    subscription_url: str | None  # новая ссылка; null, если режим её не меняет (passwords_only)
+
+
 class PaginatedTransactionsResponse(BaseModel):
     items: list[AdminTransactionOut]
     total: int

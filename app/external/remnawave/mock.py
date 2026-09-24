@@ -156,10 +156,13 @@ class MockRemnawaveClient(RemnawaveClient):
         self._require_user(remnawave_uuid).is_enabled = False
         _save_state(self._state)
 
-    async def revoke_user_subscription(self, *, remnawave_uuid: str) -> RemnawaveUser:
+    async def revoke_user_subscription(
+        self, *, remnawave_uuid: str, revoke_only_passwords: bool = False
+    ) -> RemnawaveUser:
         user = self._require_user(remnawave_uuid)
-        user.short_uuid = uuid.uuid4().hex[:12]
-        user.subscription_url = f'https://mock.local/sub/{user.short_uuid}'
+        if not revoke_only_passwords:  # пароли в mock не хранятся — «только пароли» ничего не меняет
+            user.short_uuid = uuid.uuid4().hex[:12]
+            user.subscription_url = f'https://mock.local/sub/{user.short_uuid}'
         _save_state(self._state)
         return user
 

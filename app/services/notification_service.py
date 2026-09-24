@@ -63,6 +63,11 @@ async def notify_trial_expired(bot: Bot, *, telegram_id: int, discount_percent: 
     )
 
 
+async def notify_subscription_revoked(bot: Bot, *, telegram_id: int) -> None:
+    """Администратор перевыпустил доступ (ссылку и/или пароли) — просим взять новую ссылку и обновить подписку."""
+    await send_templated(bot, telegram_id=telegram_id, key='subscription_revoked')
+
+
 async def notify_gift_redeemed_to_gifter(bot: Bot, *, gifter_telegram_id: int, recipient_username: str | None) -> None:
     who = f'@{recipient_username}' if recipient_username else 'пользователь'
     await send_templated(bot, telegram_id=gifter_telegram_id, key='gift_redeemed', who=who)

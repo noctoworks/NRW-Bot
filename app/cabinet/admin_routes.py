@@ -54,6 +54,8 @@ from app.cabinet.admin_schemas import (
     ReferralCommissionRequest,
     ReferralFunnelResponse,
     ReferralTimeseriesResponse,
+    RevokeSubscriptionRequest,
+    RevokeSubscriptionResponse,
     RevenuePointOut,
     RevenueCompositionResponse,
     SalesBreakdownResponse,
@@ -87,13 +89,16 @@ from app.database.models import (
 from app.external.remnawave import get_remnawave_client
 from app.services import analytics_service, campaign_service
 from app.services.balance_service import adjust_balance_clamped
-from app.services.notification_service import notify_balance_changed
+from app.logging_setup import get_logger
+from app.services.notification_service import notify_balance_changed, notify_subscription_revoked
 from app.services.payment import get_payment_provider
 from app.services.subscription_provisioning import provision_or_extend_subscription
 
 router = APIRouter(prefix='/cabinet/admin')
 
 PAGE_SIZE = 20
+
+log = get_logger(__name__)
 
 
 def _user_search_clause(stripped: str):
@@ -1062,6 +1067,74 @@ async def sync_from_panel(
             device_limit=sub.device_limit,
         ),
     }
+
+
+@router.post('/users/{user_id}/revoke-subscription', response_model=RevokeSubscriptionResponse)
+async def revoke_subscription(
+    user_id: int,
+    payload: RevokeSubscriptionRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+) -> dict:
+    """Перевыпуск доступа пользователя в Remnawave: ссылка + пароли либо только пароли.
+
+    Порядок: revoke на панели -> запись новой ссылки в БД (Mini App берёт её оттуда, «Синхронизировать из
+    панели» ссылку не обновляет) -> сброс устройств -> сообщение пользователю. Revoke откатить нельзя, поэтому
+    если он прошёл, а сброс устройств упал, ссылка в БД остаётся новой, пользователь всё равно получает
+    сообщение (доступ у него уже изменился), а админ — 502 с просьбой повторить сброс."""
+    target = await _get_user_or_404(db, user_id)
+    if not target.remnawave_uuid:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, 'У пользователя нет remnawave_uuid')
+    sub = (await db.execute(select(Subscription).where(Subscription.user_id == target.id))).scalar_one_or_none()
+    if sub is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, 'У пользователя нет подписки в БД')
+
+    client = get_remnawave_client()
+    passwords_only = payload.mode == 'passwords_only'
+    try:
+        remote = await client.revoke_user_subscription(
+            remnawave_uuid=target.remnawave_uuid, revoke_only_passwords=passwords_only
+        )
+    except Exception as error:
+        log.warning('subscription_revoke_failed', user_id=target.id, mode=payload.mode, exc_info=True)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, 'Не удалось перевыпустить доступ в Remnawave — попробуйте позже') from error
+
+    new_url: str | None = None
+    if not passwords_only:
+        if not (remote.subscription_url and remote.short_uuid):
+            # Панель перевыпустила ссылку, но не вернула её — пустое значение в БД оставило бы пользователя без ссылки.
+            log.error('subscription_revoke_no_link', user_id=target.id)
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                'Панель перевыпустила ссылку, но не вернула её — возьмите новую ссылку в Remnawave',
+            )
+        sub.subscription_url = remote.subscription_url
+        sub.short_uuid = remote.short_uuid
+        await db.commit()
+        new_url = remote.subscription_url
+
+    log.info(
+        'subscription_revoked', admin_id=admin.id, user_id=target.id, mode=payload.mode,
+        reset_devices=payload.reset_devices, notify=payload.notify,
+    )
+
+    devices_error: Exception | None = None
+    if payload.reset_devices:
+        try:
+            await client.reset_user_devices(remnawave_uuid=target.remnawave_uuid)
+        except Exception as error:
+            devices_error = error
+            log.warning('subscription_revoke_devices_reset_failed', user_id=target.id, exc_info=True)
+    if payload.notify:
+        await notify_subscription_revoked(request.app.state.bot, telegram_id=target.telegram_id)
+    if devices_error is not None:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            'Доступ перевыпущен, но сбросить устройства не удалось — повторите сброс устройств',
+        ) from devices_error
+
+    return {'status': 'revoked', 'mode': payload.mode, 'subscription_url': new_url}
 
 
 @router.post('/users/{user_id}/sync/to-panel', response_model=SyncResultResponse)

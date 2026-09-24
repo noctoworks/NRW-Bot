@@ -10,15 +10,15 @@ from app.services.message_templates.registry import EVENTS, EVENTS_BY_KEY, Unkno
 
 EXPECTED_KEYS = [
     'payment_success', 'referral_bonus', 'referral_invite_bonus', 'subscription_expiring', 'subscription_expired',
-    'trial_ending', 'trial_expired', 'gift_redeemed', 'gift_code_ready', 'balance_credited', 'balance_debited', 'autopay_activated',
+    'trial_ending', 'trial_expired', 'subscription_revoked', 'gift_redeemed', 'gift_code_ready', 'balance_credited', 'balance_debited', 'autopay_activated',
     'autopay_charge_failed', 'autopay_stopped', 'winback', 'abandoned_payment', 'welcome_nudge',
 ]
 PLACEHOLDER = re.compile(r'\{([a-z_]+)\}')
 
 
-def test_seventeen_events_in_spec_order():
+def test_eighteen_events_in_spec_order():
     assert [event.key for event in EVENTS] == EXPECTED_KEYS
-    assert len(EVENTS_BY_KEY) == 17
+    assert len(EVENTS_BY_KEY) == 18
 
 
 @pytest.mark.parametrize('event', EVENTS, ids=[event.key for event in EVENTS])

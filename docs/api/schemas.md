@@ -88,6 +88,8 @@
 - [RevenueByWeekdayOut](#schema-revenuebyweekdayout)
 - [RevenueCompositionResponse](#schema-revenuecompositionresponse)
 - [RevenuePointOut](#schema-revenuepointout)
+- [RevokeSubscriptionRequest](#schema-revokesubscriptionrequest)
+- [RevokeSubscriptionResponse](#schema-revokesubscriptionresponse)
 - [SalesBreakdownResponse](#schema-salesbreakdownresponse)
 - [SetUserPromoGroupRequest](#schema-setuserpromogrouprequest)
 - [SubscriptionDaysAdjustRequest](#schema-subscriptiondaysadjustrequest)
@@ -1006,6 +1008,24 @@ analytics_service.get_overview::total_traffic_gb).
 | `date` | string | да |  |
 | `revenue_kopeks` | integer | да |  |
 | `count` | integer | да |  |
+
+## RevokeSubscriptionRequest
+<a id="schema-revokesubscriptionrequest"></a>
+
+| Поле | Тип | Обязательное | Примечание |
+|---|---|---|---|
+| `mode` | enum: `link_and_passwords` \| `passwords_only` | да |  |
+| `reset_devices` | boolean | нет | по умолчанию `false` |
+| `notify` | boolean | нет | по умолчанию `false` |
+
+## RevokeSubscriptionResponse
+<a id="schema-revokesubscriptionresponse"></a>
+
+| Поле | Тип | Обязательное | Примечание |
+|---|---|---|---|
+| `status` | `revoked` | да |  |
+| `mode` | enum: `link_and_passwords` \| `passwords_only` | да |  |
+| `subscription_url` | string \| null | да |  |
 
 ## SalesBreakdownResponse
 <a id="schema-salesbreakdownresponse"></a>

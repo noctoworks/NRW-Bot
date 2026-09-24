@@ -233,8 +233,17 @@ class RealRemnawaveClient(RemnawaveClient):
         # ошибки и добавить сюда по аналогии.
         await self._request('POST', f'/users/{remnawave_uuid}/actions/disable')
 
-    async def revoke_user_subscription(self, *, remnawave_uuid: str) -> RemnawaveUser:
-        data = await self._request('POST', f'/users/{remnawave_uuid}/actions/revoke')
+    async def revoke_user_subscription(
+        self, *, remnawave_uuid: str, revoke_only_passwords: bool = False
+    ) -> RemnawaveUser:
+        # Тело запроса (контракт remnawave/backend, revoke-user-subscription.command): необязательное
+        # revokeOnlyPasswords — true меняет только пароли, не трогая short UUID (ссылку). Обычный режим
+        # по-прежнему шлётся БЕЗ тела, чтобы поведение на панелях без этого параметра не менялось.
+        path = f'/users/{remnawave_uuid}/actions/revoke'
+        if revoke_only_passwords:
+            data = await self._request('POST', path, json_data={'revokeOnlyPasswords': True})
+        else:
+            data = await self._request('POST', path)
         return self._parse_user(data)
 
     async def reset_user_traffic(self, *, remnawave_uuid: str) -> None:

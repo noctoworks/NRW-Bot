@@ -3111,6 +3111,68 @@
         "title": "RevenuePointOut",
         "type": "object"
       },
+      "RevokeSubscriptionRequest": {
+        "properties": {
+          "mode": {
+            "enum": [
+              "link_and_passwords",
+              "passwords_only"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "notify": {
+            "default": false,
+            "title": "Notify",
+            "type": "boolean"
+          },
+          "reset_devices": {
+            "default": false,
+            "title": "Reset Devices",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "RevokeSubscriptionRequest",
+        "type": "object"
+      },
+      "RevokeSubscriptionResponse": {
+        "properties": {
+          "mode": {
+            "enum": [
+              "link_and_passwords",
+              "passwords_only"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "status": {
+            "const": "revoked",
+            "title": "Status",
+            "type": "string"
+          },
+          "subscription_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subscription Url"
+          }
+        },
+        "required": [
+          "status",
+          "mode",
+          "subscription_url"
+        ],
+        "title": "RevokeSubscriptionResponse",
+        "type": "object"
+      },
       "SalesBreakdownResponse": {
         "properties": {
           "active_subs_by_tariff": {
@@ -6939,6 +7001,61 @@
           }
         ],
         "summary": "Set Referral Commission"
+      }
+    },
+    "/cabinet/admin/users/{user_id}/revoke-subscription": {
+      "post": {
+        "description": "Перевыпуск доступа пользователя в Remnawave: ссылка + пароли либо только пароли.\n\nПорядок: revoke на панели -> запись новой ссылки в БД (Mini App берёт её оттуда, «Синхронизировать из\nпанели» ссылку не обновляет) -> сброс устройств -> сообщение пользователю. Revoke откатить нельзя, поэтому\nесли он прошёл, а сброс устройств упал, ссылка в БД остаётся новой, пользователь всё равно получает\nсообщение (доступ у него уже изменился), а админ — 502 с просьбой повторить сброс.",
+        "operationId": "revoke_subscription_cabinet_admin_users__user_id__revoke_subscription_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevokeSubscriptionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokeSubscriptionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Revoke Subscription"
       }
     },
     "/cabinet/admin/users/{user_id}/subscription-days": {
