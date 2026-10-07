@@ -23,11 +23,11 @@ from app.services.subscription_provisioning import provision_or_extend_subscript
 
 logger = logging.getLogger(__name__)
 
-# Виральность (см. диалог 2026-08-23: "пригласил друга -> сразу 3 дня") —
+# Виральность (см. диалог 2026-08-23: "пригласил друга -> сразу 3 дня"; с 2026-10-01 — 7 дней) —
 # флэт-бонус рефереру за КАЖДОГО приглашённого, сразу при регистрации (не за
 # оплаты — это отдельно уже покрыто REFERRAL_PERCENT/credit_referral_earning).
 # Заменяет прежнюю систему вех 3/5/10/25/50 приглашённых.
-REFERRAL_INVITE_BONUS_DAYS = 3
+REFERRAL_INVITE_BONUS_DAYS = 7
 
 
 def generate_referral_code(length: int = 8) -> str:

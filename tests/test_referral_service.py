@@ -234,7 +234,7 @@ def test_invite_bonus_grants_days_to_referrer(session_factory):
         async with session_factory() as db:
             sub = (await db.execute(select(Subscription).where(Subscription.user_id == referrer_id))).scalar_one()
             assert sub.status == 'active'
-            assert REFERRAL_INVITE_BONUS_DAYS == 3
+            assert REFERRAL_INVITE_BONUS_DAYS == 7
 
     asyncio.run(scenario())
 

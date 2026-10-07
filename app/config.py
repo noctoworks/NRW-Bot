@@ -120,7 +120,7 @@ class Settings(BaseSettings):
     # реферер что-то зарабатывал (REFERRAL_PERCENT). Эти дни добавляются
     # ПОВЕРХ обычного триала — только для новых юзеров, у кого распознан
     # ref_CODE при регистрации.
-    REFERRAL_SIGNUP_BONUS_DAYS: int = Field(default=3, ge=0)
+    REFERRAL_SIGNUP_BONUS_DAYS: int = Field(default=7, ge=0)
 
     # --- Сид-данные ---
     DEFAULT_TARIFF_NAME: str = 'Standard'
